@@ -143,6 +143,17 @@ describe("startPrint: what is printed (Review Focus 5)", () => {
       expect(two.calls).toEqual(["/bimdocs/p9/d1/versions/2"]);
     } finally { ids.user = "u1"; }
   });
+  it("F: an older version being viewed offers no install; the latest does", async () => {
+    const naming = { id: "n1", kind: "naming", title: "Container naming", data: { separator: "_", enforce: "reject", fields: [{ key: "p", label: "Project", pattern: null, enum: ["SNW"], placeholders: [], description: "" }] } };
+    const snap = doc({ status: "published", sections: [{ id: "s7", heading: "7. Naming", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [naming] } as any] });
+    const has = (el: HTMLElement) => findAll(el, "button").some((b) => textOf(b) === "Install as the project's naming rule");
+    const old = ctxOf(published("f-old", { role: "lead", viewing: { ...ver(1), document_id: "d1", snapshot: snap } }));
+    const a = readView(old.ctx); await flush();
+    expect(has(a)).toBe(false);
+    const latest = ctxOf(published("f-new", { role: "lead", viewing: { ...ver(2), document_id: "d1", snapshot: snap } }));
+    const b = readView(latest.ctx); await flush();
+    expect(has(b)).toBe(true);
+  });
   it("F4: a published document's naming rule can be installed from Read by a lead, not by a contributor", async () => {
     const naming = { id: "n1", kind: "naming", title: "Container naming", data: { separator: "_", enforce: "reject", fields: [{ key: "p", label: "Project", pattern: null, enum: ["SNW"], placeholders: [], description: "" }] } };
     const snap = doc({ status: "published", sections: [{ id: "s7", heading: "7. Naming", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [naming] } as any] });

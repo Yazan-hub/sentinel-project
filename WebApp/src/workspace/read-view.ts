@@ -80,7 +80,11 @@ export function readView(ctx: PaneCtx): HTMLElement {
   paper.append(h(d, "div", `color:${C.muted}`, LOADING));
   const show = (text: string): void => paper.replaceChildren(h(d, "div", `color:${C.warn}`, text));
   loadInput(ctx, null).then(
-    (input) => { try { if (input) { paper.replaceChildren(renderPrintable(input, d)); installs.replaceChildren(...namingInstalls(ctx, input.row)); } else show(UNREADABLE_VERSION); } catch (e) { show(`The document could not be shown: ${errText(e)}`); } },
+    (input) => { try { if (input) {
+      paper.replaceChildren(renderPrintable(input, d));
+      const v = input.version, latest = !v || !st.versions.some((x) => x.version_no > v.version_no); // an older version is read, never installed
+      installs.replaceChildren(...(latest ? namingInstalls(ctx, input.row) : []));
+    } else show(UNREADABLE_VERSION); } catch (e) { show(`The document could not be shown: ${errText(e)}`); } },
     (e) => show(`The document could not be shown: ${errText(e)}`));
   return root;
 }

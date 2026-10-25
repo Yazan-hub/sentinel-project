@@ -287,3 +287,29 @@ describe("final review: write messages and the document a write was made for", (
     expect(t.json.mock.calls.some((c) => c[0] === "PUT" && String(c[1]).includes("/d2"))).toBe(false);
   });
 });
+
+describe("follow-up A, C: a re-read keeps what it should", () => {
+  it("A: a reload the bridge refuses keeps the document, its versions and score, and says it could not be re-read", async () => {
+    let fail = false;
+    const t = setup((m, p) => (fail && p === "/bimdocs/a/d1" ? { status: 503, body: { message: "down" } } : p.endsWith("/executability") ? ok({ headline: "h" }) : docRoute()(m, p)));
+    await t.ws.open("d1"); fail = true;
+    await t.ws.reload();
+    expect(t.ws.state().doc?.id).toBe("d1"); expect(t.ws.state().ex).toMatchObject({ headline: "h" });
+    expect(t.ws.state().message).toBe("The document could not be re-read: down. What you see may not be the latest.");
+    expect(t.renders.at(-1)?.doc?.id).toBe("d1");
+  });
+  it("A: a document that cannot be opened still empties the page", async () => {
+    const t = setup((m, p) => (p === "/bimdocs/a/d1" ? { status: 404, body: { message: "not found" } } : docRoute()(m, p)));
+    await t.ws.open("d1");
+    expect(t.ws.state().doc).toBeNull(); expect(t.ws.state().message).toBe("The document could not be read: not found.");
+  });
+  it("C: a reload whose answer is older than the row a write just returned keeps the newer row", async () => {
+    const slow = deferred<unknown>(); let n = 0;
+    const t = setup((m, p) => (m === "PUT" ? ok(doc({ updated_at: "t3" })) : p === "/bimdocs/a/d1" && ++n === 2 ? slow.p : docRoute()(m, p)));
+    await t.ws.open("d1");
+    const r = t.ws.reload();
+    await t.ws.write("PUT", "/x", {});
+    slow.resolve(ok(doc({ updated_at: "t1" }))); await r;
+    expect(t.ws.state().doc?.updated_at).toBe("t3");
+  });
+});

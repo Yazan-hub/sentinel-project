@@ -5,7 +5,7 @@ const proj = { key: "k", listeners: [] as (() => void)[] };
 vi.mock("../setups/active-project", () => ({ activePid: () => proj.key, onActiveProjectChange: (cb: () => void) => { proj.listeners.push(cb); return () => {}; } }));
 vi.mock("../setups/load-scope", () => ({ loadScope: (k: string) => `scope:${k}` }));
 vi.mock("../setups/my-role", async (orig) => ({ ...(await orig<typeof import("../setups/my-role")>()), myRoleRead: async () => ({ role: "lead" }) }));
-vi.mock("../setups/auth", () => ({ currentUser: async () => ({ email: "l@x" }) }));
+vi.mock("../setups/auth", () => ({ currentUser: async () => ({ email: "l@x" }), sessionUserId: () => "u1" }));
 vi.mock("../setups/ask", () => ({ askYesNo: vi.fn(async () => true), askText: vi.fn() }));
 vi.mock("../setups/ai-picker", async () => {
   const { fakeDocument } = await import("./fake-dom");
@@ -23,7 +23,7 @@ vi.mock("../setups/bridge-fetch", () => ({ bfetch: vi.fn(async (url: string, ini
   return { status: r.status, ok: r.status < 400, json: async () => r.body };
 }) }));
 
-import { askText } from "../setups/ask";
+import { askText, askYesNo } from "../setups/ask";
 import { workspacePage } from "./workspace-page";
 import { click, fakeDocument, findAll, textOf } from "./fake-dom";
 
@@ -209,5 +209,61 @@ describe("F5, F6: the page shown again", () => {
     showAgain(p); await tick();
     expect(reads()).toBe(before);
     expect(textOf(p.centre)).toContain("Review ingestion: Client EIR");
+  });
+});
+
+// ---- follow-up A, B: a failed re-read keeps the open editors; a carried draft over someone else's change asks first ----
+describe("follow-up A: a failed re-read keeps every open editor", () => {
+  const ro: { cb?: () => void } = {};
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { ro.cb = cb; } observe() {} }); });
+  afterEach(() => vi.unstubAllGlobals());
+  it("shown again, the re-read answers 503: the editor is still open with the text and the bar says so", async () => {
+    const p = await openTyped();
+    answers["GET /bimdocs/k/d1"] = () => ({ status: 503, body: { message: "the bridge is restarting" } });
+    p.el.clientWidth = 0; p.el.clientHeight = 0; ro.cb!(); p.el.clientWidth = 800; p.el.clientHeight = 600; ro.cb!(); await tick();
+    expect(areaOf(p.centre, "a1")?.value).toBe("typed, not saved");
+    expect(textOf(p.el.childNodes[1])).toContain("The document could not be re-read: the bridge is restarting.");
+    delete answers["GET /bimdocs/k/d1"];
+    press(header(p), "Read"); await tick(); press(header(p), "Edit"); await tick();
+    expect(areaOf(p.centre, "a1")?.value).toBe("typed, not saved");
+  });
+});
+
+describe("follow-up B: a carried draft over a part someone else changed", () => {
+  const Q = "Someone else changed this part while you were typing. Replace their version with yours?";
+  const asked = () => vi.mocked(askYesNo).mock.calls.filter((c) => c[0] === Q);
+  beforeEach(() => vi.mocked(askYesNo).mockClear());
+  const changedUnderneath = async () => {
+    const p = await openTyped("mine");
+    answers["/bimdocs/k/d1"] = bep("theirs", "two", "t2");
+    await p.el.open("d1"); await tick();
+    return p;
+  };
+  it("reopens with the typed text and the line; No sends nothing and keeps the editor open", async () => {
+    const p = await changedUnderneath();
+    expect(areaOf(p.centre, "a1").value).toBe("mine");
+    expect(textOf(shellOf(p.centre, "a1"))).toContain("Someone else changed this part while you were typing.");
+    vi.mocked(askYesNo).mockResolvedValueOnce(false);
+    press(shellOf(p.centre, "a1"), "Save"); await tick();
+    expect(asked()).toHaveLength(1);
+    expect(asked()[0][1]).toMatchObject({ ok: "Replace" });
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(0);
+    expect(areaOf(p.centre, "a1").value).toBe("mine");
+  });
+  it("Yes saves the typed text", async () => {
+    const p = await changedUnderneath();
+    answers["PUT /bimdocs/k/d1/section/s1/blocks/a1"] = () => ({ status: 200, body: bep("mine", "two", "t3") });
+    press(shellOf(p.centre, "a1"), "Save"); await tick();
+    expect(asked()).toHaveLength(1);
+    expect(calls.filter((c) => c.method === "PUT").map((c) => c.body.data)).toEqual([{ markdown: "mine" }]);
+  });
+  it("an unchanged part saves as before, asking nothing", async () => {
+    const p = await openTyped("mine");
+    await p.el.open("d1"); await tick();
+    expect(textOf(shellOf(p.centre, "a1"))).not.toContain("Someone else changed");
+    answers["PUT /bimdocs/k/d1/section/s1/blocks/a1"] = () => ({ status: 200, body: bep("mine", "two", "t3") });
+    press(shellOf(p.centre, "a1"), "Save"); await tick();
+    expect(asked()).toHaveLength(0);
+    expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
   });
 });

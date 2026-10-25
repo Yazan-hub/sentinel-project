@@ -71,7 +71,11 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     const r = await call("GET", base);
     if (stale()) return false;
     if (!r || !is2xx(r) || !r.body?.id || !Array.isArray(r.body.sections)) {
-      state = { ...emptyState(key), message: `The document could not be read: ${r?.body?.message || "the bridge did not answer"}.` };
+      const why = r?.body?.message || "the bridge did not answer";
+      // A re-read of the document held keeps it (and the open editors on it); only a document that cannot be opened empties the page.
+      state = state.doc?.id === docId && state.key === key
+        ? { ...state, message: `The document could not be re-read: ${why}. What you see may not be the latest.` }
+        : { ...emptyState(key), message: `The document could not be read: ${why}.` };
       render(state);
       return false;
     }
@@ -91,7 +95,10 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       deps.me().catch(() => ""),
     ]);
     if (stale()) return false;
-    state = { key, doc, versions, comments, ex, role, me, problems: docProblems(doc), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
+    // A write may have landed while this read ran: its newer row of the same document is kept over this older answer.
+    const held = state.doc, newer = !!held && held.id === doc.id && state.key === key && typeof held.updated_at === "string" && typeof doc.updated_at === "string" && doc.updated_at < held.updated_at;
+    const row = newer && held ? held : doc;
+    state = { key, doc: row, versions, comments, ex, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
     render(state);
     return true;
   }

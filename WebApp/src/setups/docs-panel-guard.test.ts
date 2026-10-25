@@ -67,3 +67,12 @@ describe("F3: an ingest read while the project switched is not committed into th
     expect(f).toContain("The project changed while the file was read. Ingest it again in that project.");
   });
 });
+
+describe("follow-up E: an ingest that failed says so after the list is drawn", () => {
+  it("the failure words come after showList (which empties the body first)", () => {
+    const f = fn("runIngest"), c = f.indexOf("} catch (e) {"), tail = f.slice(c);
+    expect(c).toBeGreaterThan(-1);
+    expect(tail.indexOf("await showList();")).toBeGreaterThan(-1);
+    expect(tail.indexOf("await showList();")).toBeLessThan(tail.indexOf("msg(`Ingestion failed:"));
+  });
+});

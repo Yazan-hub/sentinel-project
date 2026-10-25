@@ -169,8 +169,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       await showList();
     } catch (e) {
       body.replaceChildren();
+      await showList(); // showList empties the body first: the words go after it
       msg(`Ingestion failed: ${(e as Error).message}`, true);
-      await showList();
     }
   }
 

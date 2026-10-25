@@ -27,8 +27,13 @@ export interface EditorHandle { el: HTMLElement; value(): Draft; problems?(): st
   /** A text block's Draft with AI answer, put into this editor (nothing is written until Save). */ propose?(text: string, note: string): void }
 /** What an open editor holds and has not saved. */
 export type Draft = { title: string; data: unknown };
-/** The Edit view, with what the page carries over its next redraw: the open editors' values, and the open editor of one block. */
-export type EditPaneEl = HTMLElement & { drafts(): Map<string, Draft>; editor(blockId: string): EditorHandle | undefined };
+/** An open editor carried over a rebuild: what was typed, and the stored block it was opened on (to see whether someone else changed it). */
+export type Carried = { value: Draft; base: Draft };
+/** The Edit view, with what the page carries over its next redraw: the open editors, and the open editor of one block. */
+export type EditPaneEl = HTMLElement & { drafts(): Map<string, Carried>; editor(blockId: string): EditorHandle | undefined };
+export const THEIRS_LINE = "Someone else changed this part while you were typing.";
+export const REPLACE_THEIRS = "Someone else changed this part while you were typing. Replace their version with yours?";
+const stored = (b: Block): Draft => ({ title: typeof b.title === "string" ? b.title : "", data: b.data });
 export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => EditorHandle;
 export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor, naming: namingEditor };
 
@@ -76,6 +81,7 @@ EDITORS.text = (block, ctx, sid) => {
     const r = await ctx.ws.post<{ proposal?: unknown; provider?: string; model?: string; grounding_used?: number }>(
       `/bimdocs/${encodeURIComponent(ctx.st.key)}/${pathSegment(doc.id)}/section/${pathSegment(sid)}/draft`, aiBody());
     draft.disabled = false; draft.textContent = "Draft with AI";
+    if (ctx.ws.state().doc?.id !== doc.id) return; // another document opened meanwhile: the answer is not its
     if (!r || typeof r.proposal !== "string") { note.textContent = refusal(ctx, "The AI draft could not be made."); return; }
     // A proposal only: nothing is written until Save. After a redraw it goes to this block's editor open now, or nowhere.
     (ctx.editorOf ? ctx.editorOf(b.id) : self)?.propose?.(r.proposal, `AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)): review it, then Save.`);
@@ -92,9 +98,10 @@ EDITORS.text = (block, ctx, sid) => {
 export function editPane(ctx: PaneCtx): EditPaneEl {
   // ctx.st is the snapshot of the last centre render. Only doc.id, key, versions and respondsTo are read from it, and a block save changes none of them.
   const d = ctx.doc, rc = { respondsTo: ctx.st.respondsTo };
-  const open = new Map<string, { sid: string; h: EditorHandle }>(); // block id → its open editor
+  const open = new Map<string, { sid: string; h: EditorHandle; base: Draft }>(); // block id → its open editor and the stored block it opened on
+  const carried = (e: { h: EditorHandle; base: Draft }): Carried => ({ value: e.h.value(), base: e.base });
   const root: EditPaneEl = Object.assign(h(d, "div", "max-width:52rem;margin:0 auto"), {
-    drafts: () => new Map([...open].map(([id, e]) => [id, e.h.value()])), editor: (id: string) => open.get(id)?.h });
+    drafts: () => new Map([...open].map(([id, e]) => [id, carried(e)])), editor: (id: string) => open.get(id)?.h });
   const doc: DocRow | null = ctx.st.doc;
   const closedAction = (b: Block, sid: string): HTMLElement | null => (typeof b.kind === "string" && has(CLOSED_ACTIONS, b.kind) ? CLOSED_ACTIONS[b.kind]!(b, ctx, sid) : null);
   root.append(h(d, "h1", "font:700 22px system-ui;margin:0 0 1rem;color:#fff", doc?.title ?? ""));
@@ -115,14 +122,14 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
   const rows = new Map<string, SectionRow>(sections.map((s) => [s.id, s])); // the latest row of each section
   const nodes = new Map<string, HTMLElement>();
   // Unsaved editors carried over a rebuild: of one section (a save), or of the whole view (the page's carry, F1). Consumed as each block is built.
-  const drafts = ctx.drafts ?? new Map<string, Draft>();
+  const drafts = ctx.drafts ?? new Map<string, Carried>();
   const liveEditor = ctx.editorOf ?? ((id: string) => open.get(id)?.h); // the page's lookup reaches the Edit view on screen after a redraw
 
   /** The saved row came back: only this section's node is replaced; its other open editors restart from what was typed. */
   async function applied(sid: string, fresh: DocRow, savedId?: string): Promise<void> {
     const row = (fresh.sections ?? []).find((s) => s?.id === sid), node = nodes.get(sid);
     if (!row || !node) return;
-    for (const [id, e] of open) if (e.sid === sid && id !== savedId) drafts.set(id, e.h.value());
+    for (const [id, e] of open) if (e.sid === sid && id !== savedId) drafts.set(id, carried(e));
     for (const [id, e] of [...open]) if (e.sid === sid) open.delete(id);
     rows.set(sid, row);
     const next = sectionNode(row);
@@ -161,7 +168,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
     return wrap;
   }
 
-  function blockShell(s: SectionRow, b: Block, draft?: Draft): HTMLElement {
+  function blockShell(s: SectionRow, b: Block, draft?: Carried): HTMLElement {
     const shell = h(d, "div", `border:1px solid ${C.line};border-radius:.4rem;padding:.4rem .6rem;margin:.3rem 0`);
     shell.dataset.blockShell = b.id;
     const bar = h(d, "div", "display:flex;gap:.3rem;flex-wrap:wrap;justify-content:flex-end;margin-bottom:.2rem");
@@ -200,10 +207,16 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
     };
     const opened = () => {
       if (!editor) return;
-      current = editor(seed ? { ...b, title: seed.title, data: seed.data } as Block : b, { ...ctx, sectionApplied: (sid, fresh) => applied(sid, fresh), editorOf: liveEditor }, s.id);
-      open.set(b.id, { sid: s.id, h: current });
-      body.replaceChildren(current.el);
-      const save = act("Save", async () => { if (current && !current.problems?.().length) await done(await ctx.ws.write("PUT", blockPath(s.id, b.id), current.value()), b.id); });
+      // A carried draft over a block someone else changed since it was opened: their change is replaced only when asked.
+      const base = seed ? seed.base : stored(b), theirs = !!seed && JSON.stringify(seed.base) !== JSON.stringify(stored(b));
+      current = editor(seed ? { ...b, title: seed.value.title, data: seed.value.data } as Block : b, { ...ctx, sectionApplied: (sid, fresh) => applied(sid, fresh), editorOf: liveEditor }, s.id);
+      open.set(b.id, { sid: s.id, h: current, base });
+      body.replaceChildren(...(theirs ? [h(d, "div", `color:${C.warn};font:12px system-ui;margin:0 0 .3rem`, THEIRS_LINE)] : []), current.el);
+      const save = act("Save", async () => {
+        if (!current || current.problems?.().length) return;
+        if (theirs && !(await askYesNo(REPLACE_THEIRS, { ok: "Replace", doc: ctx.doc }))) return; // No: the editor stays open with the text
+        await done(await ctx.ws.write("PUT", blockPath(s.id, b.id), current.value()), b.id);
+      });
       const sync = () => { save.disabled = !!current?.problems?.().length; };
       current.onChange?.(sync); sync();
       bar.replaceChildren(save, act("Cancel", closed));

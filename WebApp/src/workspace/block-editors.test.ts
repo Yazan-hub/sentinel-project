@@ -160,6 +160,13 @@ describe("fix round 1", () => {
     expect(textOf(shell(root, "a1"))).not.toContain("could not be made");
     expect(textOf(shell(root, "a1"))).not.toContain("Nothing was saved");
   });
+  it("D: a Draft with AI answer for a document no longer open is dropped", async () => {
+    const ctx = ctxWith(two(), { post: vi.fn(async () => { ctx.ws.state.mockReturnValue({ ...ctx.st, doc: { ...ctx.st.doc, id: "d2" } }); return { proposal: "P", provider: "local", model: "m", grounding_used: 0 }; }) });
+    const root = editPane(ctx);
+    click(button(shell(root, "a1"), "Edit")!); click(button(shell(root, "a1"), "Draft with AI")!); await flush();
+    expect(area(root, "a1").value).toBe("one");
+    expect(textOf(shell(root, "a1"))).not.toContain("AI draft");
+  });
   it("a non-2xx draft shows the bridge's words, or the fallback when there are none", async () => {
     const ctx = ctxWith(two(), { post: vi.fn(async () => null) });
     const root = editPane(ctx);

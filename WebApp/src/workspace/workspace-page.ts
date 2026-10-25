@@ -10,7 +10,7 @@ import { aiPicker } from "../setups/ai-picker";
 import { statusLine, type DocRow } from "../sentinel-core/doc-blocks";
 import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
-import { editPane, type Draft, type EditorHandle, type EditPaneEl } from "./block-editors";
+import { editPane, type Carried, type EditorHandle, type EditPaneEl } from "./block-editors";
 import { ingestView, type IngestProposal } from "./ingest-view";
 import { commentsTab, outlinePane } from "./outline";
 import { qualityTab } from "./quality-tab";
@@ -26,7 +26,7 @@ export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; bas
   /** Set by the edit view for the editors it opens: show this fresh row's version of one section without closing its open editors. */
   sectionApplied?(sectionId: string, fresh: DocRow): Promise<void>;
   /** For the Edit view: unsaved editors of this document carried over a redraw (block id → what was typed); each opens again with it. */
-  drafts?: Map<string, Draft>;
+  drafts?: Map<string, Carried>;
   /** The open editor of this block in the Edit view on screen now (after a redraw, not the one that started a call); undefined when none. */
   editorOf?(blockId: string): EditorHandle | undefined }
 export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View }): Promise<void>; openIngest(p: IngestProposal): void };
@@ -95,9 +95,10 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
   let ingest: { key: string; el: HTMLElement } | null = null;
   let opening = 0; // explicit opens in flight: the reopen on show never overrides one
   // F1: the Edit view on screen, and the unsaved editors carried from it to the next Edit view of the same document
-  // (any redraw, or Read and back). Dropped for another document or none (a project or person change); a saved block leaves it.
-  let pane: { docId: string; el: EditPaneEl } | null = null;
-  let carry: { docId: string; drafts: Map<string, Draft> } | null = null;
+  // (any redraw, or Read and back). Dropped for another document or a project or person change (the scope), never because
+  // a read failed; a saved block leaves it.
+  let pane: { docId: string; scope: string; el: EditPaneEl } | null = null;
+  let carry: { docId: string; scope: string; drafts: Map<string, Carried> } | null = null;
   const last = new Map<string, string>(); // project key → the document last opened there
 
   const ctx = (): PaneCtx => {
@@ -128,16 +129,17 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
     outlineCol.replaceChildren(...(c.st.doc ? [OUTLINE.pane(c)] : []));
   }
   function renderCentre(c: PaneCtx): void {
-    if (pane) carry = { docId: pane.docId, drafts: pane.el.drafts() };
+    const scope = loadScope(activePid());
+    if (pane) carry = { docId: pane.docId, scope: pane.scope, drafts: pane.el.drafts() };
     pane = null;
-    if (carry && carry.docId !== c.st.doc?.id) carry = null;
+    if (carry && (carry.scope !== scope || (c.st.doc && carry.docId !== c.st.doc.id))) carry = null;
     if (ingest) { centre.replaceChildren(ingest.el); return; }
     if (!c.st.doc) { centre.replaceChildren(h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from the project's Documents tab.")); return; }
     const strip = view === "edit" ? startStrip(c) : null; // above the editing pane, never on the read views
     const kind = c.st.doc.doc_type;
     const note = view === "read" && kind === "TIDP" ? h(d, "div", `color:${C.muted};font:12px system-ui;margin:0 0 .8rem`, READ_ONLY_NOTE.TIDP) : null; // read-only types: old plans are read here
     const main = view === "read" && kind === "READINESS" ? readinessView(c) : VIEWS[view]({ ...c, drafts: carry?.drafts });
-    if (view === "edit") pane = { docId: c.st.doc.id, el: main as EditPaneEl };
+    if (view === "edit") pane = { docId: c.st.doc.id, scope, el: main as EditPaneEl };
     centre.replaceChildren(...(strip ? [strip] : []), ...(note ? [note] : []), main);
   }
   function renderSide(c: PaneCtx): void {
