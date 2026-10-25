@@ -12,7 +12,7 @@ const TEAM = { id: "team", label: "Team in place", how: { web: web("Settings", "
  *  null when no project tab does it) and a real ribbon path from SentinelAddin/App.cs BuildRibbon. */
 export const OFFICE_STEPS = [
   TEAM,
-  { id: "standards", label: "Office standards installed", how: { web: web("Settings", "Standards in force — install on this office: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
+  { id: "standards", label: "Office standards installed", how: { web: web("Settings", "Standards in force — install on this office: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
   { id: "snapshot", label: "Template snapshot received", how: { web: null, revit: "Sentinel ▸ Standards ▸ Build Office System ▸ Send office snapshot to Sentinel", who: "member" } },
   { id: "readiness", label: "Readiness assessed", how: { web: web("Documents", "+ New document ▸ Create READINESS"), revit: null, who: "lead" } },
   { id: "projects", label: "First project attached", how: { web: web("Settings", "on a project: Settings ▸ Office ▸ pick this office"), revit: null, who: "lead" } },
@@ -20,7 +20,7 @@ export const OFFICE_STEPS = [
 
 export const PROJECT_STEPS = [
   TEAM,
-  { id: "standards", label: "Standards in force", how: { web: web("Settings", "Standards in force — inherited from the office, or install here: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
+  { id: "standards", label: "Standards in force", how: { web: web("Settings", "Standards in force — inherited from the office, or install here: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
   { id: "bep", label: "BEP drafted", how: { web: web("Workspace", "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP"), revit: null, who: "lead" } },
   // Paperwork slice 4 (ISO 19650-2 §5.4): each task team's delivery plan is a governed document too.
   { id: "tidp", label: "TIDP drafted", how: { web: web("Documents", "+ New document ▸ Create TIDP"), revit: null, who: "lead" } },

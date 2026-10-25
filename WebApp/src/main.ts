@@ -306,7 +306,7 @@ async function main() {
     if (id) openWorkspace(id, { section: "delivery-plans" });
     else (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(spaceTabs.map((t) => t.label), "Documents"));
   };
-  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL, onOpenWorkspace: (id) => openWorkspace(id) });
+  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL, onOpenWorkspace: (id) => openWorkspace(id), onIngested: (p) => { app.layout = "Workspace"; workspaceEl.openIngest(p); } });
   // Deliverables — the MIDP/TIDP plan vs what actually arrived (status derived, never stored).
   const deliverablesEl = deliverablesPanel(components, { baseUrl: SERVICE_URL, onOpenBep: () => void openBep() });
 

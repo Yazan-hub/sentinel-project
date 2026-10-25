@@ -176,9 +176,9 @@ describe("changesets-typing — where a set_parameter's value comes from (MA-2c)
     expect(said.endsWith(`WALL — ThermalTransmittance ("The thermal transmittance of walls shall be 0.3."): ${NOT_ALONE}`), said).toBe(true);
   });
 
-  it("the docs panel compiles the title and every heading with the bodies — a heading narrows the sentences under it (review C23 context)", () => {
-    const src = readFileSync(new URL("../src/setups/docs-panel.ts", import.meta.url), "utf8");
-    expect(src).toContain('const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\\n\\n");');
+  it("the workspace compiles the title and every heading with the bodies — a heading narrows the sentences under it (review C23 context; R1b moved it from the old panel)", () => {
+    const src = readFileSync(new URL("../src/workspace/eir-compile.ts", import.meta.url), "utf8");
+    expect(src).toContain('[doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\\n\\n");');
   });
 
   it("a catalogue value is trimmed of ASCII blanks only, as the add-in trims it: every shared case (review C23)", () => {

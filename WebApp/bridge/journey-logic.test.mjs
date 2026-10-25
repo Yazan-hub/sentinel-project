@@ -61,6 +61,10 @@ describe("R1b journey", () => {
     expect(PROJECT_STEPS.find((s) => s.id === "bep").how.web).toEqual({ tab: "Workspace", hint: "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP" });
     expect(readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8")).toContain('Workspace: { icon: "mdi:file-document-edit-outline"');
   });
+  it("R1b: no hint sends anyone to the old panel's Compile to IDS", () => {
+    for (const s of [...OFFICE_STEPS, ...PROJECT_STEPS]) expect(s.how.web?.hint ?? "", s.id).not.toContain("Documents ▸ EIR ▸ Compile to IDS");
+    expect(PROJECT_STEPS.find((s) => s.id === "standards").how.web.hint).toContain("Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project");
+  });
 });
 
 describe("project journey", () => {

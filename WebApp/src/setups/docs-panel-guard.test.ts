@@ -34,3 +34,26 @@ describe("R1b entry points in the old panel", () => {
     expect(src).toMatch(/\.textContent = t\.when_to_use/);
   });
 });
+
+describe("R1b hand-over: the moved functions live only in the workspace", () => {
+  it.each(["Compile to IDS", "Naming candidate", "Suggest bindings", "Check integrity", "Draft with AI", "Print / PDF", "showIngestReview", "showBindings",
+    "showSuggestBindings", "w.document.write", "./ai-picker", "findNamingCandidate"])("%s is gone", (s) => expect(src).not.toContain(s));
+  it.each(["Strip test", "Publish…", "Open workspace", "showReadinessEditor", "showVersions", "commentThreadEl"])("%s stays", (s) => expect(src).toContain(s));
+  it("the Document view renders section bodies as Markdown, through the DOM", () => {
+    expect(src).toContain('import { renderMarkdown } from "../workspace/markdown";');
+    expect(src).toMatch(/renderMarkdown\(s\.body, document\)/);
+    expect(src).not.toContain("esc(s.body)");
+  });
+  it("an upload hands its proposal to the workspace", () => expect(src).toMatch(/opts\.onIngested\?\.\(/));
+});
+describe("R1b carried reviews", () => {
+  it("a stale readiness failure shows nothing: the stale check comes before the message", () => {
+    const f = fn("showReadinessEditor"), from = f.indexOf("Readiness could not be computed:");
+    expect(from).toBeGreaterThan(-1);
+    const c = f.lastIndexOf("catch", from), call = f.lastIndexOf("msg(", from);
+    expect(f.slice(c, from)).toContain("mine !== seq");
+    expect(f.indexOf("mine !== seq", c)).toBeLessThan(call);
+  });
+  it("the strip note says a bound section that is not yet written is not scored either", () =>
+    expect(src).toContain("bound to a planned check, or bound but not yet written — not scored"));
+});

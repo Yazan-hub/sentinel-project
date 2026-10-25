@@ -5,15 +5,13 @@ import { askText, askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { refLabel, installArtefact } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { myRoleRead, roleWords } from "./my-role";
-import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
-import type { NamingRuleset } from "../sentinel-core/naming";
 import { escapeHtml as esc, pathSegment } from "./escape-html";
-import { aiBody, aiPicker } from "./ai-picker";
+import type { IngestProposal } from "../workspace/ingest-view";
+import { renderMarkdown } from "../workspace/markdown";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -27,65 +25,8 @@ type Doc = { id: string; doc_type: string; title: string; status: string; sectio
 type Evidence = { label: string; detail: string; ref?: string };
 type CheckResult = { id: string; label: string; status: "met" | "violations" | "not_checkable" | "error"; count: number; summary: string; reason?: string; evidence: Evidence[] };
 type Compliance = { document_id: string; generated_at: string; summary: Record<string, number>; sections: { section_id: string; heading: string; results: CheckResult[] }[] };
-type Suggestion = { section_id: string; heading: string; suggested: { id: string; label: string; params: Record<string, unknown>; confidence: number; why: string; planned: boolean }[] };
 
 type Comment = { id: string; section_id: string; author: string; text: string; created_at: string };
-
-type IntegrityFinding = { section_id: string; fact: number; claim: string; reality: string; severity: "high" | "medium" | "low" };
-type IntegrityReport = { findings: IntegrityFinding[]; dropped: number; grounding_used: number; generated_at: string; provider?: string; model?: string; note?: string };
-const SEV_COLOR: Record<string, string> = { high: "#f87171", medium: "#eab308", low: "#9ca3af" };
-
-function renderIntegrity(out: HTMLElement, r: IntegrityReport, doc: { sections: { id: string; heading: string }[] }) {
-  out.replaceChildren();
-  const banner = document.createElement("div");
-  banner.textContent = `AI analysis — suggestions, not compliance facts. ${r.provider ? `${r.provider}/${r.model} · ` : ""}${new Date(r.generated_at).toLocaleString()} · grounded in ${r.grounding_used} fact(s)`;
-  banner.style.cssText = "color:#93c5fd;background:#132038;border-radius:.35rem;padding:.35rem .6rem;font:10.5px system-ui;margin:.4rem 0";
-  out.append(banner);
-
-  if (r.note) {
-    const n = document.createElement("div");
-    n.textContent = r.note;                                // honest empty-document note
-    n.style.cssText = "color:#9ca3af;padding:.3rem .6rem;font:11px system-ui";
-    out.append(n);
-    return;
-  }
-  if (r.dropped > 0) {
-    const d = document.createElement("div");
-    d.textContent = `${r.dropped} finding(s) discarded — the model cited no grounded fact for them.`;
-    d.style.cssText = "color:#fbbf24;padding:.2rem .6rem;font:10.5px system-ui";
-    out.append(d);
-  }
-  if (!r.findings.length) {
-    const okEl = document.createElement("div");
-    okEl.textContent = r.dropped > 0
-      ? "0 usable findings (see discarded above) — this is NOT a clean bill of health."
-      : "No contradictions found between this document and the project's configuration.";
-    okEl.style.cssText = "color:#9ca3af;padding:.3rem .6rem;font:11px system-ui";
-    out.append(okEl);
-    return;
-  }
-  const headingOf = (id: string) => doc.sections.find((s) => s.id === id)?.heading || id;
-  for (const f of r.findings) {
-    const card = document.createElement("div");
-    card.style.cssText = "border:1px solid #2a2a30;background:#1b1b21;border-radius:.35rem;padding:.4rem .6rem;margin:.25rem 0";
-    const head = document.createElement("div");
-    const sev = document.createElement("span");
-    sev.textContent = f.severity.toUpperCase();
-    sev.style.cssText = `color:${SEV_COLOR[f.severity] || "#9ca3af"};font:700 10px system-ui;margin-right:.5rem`;
-    const sec = document.createElement("span");
-    sec.textContent = headingOf(f.section_id);
-    sec.style.cssText = "color:#e5e7eb;font:600 11.5px system-ui";
-    head.append(sev, sec);
-    const claim = document.createElement("div");
-    claim.textContent = `Document: ${f.claim}`;
-    claim.style.cssText = "color:#cbd5e1;font:11px system-ui;margin-top:.2rem";
-    const reality = document.createElement("div");
-    reality.textContent = `Reality: ${f.reality}`;
-    reality.style.cssText = "color:#93c5fd;font:11px system-ui";
-    card.append(head, claim, reality);
-    out.append(card);
-  }
-}
 
 type ExecSection = { section_id: string; heading: string; kind: "controlling" | "declared" | "narrative"; controlling_checks: string[]; declared_checks: string[]; unknown_checks: string[]; owner: string | null; has_body: boolean };
 type Executability = { document_id: string; title: string; doc_type: string; generated_at: string; score: number | null; reason?: string; summary: { sections: number; controlling: number; declared: number; narrative: number; unowned: number; empty: number }; strip: string[]; sections: ExecSection[] };
@@ -135,7 +76,7 @@ function renderExecutability(out: HTMLElement, r: Executability) {
   };
   box.append(
     line("controlling clauses", r.summary.controlling, "#22c55e", "bound to a check that runs today"),
-    line("declared clauses", r.summary.declared, "#eab308", "bound only to a planned check — NOT scored"),
+    line("declared clauses", r.summary.declared, "#eab308", "bound to a planned check, or bound but not yet written — not scored"),
     line("narrative clauses", r.summary.narrative, "#f87171", "control nothing Sentinel can observe"),
   );
   if (r.summary.unowned || r.summary.empty)
@@ -165,7 +106,7 @@ const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
   error: { color: "#eab308", icon: "!" },
 };
 
-export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string; onOpenWorkspace?: (docId: string) => void } = {}): HTMLElement {
+export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string; onOpenWorkspace?: (docId: string) => void; onIngested?: (p: IngestProposal) => void } = {}): HTMLElement {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const api = async (path: string, init: RequestInit = {}) => {
@@ -175,7 +116,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   };
   const actor = async () => { try { return (await currentUser())?.email || "web"; } catch { return "web"; } };
 
-  // (the AI provider/model picker lives in ./ai-picker)
   let myRole: string | null = "service";
   const canEdit = () => myRole === "service" || ["owner", "lead", "contributor"].includes(myRole ?? "");
   const canGovern = () => myRole === "service" || ["owner", "lead"].includes(myRole ?? "");
@@ -204,14 +144,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     setTimeout(() => d.remove(), 5000);
   };
 
-  // ── Ingest (upload + review) ─────────────────────────────────────────────
-  type Fragment = { text: string; pages: number[]; confidence: number };
-  type ProposedSection = { heading: string; guidance: string; body: string; fragments: Fragment[] };
-  type Unassigned = { text: string; pages: number[]; suggested_heading: string | null; confidence: number; reason: string };
-  type Proposal = { proposal: { sections: ProposedSection[]; unassigned: Unassigned[] }; source: Record<string, unknown>; doc_type: string; title: string };
-
-  const pageRef = (pages: number[]) => (pages?.length ? `p.${pages.join(", ")}` : "");
-
   async function runIngest(file: File) {
     body.replaceChildren();
     const busy = document.createElement("div");
@@ -226,128 +158,13 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       );
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((j as { message?: string }).message || `HTTP ${r.status}`);
-      showIngestReview(j as Proposal);
+      opts.onIngested?.(j as IngestProposal); // the review is the workspace's
+      await showList();
     } catch (e) {
       body.replaceChildren();
       msg(`Ingestion failed: ${(e as Error).message}`, true);
       await showList();
     }
-  }
-
-  function showIngestReview(p: Proposal) {
-    const sections = p.proposal.sections.map((s) => ({ ...s }));
-    const unassigned = p.proposal.unassigned.map((u) => ({ ...u, target: u.suggested_heading || "" }));
-
-    bar.replaceChildren();
-    const title = document.createElement("span");
-    title.textContent = `Review ingestion — ${p.title}`;
-    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
-    const cancel = btn("Cancel");
-    cancel.onclick = showList;
-    const accept = btn("✓ Create document", true);
-    bar.append(title, cancel, accept);
-
-    body.replaceChildren();
-    const intro = document.createElement("div");
-    const mapped = sections.filter((s) => s.body.trim()).length;
-    intro.textContent = `${mapped}/${sections.length} sections mapped · ${unassigned.length} passage(s) need a home. Edit anything before creating the document — nothing is saved yet.`;
-    intro.style.cssText = "color:#9ca3af;padding:.2rem 0 .6rem";
-    body.append(intro);
-
-    sections.forEach((s, i) => {
-      const card = document.createElement("div");
-      card.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.5rem;background:#1b1b21";
-      const head = document.createElement("div");
-      head.style.cssText = "padding:.45rem .6rem;border-bottom:1px solid #2a2a30;display:flex;gap:.5rem;align-items:center";
-      const headingSpan = document.createElement("span");
-      headingSpan.textContent = s.heading;
-      headingSpan.style.cssText = "font:600 12px system-ui;color:#eee;flex:1";
-      head.append(headingSpan);
-      const cites = s.fragments.map((f) => pageRef(f.pages)).filter(Boolean).join(" · ");
-      const citesSpan = document.createElement("span");
-      if (cites) {
-        citesSpan.textContent = cites;
-        citesSpan.style.cssText = "color:#6b7280;font:10px ui-monospace,Consolas,monospace";
-      } else {
-        citesSpan.textContent = "empty";
-        citesSpan.style.cssText = "color:#71717a;font-size:10px";
-      }
-      head.append(citesSpan);
-      const ta = document.createElement("textarea");
-      ta.value = s.body;
-      ta.style.cssText = "width:100%;min-height:5rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:0;border-radius:0 0 .4rem .4rem;padding:.5rem .6rem;font:12px ui-monospace,Consolas,monospace;resize:vertical";
-      ta.oninput = () => { sections[i].body = ta.value; };
-      card.append(head, ta);
-      body.append(card);
-    });
-
-    if (unassigned.length) {
-      const uHead = document.createElement("div");
-      uHead.textContent = "Unassigned passages — pick a section or leave as Discard";
-      uHead.style.cssText = "font:600 12px system-ui;color:#eab308;margin:.8rem 0 .4rem";
-      body.append(uHead);
-      unassigned.forEach((u, i) => {
-        const row = document.createElement("div");
-        row.style.cssText = "border:1px solid #3f3f46;border-radius:.4rem;margin-bottom:.4rem;background:#141418;padding:.5rem .6rem";
-        const metaRow = document.createElement("div");
-        metaRow.style.cssText = "display:flex;gap:.5rem;align-items:center;margin-bottom:.35rem";
-        const metaSpan = document.createElement("span");
-        metaSpan.textContent = `${pageRef(u.pages)} · ${u.reason}`;
-        metaSpan.style.cssText = "color:#6b7280;font:10px ui-monospace,Consolas,monospace;flex:1";
-        metaRow.append(metaSpan);
-        const textDiv = document.createElement("div");
-        textDiv.textContent = u.text;
-        textDiv.style.cssText = "color:#cbd5e1;font:12px ui-monospace,Consolas,monospace;white-space:pre-wrap;max-height:7rem;overflow:auto";
-        const sel = document.createElement("select");
-        sel.style.cssText = "margin-top:.4rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui;width:100%";
-        const discardOpt = document.createElement("option");
-        discardOpt.value = "";
-        discardOpt.textContent = "Discard";
-        sel.append(discardOpt);
-        for (const s of sections) {
-          const o = document.createElement("option");
-          o.value = s.heading;
-          o.textContent = s.heading;
-          o.selected = s.heading === u.target;
-          sel.append(o);
-        }
-        sel.onchange = () => { unassigned[i].target = sel.value; };
-        row.append(metaRow, textDiv, sel);
-        body.append(row);
-      });
-    }
-
-    accept.onclick = async () => {
-      accept.disabled = true;
-      accept.textContent = "Creating…";
-      // Fold each assigned passage into the end of its chosen section, in review order — into a LOCAL
-      // copy so a failed commit + retry never folds the same passages in twice (sections is untouched).
-      const foldedBodies = new Map<string, string>();
-      for (const u of unassigned) {
-        if (!u.target) continue;
-        const s = sections.find((x) => x.heading === u.target);
-        if (!s) continue;
-        const base = foldedBodies.has(s.heading) ? foldedBodies.get(s.heading)! : s.body;
-        foldedBodies.set(s.heading, base ? `${base}\n\n${u.text}` : u.text);
-      }
-      try {
-        const created = await api(`/${encodeURIComponent(pid())}/ingest/commit`, {
-          method: "POST",
-          body: JSON.stringify({
-            doc_type: p.doc_type,
-            title: p.title,
-            source: p.source,
-            sections: sections.map((s) => ({ heading: s.heading, guidance: s.guidance, body: foldedBodies.get(s.heading) ?? s.body })),
-            actor: await actor(),
-          }),
-        });
-        await showEditor(created.id);
-      } catch (e) {
-        accept.disabled = false;
-        accept.textContent = "✓ Create document";
-        msg(`Couldn't create the document: ${(e as Error).message}`, true);
-      }
-    };
   }
 
   // ── List view ─────────────────────────────────────────────────────────────
@@ -494,155 +311,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     return wrap;
   }
 
-  async function showBindings(doc: Doc, section: Section, onDone: () => void) {
-    const registry: { checks: { id: string; label: string; description: string }[]; planned: { id: string; label: string; reason: string }[] } =
-      await api("/checks");
-    bar.replaceChildren();
-    const title = document.createElement("span");
-    title.textContent = `Bindings — ${section.heading}`;
-    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
-    const cancel = btn("Cancel");
-    const save = btn("Save bindings", true);
-    cancel.onclick = onDone;
-    bar.append(title, cancel, save);
-
-    body.replaceChildren();
-    const currentChecks = (section.bindings as { checks?: { id: string; params?: Record<string, unknown> }[] })?.checks || [];
-    const current = new Set(currentChecks.map((c) => c.id));
-    const currentParams = new Map(currentChecks.map((c) => [c.id, c.params]));
-    const boxes: { id: string; input: HTMLInputElement }[] = [];
-    const addRow = (id: string, label: string, description: string, planned: boolean) => {
-      const row = document.createElement("label");
-      row.style.cssText = "display:flex;gap:.5rem;align-items:flex-start;padding:.35rem .4rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.3rem;background:#1b1b21;cursor:pointer";
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = cb.defaultChecked = current.has(id);
-      const text = document.createElement("div");
-      const t = document.createElement("div");
-      t.textContent = planned ? `${label} (not checkable yet)` : label;
-      t.style.cssText = `font:600 12px system-ui;color:${planned ? "#a1a1aa" : "#e5e7eb"}`;
-      const d = document.createElement("div");
-      d.textContent = description;
-      d.style.cssText = "font:10.5px system-ui;color:#9ca3af";
-      text.append(t, d);
-      row.append(cb, text);
-      body.append(row);
-      boxes.push({ id, input: cb });
-    };
-
-    const h = (label: string) => { const x = document.createElement("div"); x.textContent = label; x.style.cssText = "font:600 11px system-ui;color:#9ca3af;margin:.5rem 0 .3rem"; body.append(x); };
-    h("Checks Sentinel can evaluate now");
-    for (const c of registry.checks) addRow(c.id, c.label, c.description, false);
-    h("Planned — binding one records the gap honestly");
-    for (const p of registry.planned) addRow(p.id, p.label, p.reason, true);
-
-    save.onclick = async () => {
-      save.disabled = true;
-      try {
-        await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(section.id)}/bindings`, {
-          method: "PUT",
-          body: JSON.stringify({
-            bindings: {
-              checks: boxes
-                .filter((b) => b.input.checked)
-                .map((b) => {
-                  const params = currentParams.get(b.id);
-                  return params ? { id: b.id, params } : { id: b.id };
-                }),
-            },
-            updated_at: doc.updated_at,
-            actor: await actor(),
-          }),
-        });
-        onDone();
-      } catch (e) {
-        save.disabled = false;
-        if ((e as any).status === 409) {
-          msg("This document changed since you opened it — reopen it and set the bindings again.", true);
-        } else {
-          msg(`Couldn't save bindings: ${(e as Error).message}`, true);
-        }
-      }
-    };
-  }
-
-  async function showSuggestBindings(doc: Doc, onDone: () => void) {
-    const suggestions: Suggestion[] = await api(`/${encodeURIComponent(pid())}/${doc.id}/bindings/suggest`, { method: "POST", body: JSON.stringify({}) });
-    bar.replaceChildren();
-    const title = document.createElement("span");
-    title.textContent = `Suggested bindings — ${doc.title}`;
-    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
-    const cancel = btn("Cancel");
-    const apply = btn("✓ Apply selected", true);
-    cancel.onclick = onDone;
-    bar.append(title, cancel, apply);
-
-    body.replaceChildren();
-    const picks: { section_id: string; id: string; params: Record<string, unknown>; input: HTMLInputElement }[] = [];
-    const matched = suggestions.filter((s) => s.suggested.length);
-    if (!matched.length) {
-      const none = document.createElement("div");
-      none.textContent = "No sections matched a known check. Bind them manually from each section's Bindings button.";
-      none.style.cssText = "color:#9ca3af;padding:1rem";
-      body.append(none);
-    }
-    for (const s of matched) {
-      const head = document.createElement("div");
-      head.textContent = s.heading;
-      head.style.cssText = "font:600 12px system-ui;color:#e5e7eb;margin:.6rem 0 .25rem";
-      body.append(head);
-      for (const sg of s.suggested) {
-        const row = document.createElement("label");
-        row.style.cssText = "display:flex;gap:.5rem;align-items:flex-start;padding:.3rem .4rem;border:1px solid #2a2a30;border-radius:.35rem;margin-bottom:.25rem;background:#1b1b21;cursor:pointer";
-        const cb = document.createElement("input");
-        cb.type = "checkbox";
-        cb.checked = !sg.planned && sg.confidence >= 1;
-        const text = document.createElement("div");
-        const t = document.createElement("div");
-        t.textContent = sg.planned ? `${sg.label} (not checkable yet)` : sg.label;
-        t.style.cssText = `font:600 11.5px system-ui;color:${sg.planned ? "#a1a1aa" : "#e5e7eb"}`;
-        const w = document.createElement("div");
-        w.textContent = `${sg.why} · confidence ${sg.confidence}`;
-        w.style.cssText = "font:10px ui-monospace,Consolas,monospace;color:#71717a";
-        text.append(t, w);
-        row.append(cb, text);
-        body.append(row);
-        picks.push({ section_id: s.section_id, id: sg.id, params: sg.params, input: cb });
-      }
-    }
-
-    apply.onclick = async () => {
-      apply.disabled = true;
-      apply.textContent = "Applying…";
-      const bySection = new Map<string, { id: string; params: Record<string, unknown> }[]>();
-      for (const p of picks) if (p.input.checked) bySection.set(p.section_id, [...(bySection.get(p.section_id) || []), { id: p.id, params: p.params }]);
-      const sections = [...bySection.entries()];
-      let appliedCount = 0;
-      try {
-        for (const [sectionId, checks] of sections) {
-          const row: Doc = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(sectionId)}/bindings`, {
-            method: "PUT",
-            body: JSON.stringify({ bindings: { checks: checks.map((c) => (c.params ? { id: c.id, params: c.params } : { id: c.id })) }, updated_at: doc.updated_at, actor: await actor() }),
-          });
-          // Each write bumps the document's updated_at; carry it forward or every section after the first is a stale write (409).
-          if (row?.updated_at) doc.updated_at = row.updated_at;
-          appliedCount += 1;
-        }
-        onDone();
-      } catch (e) {
-        apply.disabled = false;
-        apply.textContent = "✓ Apply selected";
-        const failedSection = sections[appliedCount]?.[0];
-        const heading = matched.find((s) => s.section_id === failedSection)?.heading || failedSection || "unknown section";
-        if ((e as any).status === 409) {
-          msg(`Applied ${appliedCount}/${sections.length} section(s); this document changed since you opened it — reopen it and try again.`, true);
-        } else {
-          msg(`Applied ${appliedCount}/${sections.length} section(s); failed on "${heading}": ${(e as Error).message}`, true);
-        }
-      }
-    };
-  }
-
   // ── Editor view ───────────────────────────────────────────────────────────
   async function showEditor(docId: string) {
     const mine = seq; // a project switch (showList) while a read is in flight drops its answer
@@ -659,11 +327,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
     bar.append(back, title, viewBtn, versBtn);
     if (opts.onOpenWorkspace) { const ow = btn("Open workspace"); ow.onclick = () => opts.onOpenWorkspace!(doc.id); bar.append(ow); }
-    if (canGovern()) {
-      const suggestBtn = btn("Suggest bindings"); suggestBtn.onclick = () => showSuggestBindings(doc, () => showEditor(doc.id));
-      bar.append(suggestBtn);
-    }
-    bar.append(aiPicker(base, pid));
     // document-level transitions (governance)
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
@@ -745,34 +408,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
           else msg(e.message, true);
         }
       };
-      if (canGovern()) {
-        const bindingsBtn = btn("Bindings");
-        bindingsBtn.onclick = () => showBindings(doc, s, () => showEditor(doc.id));
-        rowEl.append(ownerIn, stateSel, save, bindingsBtn);
-      } else {
-        rowEl.append(ownerIn, stateSel, save);
-      }
-      if (editable && oldPanelEditable(s)) {
-        // AI draft — proposal only: fills the editor; nothing is saved until the normal Save.
-        const draftBtn = btn("Draft with AI");
-        draftBtn.onclick = async () => {
-          draftBtn.disabled = true;
-          const prev = draftBtn.textContent;
-          draftBtn.textContent = "Drafting…";
-          try {
-            const r = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}/draft`, { method: "POST", body: JSON.stringify(aiBody()) });
-            ta.value = r.proposal;                        // model output → .value (XSS-safe)
-            ta.dispatchEvent(new Event("input"));         // fire any dirty-tracking the editor has
-            msg(`AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)) — review before saving.`);
-          } catch (e) {
-            msg(`Draft failed: ${(e as Error).message}`, true);
-          } finally {
-            draftBtn.disabled = false;
-            draftBtn.textContent = prev;
-          }
-        };
-        rowEl.append(draftBtn);
-      }
+      rowEl.append(ownerIn, stateSel, save);
       inner.append(guide, ta, ...(oldPanelEditable(s) ? [] : [noteEl]), complianceStrip(resultsFor(s.id)), rowEl, commentThreadEl(doc, s.id, comments));
       sec.append(sum, inner);
       body.append(sec);
@@ -859,7 +495,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     body.replaceChildren(Object.assign(document.createElement("div"), { textContent: "Computing readiness — running the measured checks…", style: "color:#9ca3af;font:12px system-ui;padding:.6rem" }));
     const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
     let rep: Readiness | null = null;
-    try { rep = await api(`/${encodeURIComponent(pid())}/${doc.id}/readiness`); } catch (e: any) { msg(`Readiness could not be computed: ${e.message}`, true); }
+    try { rep = await api(`/${encodeURIComponent(pid())}/${doc.id}/readiness`); } catch (e: any) { if (mine !== seq) return; msg(`Readiness could not be computed: ${e.message}`, true); }
     if (mine !== seq) return;
     let comments: Comment[] = [];
     try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* optional */ }
@@ -1139,177 +775,27 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     const mine = seq;
     bar.replaceChildren();
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); bar.append(back);
-    const printBtn = btn("Print / PDF", true);
-    const integrityBtn = btn("Check integrity");
     const stripBtn = btn("Strip test");
-    bar.append(printBtn, aiPicker(base, pid), integrityBtn, stripBtn);
-    // EIR only: compile the requirement prose into a PROPOSED IDS (deterministic, installs nothing).
-    // The compiler existed as a bridge route with no way to reach it from the app (found in the simulation room).
-    const compileBtn = doc.doc_type === "EIR" ? btn("Compile to IDS") : null;
-    if (compileBtn) bar.append(compileBtn);
-    // F15: a section carrying the naming standard as a ```json block is offered as the next naming@n —
-    // diffed field by field against the one in force, installed whole or not at all (no merge).
-    const namingCand = findNamingCandidate(doc.sections);
-    const namingBtn = namingCand ? btn("Naming candidate") : null;
-    if (namingBtn) bar.append(namingBtn);
+    bar.append(stripBtn);
     body.replaceChildren();
-    const integrityOut = document.createElement("div");   // findings render here, transient
-    if (compileBtn) compileBtn.onclick = async () => {
-      compileBtn.disabled = true; compileBtn.textContent = "Compiling…"; integrityOut.replaceChildren();
-      try {
-        // MA-2c C23 (context): the title and every heading go in with the bodies — a heading ("Doors to protected stairs") narrows
-        // the sentences under it, and compileIds marks a clause source_alone only when the document said nothing else.
-        const text = [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\n\n");
-        // Compiled and merged into the IDS in force by the bridge (eirToIds): the standards' generated checks stay, the last compile's are
-        // replaced, and a requirement another check already makes is held back (put back when that check goes), never repeated.
-        const res = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids/eir`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, title: `${doc.title} — compiled IDS` }) });
-        const r: { title: string; specifications: { name?: string; entity?: string; property?: string; source_sentence?: string }[]; unmatched: { sentence: string; reason: string }[]; stats: Record<string, number>;
-          ids: object; kept: number; current: string | null; skipped: { name: string; source_sentence?: string; reason: string }[]; xml: string; xml_skipped: unknown[] } = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error((r as { message?: string }).message || `HTTP ${res.status}`);
-        const box = document.createElement("div");
-        box.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:#141418;color:#c9cfda;font:12px system-ui";
-        const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
-        h.textContent = `Checks from this EIR — ${r.stats.compiled} of ${r.stats.requirement_sentences} requirement sentence(s) read`;
-        // compileIds's own note names its fields (source_sentence, `unmatched`) — said here in the words this screen uses.
-        const note = document.createElement("div"); note.style.cssText = "color:#eab308;font:11px system-ui;margin-bottom:.4rem";
-        note.textContent = "A proposal: check each line against the sentence it came from. A sentence in red is in the EIR but not in the IDS — reword it, or it is not checked.";
-        const keeps = document.createElement("div"); keeps.style.cssText = "color:#9ca3af;font:11px system-ui;margin-bottom:.4rem";
-        keeps.textContent = r.current ? `Installing keeps ${r.kept} check(s) of ${r.current} — the ones made from the contract and naming rules among them — and replaces what an earlier EIR compile added.` : "No IDS is installed on this project yet.";
-        box.append(h, note, keeps);
-        for (const sk of r.skipped) {
-          const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
-          const t = document.createElement("div"); t.textContent = `${sk.name}: ${sk.reason}`; t.style.color = "#eab308";
-          row.append(t); box.append(row);
-        }
-        for (const sp of r.specifications.filter((s) => !r.skipped.some((k) => k.name === s.name && k.source_sentence === s.source_sentence))) {
-          const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
-          const t = document.createElement("div"); t.textContent = sp.name || `${sp.entity || "?"} — ${sp.property || "?"}`; t.style.color = "#22c55e";
-          const src = document.createElement("div"); src.textContent = sp.source_sentence ? `from: “${sp.source_sentence}”` : ""; src.style.cssText = "color:#9ca3af;font:11px system-ui";
-          row.append(t, src); box.append(row);
-        }
-        for (const u of r.unmatched) {
-          const row = document.createElement("div"); row.style.cssText = "padding:.2rem 0;border-top:1px solid #2a2a30";
-          const t = document.createElement("div"); t.textContent = `Not in the IDS: “${u.sentence}”`; t.style.color = "#f87171";
-          const why = document.createElement("div"); why.textContent = u.reason; why.style.cssText = "color:#9ca3af;font:11px system-ui";
-          row.append(t, why); box.append(row);
-        }
-        if (r.xml_skipped.length) {
-          const d = document.createElement("div"); d.style.cssText = "color:#eab308;font:11px system-ui;margin-top:.4rem";
-          d.textContent = `The .ids file leaves out ${r.xml_skipped.length} check(s) its format cannot hold. Sentinel still checks them.`; box.append(d);
-        }
-        // The IDS as it will be installed (this EIR merged into the one in force), as the buildingSMART .ids file a consultant or IfcTester
-        // reads — not JSON (founder 2026-10-19: no JSON for users).
-        const dl = btn("Download .ids", true);
-        dl.onclick = () => {
-          const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(new Blob([r.xml], { type: "application/xml" })), download: `${doc.title.replace(/[^\w-]+/g, "_")}.ids` });
-          a.click(); URL.revokeObjectURL(a.href);
-        };
-        dl.style.marginTop = ".5rem"; box.append(dl);
-        // Close the loop: the compiled spec becomes the PROJECT's IDS (artefact ids@n), which Governed
-        // Publish, Governed Intake and the AI-proposal referee all read. Lead/owner only, like the bridge.
-        const install = btn("Install on this project", true);
-        install.style.marginTop = ".5rem"; install.style.marginLeft = ".5rem";
-        install.onclick = async () => {
-          install.disabled = true; install.textContent = "Installing…";
-          try {
-            const p = await installArtefact(base, pid(), "ids", { ...r.ids, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }, await actor());
-            install.textContent = `Installed ids@${p.version}`;
-            msg(`✓ ids@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — Governed Publish, intake and AI proposals now judge by it.`);
-          } catch (e) {
-            install.disabled = false; install.textContent = "Install on this project";
-            msg(`Install failed: ${(e as Error).message}`, true);
-          }
-        };
-        // A zero-spec compile has nothing for an installed IDS to check (adjudicate() would pass every
-        // model vacuously — a gate-only pass dressed as an IDS pass). Don't offer to install it.
-        if (canGovern() && r.specifications.length > 0) box.append(install);
-        integrityOut.append(box);
-      } catch (e) {
-        const d = document.createElement("div"); d.textContent = `Compile failed: ${(e as Error).message}`;
-        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0"; integrityOut.append(d);
-      } finally { compileBtn.disabled = false; compileBtn.textContent = "Compile to IDS"; }
-    };
-    if (namingBtn && namingCand) namingBtn.onclick = async () => {
-      namingBtn.disabled = true; integrityOut.replaceChildren();
-      const box = document.createElement("div");
-      box.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:#141418;color:#c9cfda;font:12px system-ui";
-      const line = (text: string, color = "#c9cfda") => { const d = document.createElement("div"); d.textContent = text; d.style.cssText = `padding:.15rem 0;color:${color}`; box.append(d); };
-      try {
-        const key = encodeURIComponent(pid());
-        // In force = what judges this project today (project → office). The install lands on THIS project,
-        // so the candidate's number is this project's own next version, not the office's.
-        const curRes = await bfetch(`${base}/cde/${key}/artefacts/naming`);
-        if (!curRes.ok && curRes.status !== 404) throw new Error(`HTTP ${curRes.status}`);
-        const cur: { version: number; sha256: string | null; ref: string; source: string; body: NamingRuleset } | null = curRes.ok ? await curRes.json() : null;
-        const ownRes = await bfetch(`${base}/cde/${key}/artefacts`);
-        const own: { naming?: { version: number } | null } = ownRes.ok ? await ownRes.json() : {};
-        const next = (own.naming?.version || 0) + 1;
-        const d = diffNaming(cur?.body ?? null, namingCand.ruleset);
-        const h = document.createElement("div"); h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.3rem";
-        h.textContent = `Candidate naming@${next} from “${namingCand.heading}” — against ${cur ? refLabel(cur) : "no naming standard in force"}`;
-        box.append(h);
-        if (d.removed.length) line(`Removes ${d.removed.length} field(s): ${d.removed.map((f) => f.label).join(", ")} — names built with them will stop conforming.`, "#f87171");
-        for (const x of d.header) line(x, "#eab308");
-        for (const f of d.added) line(`+ ${f.label} (${f.key})`, "#22c55e");
-        for (const f of d.changed) line(`~ ${f.label}: ${f.changes.join("; ")}`, "#eab308");
-        const same = !!cur && !d.added.length && !d.removed.length && !d.changed.length && !d.header.length;
-        if (same) line("Identical to the version in force — nothing to install.", "#9ca3af");
-        if (canGovern() && !same) {
-          const install = btn(`Install naming@${next} on this project`, true);
-          install.style.marginTop = ".5rem";
-          install.onclick = async () => {
-            install.disabled = true; install.textContent = "Installing…";
-            try {
-              const p = await installArtefact(base, pid(), "naming", { ...namingCand.ruleset, source: { document_id: doc.id, section: namingCand.section_id } }, await actor());
-              install.textContent = `Installed naming@${p.version}`;
-              msg(`✓ naming@${p.version} installed on ${pid()} (sha ${String(p.sha256).slice(0, 12)}…) — the naming gate, readiness and federation now judge by it.`);
-            } catch (e) {
-              install.disabled = false; install.textContent = `Install naming@${next} on this project`;
-              msg(`Install failed: ${(e as Error).message}`, true);
-            }
-          };
-          box.append(install);
-        }
-        integrityOut.append(box);
-      } catch (e) {
-        const d = document.createElement("div"); d.textContent = `Naming candidate failed: ${(e as Error).message}`;
-        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0"; integrityOut.append(d);
-      } finally { namingBtn.disabled = false; }
-    };
-    integrityBtn.onclick = async () => {
-      integrityBtn.disabled = true;
-      integrityBtn.textContent = "Analysing…";
-      integrityOut.replaceChildren();
-      try {
-        const r: IntegrityReport = await api(`/${encodeURIComponent(pid())}/${doc.id}/integrity`, { method: "POST", body: JSON.stringify(aiBody()) });
-        renderIntegrity(integrityOut, r, doc);
-      } catch (e) {
-        const d = document.createElement("div");
-        d.textContent = `Integrity analysis failed: ${(e as Error).message}`;
-        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0";
-        integrityOut.append(d);
-      } finally {
-        integrityBtn.disabled = false;
-        integrityBtn.textContent = "Check integrity";
-      }
-    };
+    const stripOut = document.createElement("div");   // the strip test's result renders here, transient
     stripBtn.onclick = async () => {
       stripBtn.disabled = true;
       stripBtn.textContent = "Scoring…";
-      integrityOut.replaceChildren();
+      stripOut.replaceChildren();
       try {
-        renderExecutability(integrityOut, await api(`/${encodeURIComponent(pid())}/${doc.id}/executability`));
+        renderExecutability(stripOut, await api(`/${encodeURIComponent(pid())}/${doc.id}/executability`));
       } catch (e) {
         const d = document.createElement("div");
         d.textContent = `Strip test failed: ${(e as Error).message}`;
         d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0";
-        integrityOut.append(d);
+        stripOut.append(d);
       } finally {
         stripBtn.disabled = false;
         stripBtn.textContent = "Strip test";
       }
     };
-    body.append(integrityOut);
+    body.append(stripOut);
     const page = document.createElement("div");
     page.className = "bimdoc-print";
     page.style.cssText = "max-width:760px;margin:0 auto;background:#fff;color:#111;border-radius:.4rem;padding:2rem;font:13px/1.6 Georgia,serif";
@@ -1318,12 +804,18 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       `<div style="border-bottom:2px solid #111;padding-bottom:.6rem;margin-bottom:1rem">
          <div style="font:700 20px system-ui">${esc(doc.title)}</div>
          <div style="font:12px system-ui;color:#555">${esc(doc.doc_type)} · Project ${esc(pid())} · ${esc(stamp)} · ${new Date().toLocaleDateString()}</div>
-       </div>` +
-      doc.sections.map((s) =>
-        `<section style="page-break-inside:avoid;margin-bottom:1.1rem">
-           <h2 style="font:700 15px system-ui;border-bottom:1px solid #ccc;padding-bottom:.2rem">${esc(s.heading)}</h2>
-           <div style="white-space:pre-wrap">${s.body ? esc(s.body) : "<i style='color:#999'>Not yet written.</i>"}</div>
-         </section>`).join("");
+       </div>`;
+    for (const s of doc.sections) {
+      const sec = document.createElement("section");
+      sec.style.cssText = "page-break-inside:avoid;margin-bottom:1.1rem";
+      const h2 = document.createElement("h2");
+      h2.style.cssText = "font:700 15px system-ui;border-bottom:1px solid #ccc;padding-bottom:.2rem";
+      h2.textContent = s.heading;
+      sec.append(h2);
+      if (s.body) sec.append(renderMarkdown(s.body, document));
+      else { const none = document.createElement("i"); none.style.color = "#999"; none.textContent = "Not yet written."; sec.append(none); }
+      page.append(sec);
+    }
     body.append(page);
 
     // Comment threads — only for the live document (versionLabel means a read-only past snapshot
@@ -1340,21 +832,9 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       }
     }
 
-    printBtn.onclick = () => {
-      const w = window.open("", "_blank");
-      if (!w) return msg("Popup blocked — allow popups to print", true);
-      w.document.write(`<!doctype html><title>${esc(doc.title)}</title>
-        <style>body{font:13px/1.6 Georgia,serif;color:#111;margin:2rem auto;max-width:720px}
-        h2{font:700 15px system-ui;border-bottom:1px solid #ccc;padding-bottom:.2rem}
-        section{page-break-inside:avoid;margin-bottom:1.1rem}
-        @page{margin:2cm}</style>${page.innerHTML}`);
-      w.document.close();
-      w.print();
-    };
   }
 
-  // Unsaved input: a field that differs from what it was loaded with (defaultValue / defaultChecked). An ingest review and
-  // suggested bindings set no defaults on purpose — nothing there is saved yet, so they count as unsaved as a whole.
+  // Unsaved input: a field that differs from what it was loaded with (defaultValue / defaultChecked).
   // A select the person changed counts as unsaved input (a re-render replaces the element, so the mark goes with it).
   body.addEventListener("change", (e) => { const t = e.target as HTMLElement; if (t.tagName === "SELECT") t.dataset.touched = "1"; });
   const touchedSelect = () => !!body.querySelector("select[data-touched]");

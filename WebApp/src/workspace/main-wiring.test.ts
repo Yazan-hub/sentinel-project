@@ -24,3 +24,7 @@ describe("entry points (spec section 5)", () => {
   it("Deliverables offers Open in BEP", () =>
     expect(readFileSync(new URL("../setups/deliverables-panel.ts", import.meta.url), "utf8")).toContain('btn("Open in BEP")'));
 });
+describe("R1b hand-over wiring", () => {
+  it("an upload in the old panel opens its review in the workspace", () =>
+    expect(main).toContain('onIngested: (p) => { app.layout = "Workspace"; workspaceEl.openIngest(p); }'));
+});
