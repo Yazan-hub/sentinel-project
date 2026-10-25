@@ -29,7 +29,7 @@ const MONO = "font:12px ui-monospace,Consolas,monospace";
 
 export function ingestView(ctx: PaneCtx, p: IngestProposal, onCancel: () => void): HTMLElement {
   const d = ctx.doc, key = ctx.st.key;
-  const sections = p.proposal.sections.map((s) => ({ ...s })), unassigned = p.proposal.unassigned;
+  const sections = p.proposal.sections.map((s) => ({ ...s, fragments: s.fragments ?? [] })), unassigned = p.proposal.unassigned ?? [];
   const assignment = defaultAssignment(sections, unassigned);
   const root = h(d, "div", "max-width:52rem;margin:0 auto");
 
@@ -82,6 +82,8 @@ export function ingestView(ctx: PaneCtx, p: IngestProposal, onCancel: () => void
     }
     create.textContent = "Created"; // stays disabled: a second click would make a second document
     await ctx.openDoc(row.id);
+    const after = ctx.ws.state();
+    if (after.key === key && after.doc?.id !== row.id) say.textContent = "Created. Open it from the Documents tab.";
   });
   return root;
 }

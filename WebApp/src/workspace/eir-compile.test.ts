@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 vi.mock("../setups/bridge-fetch", () => ({ bfetch: vi.fn() }));
 vi.mock("../setups/active-ruleset", () => ({ artefactInForce: vi.fn(async () => ({ sha256: "ab12", body: {} })), installArtefact: vi.fn(async () => ({ kind: "ids", version: 3, sha256: "cd" })) }));
 
-import { installArtefact } from "../setups/active-ruleset";
+import { artefactInForce, installArtefact } from "../setups/active-ruleset";
 import { compileLines, eirCompile, eirText } from "./eir-compile";
 import { emptyState } from "./workspace-state";
 import { click, fakeDocument, findAll, textOf } from "./fake-dom";
@@ -70,5 +70,37 @@ describe("eirCompile install", () => {
     const el = eirCompile(pane({ state: () => live, post: vi.fn(async () => { live.key = "other"; return result; }) }, st));
     await press(el, "Compile to IDS");
     expect(textOf(el)).not.toContain("Checks from this EIR");
+  });
+  it("blocks the compile with the reason when the IDS in force cannot be read", async () => {
+    vi.mocked(artefactInForce).mockRejectedValueOnce(new Error("HTTP 500"));
+    const st = lead(), post = vi.fn(async () => result);
+    const el = eirCompile(pane({ state: () => st, post }, st));
+    await press(el, "Compile to IDS");
+    expect(textOf(el)).toContain("The IDS in force could not be read: HTTP 500");
+    expect(post).not.toHaveBeenCalled();
+  });
+  it("offers no install over an IDS in force that has no sha", async () => {
+    vi.mocked(artefactInForce).mockResolvedValueOnce({ sha256: null, body: {} } as any);
+    const st = lead();
+    const el = eirCompile(pane({ state: () => st, post: vi.fn(async () => result) }, st));
+    await press(el, "Compile to IDS");
+    expect(findAll(el, "button").map(textOf)).not.toContain("Install on this project");
+    expect(textOf(el)).toContain("The IDS in force could not be read; nothing can be installed now.");
+  });
+  it("downloads the .ids as an application/xml Blob through an a[download] click", async () => {
+    const made: Blob[] = [], clicked: any[] = [];
+    const url = globalThis.URL as any, was = [url.createObjectURL, url.revokeObjectURL];
+    url.createObjectURL = (b: Blob) => { made.push(b); return "blob:x"; }; url.revokeObjectURL = () => {};
+    try {
+      const st = lead(), c = pane({ state: () => st, post: vi.fn(async () => result) }, st), orig = c.doc.createElement;
+      c.doc.createElement = (t: string) => { const e = orig(t); if (t === "a") e.click = () => clicked.push(e); return e; };
+      const el = eirCompile(c);
+      await press(el, "Compile to IDS"); await press(el, "Download .ids");
+      expect(made).toHaveLength(1);
+      expect(made[0].type).toBe("application/xml");
+      expect(await made[0].text()).toBe("<ids/>");
+      expect(clicked).toHaveLength(1);
+      expect([clicked[0].getAttribute("href"), clicked[0].getAttribute("download")]).toEqual(["blob:x", "Client_EIR.ids"]);
+    } finally { [url.createObjectURL, url.revokeObjectURL] = was; }
   });
 });

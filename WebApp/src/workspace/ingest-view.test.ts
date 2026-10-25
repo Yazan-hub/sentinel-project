@@ -51,4 +51,29 @@ describe("foldPassages", () => {
     expect((findAll(el, "button").find((b) => textOf(b) === "Create document")! as HTMLButtonElement).disabled).toBe(false);
     expect(ctx.openDoc).not.toHaveBeenCalled();
   });
+  const one = { doc_type: "EIR", title: "T", source: {}, proposal: { sections: [{ heading: "1", guidance: "", body: "x", fragments: [] }], unassigned: [] } };
+  it("says where to find the new document when opening it did not land", async () => {
+    const st = { ...emptyState("k"), doc: null as any };
+    const ws = { state: () => st, post: vi.fn(async () => ({ id: "new1" })) };
+    const el = ingestView(pane(ws, st), one as any, () => {});
+    await press(el, "Create document");
+    expect(textOf(el)).toContain("Created. Open it from the Documents tab.");
+  });
+  it("says nothing more when the new document is open", async () => {
+    const st = { ...emptyState("k"), doc: null as any };
+    const ws = { state: () => st, post: vi.fn(async () => ({ id: "new1" })) };
+    const c = pane(ws, st);
+    c.openDoc = vi.fn(async () => { st.doc = { id: "new1" }; });
+    const el = ingestView(c, one as any, () => {});
+    await press(el, "Create document");
+    expect(textOf(el)).not.toContain("Open it from the Documents tab");
+  });
+  it("reads a proposal without fragments or unassigned passages", async () => {
+    const st = emptyState("k");
+    const ws = { state: () => st, post: vi.fn(async () => ({ id: "n" })) };
+    const p = { ...one, proposal: { sections: [{ heading: "1", guidance: "", body: "x" }] } };
+    const el = ingestView(pane(ws, st), p as any, () => {});
+    await press(el, "Create document");
+    expect(ws.post).toHaveBeenCalled();
+  });
 });

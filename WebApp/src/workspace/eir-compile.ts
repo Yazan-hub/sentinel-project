@@ -59,6 +59,7 @@ export function eirCompile(ctx: PaneCtx): HTMLElement {
       return;
     }
     if (stale()) return;
+    const unusable = inForce !== null && !inForce.sha256; // an IDS in force with no sha: If-Match would be "none" and the bridge would refuse every install
     const r = await ctx.ws.post<CompileResult>(`/cde/${encodeURIComponent(key)}/artefacts/ids/eir`, { text: eirText(doc), title: `${doc.title}, compiled IDS` });
     if (stale()) return;
     restore();
@@ -75,7 +76,8 @@ export function eirCompile(ctx: PaneCtx): HTMLElement {
       a.click(); URL.revokeObjectURL(url);
     });
     actions.append(download);
-    if (ctx.canGovern && arr(r.specifications).length > 0) { // a compile with no checks would pass every model vacuously: not offered
+    if (unusable) result.textContent = "The IDS in force could not be read; nothing can be installed now.";
+    else if (ctx.canGovern && arr(r.specifications).length > 0) { // a compile with no checks would pass every model vacuously: not offered
       const install = btn(d, "Install on this project", true);
       install.addEventListener("click", async () => {
         install.disabled = true; install.textContent = "Installing…"; result.textContent = "";

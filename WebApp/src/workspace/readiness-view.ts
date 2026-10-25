@@ -20,6 +20,7 @@ function pillarLines(rep: unknown): string[] | null {
   const pillars = obj(obj(obj(rep).score).pillars);
   if (!Object.keys(pillars).length) return null;
   return PILLARS.map(([k, label]) => {
+    if (!(k in pillars)) return `${label}: not reported`;
     const p = obj(pillars[k]), m = obj(p.measured), c = obj(p.declared);
     return `${label}: Measured ${num(m.met)} met, ${num(m.violation)} violation, ${num(m.not_checkable)} not checkable · Declared ${num(c.yes)} yes, ${num(c.partial)} partly, ${num(c.no)} no · ${Array.isArray(p.missing) ? p.missing.length : 0} missing`;
   });
@@ -34,12 +35,12 @@ export function renderReadiness(doc: DocRow, rep: unknown, d: Document): HTMLEle
   for (const s of Array.isArray(doc.sections) ? doc.sections : []) {
     const box = h(d, "div", `border-top:1px solid ${C.line};padding:.6rem 0`);
     box.append(h(d, "div", "font:600 13px system-ui;color:#fff", String(s?.heading ?? "")));
-    if (s?.kind === "measured") { root.append(box); continue; } // Sentinel measures these; there is no answer to show
+    const due = h(d, "div", `color:${C.muted};font:11px system-ui`, s?.due ? `Due ${s.due}` : "No due date");
+    if (s?.kind === "measured") { box.append(due); root.append(box); continue; } // Sentinel measures these: a due date, but no question or answer
     if (s?.question) box.append(h(d, "div", `color:${C.soft};font:12px system-ui;margin:.2rem 0`, String(s.question)));
-    const a = s?.answer;
-    const word = a ? ANSWER_WORDS[a.value] ?? String(a.value) : "";
-    box.append(h(d, "div", `color:${C.text};font:12px system-ui`, a ? (a.note ? `${word}: ${a.note}` : word) : "Not answered"),
-      h(d, "div", `color:${C.muted};font:11px system-ui`, s?.due ? `Due ${s.due}` : "No due date"));
+    const a = s?.answer, note = a && typeof a.note === "string" ? a.note : "";
+    const word = a && typeof a.value === "string" ? ANSWER_WORDS[a.value] ?? a.value : "Not answered";
+    box.append(h(d, "div", `color:${C.text};font:12px system-ui`, note ? `${word}: ${note}` : word), due);
     root.append(box);
   }
   return root;
