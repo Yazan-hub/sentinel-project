@@ -3,7 +3,7 @@
 // This file imports only types from block-editors.ts (which registers the three editors), so there is no import cycle.
 import { BLOCK_NAMES, type BlockData, type BlockKind, type ColumnType, type MatrixMark, type TableColumn } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "../setups/ask";
-import { MARK_WORDS, MATRIX_LEGEND, ROLE_WORDS } from "./block-render";
+import { EIR_DERIVED_NOTE, MARK_WORDS, MATRIX_LEGEND, ROLE_WORDS, versionWord } from "./block-render";
 import { C, btn, h } from "./dom";
 import type { BlockEditor } from "./block-editors";
 
@@ -68,7 +68,11 @@ export function removeColumn<T extends Table | Matrix>(data: T, key: string): T 
   return { ...data, columns, rows } as unknown as T;
 }
 
-const isDate = (v: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+const isDate = (v: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const t = Date.parse(`${v}T00:00:00Z`); // NaN for month 13 or day 45; toISOString would throw on it
+  return Number.isFinite(t) && new Date(t).toISOString().slice(0, 10) === v;
+};
 
 export function tableProblems(data: Table): string[] {
   const out: string[] = [];
@@ -160,13 +164,16 @@ export const tableEditor: BlockEditor = (block, ctx) => {
   const list = h(d, "datalist");
   list.setAttribute("id", listId);
   const fillList = () => list.replaceChildren(...emails.map((e) => { const o = h(d, "option"); o.value = e; return o; }));
-  void (async () => {
+  let asked = false;
+  const loadMembers = async () => { // once, and only when a person column exists
+    if (asked || !data.columns.some((c) => c.type === "person")) return;
+    asked = true;
     try {
       const m = await ctx.ws.get<{ email: string; role: string }[]>(`/cde/${encodeURIComponent(ctx.st.key)}/members`);
       emails = arr<{ email?: unknown }>(m).map((x) => x.email).filter((e): e is string => typeof e === "string");
       fillList();
     } catch { /* no suggestions */ }
-  })();
+  };
 
   const problemsEl = h(d, "div", `color:${C.warn};font:12px system-ui;margin:.3rem 0`);
   const problems = (): string[] => tableProblems(data);
@@ -195,6 +202,7 @@ export const tableEditor: BlockEditor = (block, ctx) => {
   }
 
   function draw() {
+    void loadMembers();
     const head = data.columns.map((c, at) => cell(f, "th", h(d, "div", "font-weight:700", c.label),
       ...(ctx.canGovern ? [select(f, "type", [["text", "Text"], ["number", "Number"], ["date", "Date"], ["choice", "Choice"], ["person", "Person"], ["team", "Task team"]], c.type, (x) => setCol(c.key, { type: x as ColumnType}))] : []),
       ...columnTools(f, ctx, data.columns, at, {
@@ -248,7 +256,7 @@ export const matrixEditor: BlockEditor = (block, ctx) => {
       ...data.columns.map((c) => {
         const sel = select(f, "mark", [["", "—"], ...MARKS.map((m): [string, string] => [m, MARK_WORDS[m]])], r.marks[c.key] ?? "", (x) => {
           const res = setMark(data, r.id, c.key, x === "" ? null : (x as MatrixMark));
-          if ("message" in res) { f.note.textContent = res.message; sel.value = r.marks[c.key] ?? ""; return; }
+          if ("message" in res) { f.note.textContent = res.message; sel.value = data.rows.find((q) => q.id === r.id)?.marks[c.key] ?? ""; return; }
           f.note.textContent = ""; data = res.data; f.changed();
         });
         sel.dataset.col = c.key;
@@ -281,7 +289,7 @@ export const referencesEditor: BlockEditor = (block, ctx) => {
     const eir = ctx.st.respondsTo;
     const derived = eir && !data.rows.some((r) => r.role === "eir")
       ? [h(d, "div", `color:${C.muted};font:italic 12px system-ui;margin:.2rem 0`,
-        `${ROLE_WORDS.eir}: ${eir.title}, ${eir.version_no == null ? "—" : `v${eir.version_no}`} (from what this BEP answers)`)] : [];
+        `${ROLE_WORDS.eir}: ${eir.title}, ${versionWord(eir.version_no)} (${EIR_DERIVED_NOTE})`)] : [];
     const rows = data.rows.map((r) => tr(f,
       cell(f, "td", select(f, "role", roles, r.role, (x) => { set(r.id, { role: x as Refs["rows"][number]["role"] }); draw(); })),
       cell(f, "td", input(f, "title", r.title ?? "", (x) => set(r.id, { title: x }))),

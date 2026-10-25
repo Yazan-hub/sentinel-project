@@ -4,7 +4,7 @@ vi.mock("../setups/bridge-fetch", () => ({ bfetch: vi.fn() }));
 vi.mock("../setups/ask", () => ({ askText: vi.fn(async () => null), askYesNo: vi.fn(async () => true) }));
 
 import { askText, askYesNo } from "../setups/ask";
-import { MARK_WORDS, MATRIX_LEGEND } from "./block-render";
+import { EIR_DERIVED_NOTE, MARK_WORDS, MATRIX_LEGEND, versionWord } from "./block-render";
 import { addRow, applyPreset, columnKey, matrixEditor, normaliseCells, referencesEditor, removeColumn, removeRow, setMark, tableEditor, tableProblems } from "./grid-editors";
 import { click, fakeDocument, findAll, fire, textOf } from "./fake-dom";
 
@@ -72,6 +72,29 @@ describe("tableProblems", () => {
     const before = JSON.stringify(t);
     expect(tableProblems(t)).toEqual(["Row 1, Note: longer than 4000 characters."]);
     expect(JSON.stringify(t)).toBe(before);
+  });
+});
+
+describe("tableProblems edges (fix round 1)", () => {
+  const one = (c: any, v: unknown) => ({ group_by_team: false, columns: [c], rows: [{ id: "1", group: null, cells: { k: v } }] }) as any;
+  it("an impossible date does not throw and is named", () => {
+    for (const v of ["2026-13-45", "2026-00-10", "2026-02-30"]) expect(tableProblems(one(col("k", "Due", "date"), v))).toEqual(["Row 1, Due: not a date."]);
+    expect(tableProblems(one(col("k", "Due", "date"), "2028-02-29"))).toEqual([]);
+  });
+  it("-0 and 1e3 are numbers", () => {
+    expect(tableProblems(one(col("k", "N", "number"), -0))).toEqual([]);
+    expect(tableProblems(one(col("k", "N", "number"), Number("1e3")))).toEqual([]);
+    expect(tableProblems(one(col("k", "N", "number"), Number.NaN))).toEqual(["Row 1, N: not a number."]);
+  });
+  it("a choice outside its list is flagged; with no list any text is accepted", () => {
+    expect(tableProblems(one(col("k", "A", "choice", ["a", "b"]), "c"))).toEqual(["Row 1, A: choose one of a, b."]);
+    expect(tableProblems(one(col("k", "A", "choice", []), "anything"))).toEqual([]);
+  });
+  it("a 4001-character value: the type message wins in a date or a listed choice column, the length message in a choice column with no list", () => {
+    const long = "x".repeat(4001);
+    expect(tableProblems(one(col("k", "D", "date"), long))).toEqual(["Row 1, D: not a date."]);
+    expect(tableProblems(one(col("k", "A", "choice", ["a"]), long))).toEqual(["Row 1, A: choose one of a."]);
+    expect(tableProblems(one(col("k", "A", "choice", []), long))).toEqual(["Row 1, A: longer than 4000 characters."]);
   });
 });
 
@@ -198,6 +221,53 @@ describe("tableEditor", () => {
     const e = tableEditor(block("table", tbl()), ctxWith(), "s1");
     type(findAll(e.el, "select").find((s) => (s as any).dataset.field === "type")!, "choice");
     expect((e.value().data as any).columns[0].type).toBe("choice");
+  });
+});
+
+describe("fix round 1 (editors)", () => {
+  it("switching a text column holding an impossible date to Date does not throw and names the cell", () => {
+    const data = { group_by_team: false, columns: [col("k", "Due", "text")], rows: [{ id: "1", group: null, cells: { k: "2026-13-45" } }] };
+    const e = tableEditor(block("table", data), ctxWith(), "s1");
+    type(findAll(e.el, "select").find((s) => (s as any).dataset.field === "type")!, "date");
+    expect(e.problems!()).toEqual(["Row 1, Due: not a date."]);
+    expect((e.value().data as any).columns[0].type).toBe("date");
+  });
+  it("number inputs accept -0 and 1e3", () => {
+    const e = tableEditor(block("table", tbl()), ctxWith(), "s1");
+    type(inputs(e.el, "cost")[0], "1e3");
+    expect((e.value().data as any).rows[0].cells.cost).toBe(1000);
+    type(inputs(e.el, "cost")[0], "-0");
+    expect(e.problems!()).toEqual([]);
+  });
+  it("the members list is asked for only when there is a person column, also when one is added", async () => {
+    const ctx = ctxWith({ get: [{ email: "a@x", role: "lead" }] });
+    const e = tableEditor(block("table", tbl()), ctx, "s1");
+    await flush();
+    expect(ctx.ws.get).not.toHaveBeenCalled();
+    type(findAll(e.el, "select").find((s) => (s as any).dataset.field === "type")!, "person");
+    await flush();
+    expect(ctx.ws.get).toHaveBeenCalledTimes(1);
+    expect(findAll(findAll(e.el, "datalist")[0], "option")).toHaveLength(1);
+    type(findAll(e.el, "select").filter((s) => (s as any).dataset.field === "type")[1], "person");
+    await flush();
+    expect(ctx.ws.get).toHaveBeenCalledTimes(1); // asked once
+  });
+  it("after an accepted mark, a refused one on the same cell resets the select to what the data holds", () => {
+    const e = matrixEditor(block("matrix", matrix()), ctxWith(), "s1");
+    const str = () => findAll(e.el, "select").find((s) => (s as any).dataset.col === "str")!;
+    const sel = str();
+    type(sel, "contributes");
+    type(sel, "produces"); // refused: ARC produces
+    expect((e.value().data as any).rows[0].marks.str).toBe("contributes");
+    expect((sel as any).value).toBe("contributes");
+    expect(textOf(e.el)).toContain("Only one task team produces each row");
+  });
+  it("the derived EIR line uses the renderer's own words", () => {
+    const rc = { respondsTo: { title: "Client EIR", version_no: 2 } };
+    const e = referencesEditor(block("references", { rows: [] }), ctxWith(rc), "s1");
+    expect(textOf(e.el)).toContain(`EIR: Client EIR, ${versionWord(2)} (${EIR_DERIVED_NOTE})`);
+    const e2 = referencesEditor(block("references", { rows: [] }), ctxWith({ respondsTo: { title: "T", version_no: null } }), "s1");
+    expect(textOf(e2.el)).toContain(`EIR: T, ${versionWord(null)} (${EIR_DERIVED_NOTE})`);
   });
 });
 

@@ -11,6 +11,9 @@ export const MARK_WORDS: Record<string, string> = { produces: "Produces", contri
 export const MATRIX_LEGEND = "Produces: the task team responsible. Contributes: provides input. Signs off: accepts the work.";
 export const ENFORCE_WORDS: Record<string, string> = { reject: "names that do not match are refused", warn: "names that do not match are flagged", off: "not enforced" };
 export const ROLE_WORDS: Record<string, string> = { protocol: "Protocol", information_standard: "Information standard", production_methods: "Production methods", eir: "EIR", other: "Other" };
+/** The derived EIR row's words, shared with the references editor. */
+export const EIR_DERIVED_NOTE = "from what this BEP answers";
+export const versionWord = (n: number | null | undefined): string => (n == null ? "—" : `v${n}`);
 export const SOURCE_WORDS: Record<string, string> = { midp: "MIDP", tidp: "TIDP", office_register: "Office register", risk_register: "Risk register", mobilisation: "Mobilisation plan" };
 
 type Rec = Record<string, unknown>;
@@ -86,7 +89,7 @@ const RENDER: Record<string, Render> = {
     const rows = list(d.rows).map(rec);
     const body = rows.map((r) => [word(ROLE_WORDS, r.role) || "—", dash(r.title), dash(r.version), dash(r.issuer), dash(r.received)]);
     if (ctx.respondsTo && !rows.some((r) => r.role === "eir"))
-      body.push(["EIR", dash(ctx.respondsTo.title), ctx.respondsTo.version_no == null ? "—" : `v${ctx.respondsTo.version_no}`, "—", "— (from what this BEP answers)"]);
+      body.push(["EIR", dash(ctx.respondsTo.title), versionWord(ctx.respondsTo.version_no), "—", `— (${EIR_DERIVED_NOTE})`]);
     return grid(doc, ["Role", "Title", "Version", "Issuer", "Received"], body);
   },
   facts: (d, _c, doc) => {
