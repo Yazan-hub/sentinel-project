@@ -7,6 +7,7 @@ vi.mock("../setups/ask", () => ({ askText: vi.fn(async () => null), askYesNo: vi
 // @ts-ignore the bridge store is plain JS
 import { validateArtefact } from "../../bridge/artefact-store.mjs";
 import { namingFromText } from "../sentinel-core/naming-from-text";
+import { diffNaming } from "../sentinel-core/naming-diff";
 import { bumpMinor, diffLines, makeNamingRule, installNamingRule, namingEditor, namingProblems, toNamingArtefact } from "./naming-block";
 import { editPane, EDITORS, TEXT_ACTIONS } from "./block-editors";
 import { click, fakeDocument, findAll, fire, textOf } from "./fake-dom";
@@ -33,6 +34,16 @@ describe("toNamingArtefact", () => {
     expect(() => validateArtefact("naming", art)).not.toThrow();
     expect(art).toMatchObject({ title: "SNW container naming", standard_key: "snowdon-lifecycle-naming", semver: "1.0.0", separator: "_", enforce: "reject" });
     expect(art.fields).toEqual([{ key: "project", label: "Project", enum: ["SNW"] }, { key: "role", label: "Role", enum: ["A", "S"] }, { key: "number", label: "Number", pattern: "^[0-9]{4}$" }]);
+  });
+});
+describe("F-R1b-1: the install difference uses plain words", () => {
+  it("allowed values and stand-in values, not enum and placeholders", () => {
+    const f = (o: object) => ({ key: "project", label: "Project", ...o });
+    const mk = (fields: object[]) => ({ separator: "-", fields }) as any;
+    const lines = diffLines(diffNaming(mk([f({ enum: ["ABC"], placeholders: ["ZZ", "XX"] })]), mk([f({ enum: ["ABC", "SNW"] })])), false).join(" ");
+    expect(lines).toContain("allowed values +SNW");
+    expect(lines).toContain("stand-in values ZZ, XX");
+    expect(lines).not.toMatch(/enum|placeholders/);
   });
 });
 describe("bumpMinor and diffLines", () => {

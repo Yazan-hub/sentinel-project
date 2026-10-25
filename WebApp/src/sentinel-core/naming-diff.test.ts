@@ -29,7 +29,7 @@ describe("diffNaming", () => {
     expect(d.removed).toEqual([{ key: "number", label: "Number" }]);
     expect(d.changed).toEqual([
       { key: "project", label: "Project", changes: ["pattern [A-Z0-9]{3,6} → [A-Z0-9]{4}"] },
-      { key: "originator", label: "Originator", changes: ["enum +MEP -STR"] },
+      { key: "originator", label: "Originator", changes: ["allowed values +MEP -STR"] },
     ]);
     expect(d.header).toEqual([]);
   });

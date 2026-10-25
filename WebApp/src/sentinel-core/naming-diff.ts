@@ -23,8 +23,8 @@ function fieldChanges(a: NamingField, b: NamingField, ia: number, ib: number): s
   const ea = new Set(a.enum ?? []), eb = new Set(b.enum ?? []);
   const plus = [...eb].filter((v) => !ea.has(v)).map((v) => `+${v}`);
   const minus = [...ea].filter((v) => !eb.has(v)).map((v) => `-${v}`);
-  if (plus.length || minus.length) out.push(`enum ${[...plus, ...minus].join(" ")}`);
-  if (joined(a.placeholders) !== joined(b.placeholders)) out.push(`placeholders ${joined(a.placeholders)} → ${joined(b.placeholders)}`);
+  if (plus.length || minus.length) out.push(`allowed values ${[...plus, ...minus].join(" ")}`);
+  if (joined(a.placeholders) !== joined(b.placeholders)) out.push(`stand-in values ${joined(a.placeholders)} → ${joined(b.placeholders)}`);
   return out;
 }
 
