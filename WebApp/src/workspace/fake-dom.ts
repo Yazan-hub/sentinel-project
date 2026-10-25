@@ -101,3 +101,11 @@ export function click(el: HTMLElement): void {
   const e = el as unknown as FElement, ev = { type: "click", target: e, preventDefault() {}, stopPropagation() {} };
   e.onclick?.(ev); (e.listeners.get("click") ?? []).forEach((fn) => fn(ev));
 }
+
+/** A stand-in window for the print popup: `open` returns one popup with its own fresh document (null when blocked).
+ *  `focus` and `print` record that they were called. */
+export function fakeWindow(opts: { blocked?: boolean } = {}): { win: Window; popup: { document: Document; focused: boolean; printed: boolean } | null } {
+  if (opts.blocked) return { win: { open: () => null } as unknown as Window, popup: null };
+  const popup = { document: fakeDocument(), focused: false, printed: false, focus() { popup.focused = true; }, print() { popup.printed = true; } };
+  return { win: { open: () => popup } as unknown as Window, popup };
+}

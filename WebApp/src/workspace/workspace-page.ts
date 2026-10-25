@@ -9,6 +9,7 @@ import { askYesNo } from "../setups/ask";
 import { statusLine } from "../sentinel-core/doc-blocks";
 import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
+import { readView } from "./read-view";
 
 export type View = "edit" | "read" | "compare" | "versions";
 export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; base: string; canEdit: boolean; canGovern: boolean;
@@ -33,7 +34,7 @@ const sectionsView = (ctx: PaneCtx): HTMLElement => {
   return article;
 };
 
-export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: sectionsView, read: sectionsView, compare: sectionsView, versions: sectionsView };
+export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: sectionsView, read: readView, compare: sectionsView, versions: sectionsView };
 
 const SIDE_TEXT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
 export const SIDE_TABS: Record<"quality" | "review" | "comments", (ctx: PaneCtx) => HTMLElement> = {
