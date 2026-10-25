@@ -42,6 +42,19 @@ describe("F-R1b-3: a held-back line has no dash", () => {
     expect(lines.map((l) => l.text).join(" ")).not.toContain(" — ");
   });
 });
+describe("F-R1b-3 follow-up: the ok and unmatched lines have no dash either", () => {
+  it("the bridge's spec name and unmatched reasons, as it builds them", () => {
+    const lines = compileLines({ stats: {}, kept: 0, current: null, xml_skipped: [], xml: "", ids: {}, skipped: [],
+      specifications: [{ name: "WALL — FireRating", source_sentence: "Walls shall have a fire rating." }],
+      unmatched: [{ sentence: "A.", reason: "no IFC entity could be identified — name the element type the requirement applies to" },
+        { sentence: "B.", reason: "no property could be identified — name the property, or write it as Pset_Name.PropertyName" }] });
+    const texts = lines.map((l) => l.text);
+    expect(texts).toContain("WALL, FireRating");
+    expect(texts).toContain("no IFC entity could be identified. Name the element type the requirement applies to.");
+    expect(texts).toContain("no property could be identified. Name the property, or write it as Pset_Name.PropertyName.");
+    expect(texts.join(" | ")).not.toContain(" — ");
+  });
+});
 describe("eirCompile install", () => {
   it("sends If-Match with the sha of the IDS in force read before the compile", async () => {
     const st = lead();

@@ -33,10 +33,10 @@ export function compileLines(r: CompileResult): { text: string; tone: Tone }[] {
     : "No IDS is installed on this project yet.", tone: "note" });
   for (const sk of skipped) out.push({ text: `${inName(sk.name)}: ${inReason(sk.reason)}`, tone: "warn" });
   for (const sp of arr<Spec>(r.specifications).filter((s) => !skipped.some((k) => k.name === s.name && k.source_sentence === s.source_sentence))) {
-    out.push({ text: sp.name || `${sp.entity || "?"}: ${sp.property || "?"}`, tone: "ok" });
+    out.push({ text: sp.name ? inName(sp.name) : `${sp.entity || "?"}: ${sp.property || "?"}`, tone: "ok" });
     if (sp.source_sentence) out.push({ text: `from: “${sp.source_sentence}”`, tone: "note" });
   }
-  for (const u of unmatched) { out.push({ text: `Not in the IDS: “${u.sentence}”`, tone: "bad" }); out.push({ text: u.reason, tone: "note" }); }
+  for (const u of unmatched) { out.push({ text: `Not in the IDS: “${u.sentence}”`, tone: "bad" }); out.push({ text: inReason(u.reason), tone: "note" }); }
   const n = arr(r.xml_skipped).length;
   if (n) out.push({ text: `The .ids file leaves out ${n} check(s) its format cannot hold. Sentinel still checks them.`, tone: "warn" });
   return out;
