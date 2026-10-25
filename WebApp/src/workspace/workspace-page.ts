@@ -7,7 +7,7 @@ import { myRoleRead } from "../setups/my-role";
 import { currentUser } from "../setups/auth";
 import { askYesNo } from "../setups/ask";
 import { aiPicker } from "../setups/ai-picker";
-import { statusLine } from "../sentinel-core/doc-blocks";
+import { statusLine, type DocRow } from "../sentinel-core/doc-blocks";
 import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
 import { editPane } from "./block-editors";
@@ -18,7 +18,9 @@ import { compareView, versionsView } from "./versions-view";
 export type View = "edit" | "read" | "compare" | "versions";
 export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; base: string; canEdit: boolean; canGovern: boolean;
   focused: string | null; focus(sectionId: string): void; show(view: View): void; refresh(part: "outline" | "side" | "all"): void;
-  openDoc(docId: string): Promise<void> /* the page's own open: view reset, remembered as this project's last document */ }
+  openDoc(docId: string): Promise<void> /* the page's own open: view reset, remembered as this project's last document */;
+  /** Set by the edit view for the editors it opens: show this fresh row's version of one section without closing its open editors. */
+  sectionApplied?(sectionId: string, fresh: DocRow): Promise<void> }
 export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View }): Promise<void> };
 
 // Every view marks each section node with dataset.section = its id (PaneCtx.focus scrolls to it).

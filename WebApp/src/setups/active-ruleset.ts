@@ -68,7 +68,7 @@ export async function installArtefact(baseUrl: string, key: string, kind: string
     method: "PUT", headers: { "Content-Type": "application/json", ...(ifMatch ? { "If-Match": `"${ifMatch}"` } : {}) }, body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { status: r.status }); // 412 = the standard changed since the form was filled
   globalThis.dispatchEvent?.(new CustomEvent(STANDARD_INSTALLED, { detail: { key, kind, version: j?.version } }));
   return j;
 }

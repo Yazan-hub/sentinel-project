@@ -11,6 +11,8 @@ import { renderBlock, renderSectionBody } from "./block-render";
 import { renderMarkdown } from "./markdown";
 import { C, btn, h } from "./dom";
 import { matrixEditor, referencesEditor, tableEditor } from "./grid-editors";
+import { installNamingRule, makeNamingRule, namingEditor } from "./naming-block";
+import { refusal } from "./refusal";
 import { moveId, type WorkspaceState } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page"; // type-only: no import cycle
 
@@ -23,11 +25,15 @@ export const blockPath = (sectionId: string, blockId?: string): string =>
 /** `problems` (optional) lists what stops a save; the shell keeps Save disabled while it is not empty and re-checks when `onChange`'s callback is run. */
 export interface EditorHandle { el: HTMLElement; value(): { title: string; data: unknown }; problems?(): string[]; onChange?(cb: () => void): void }
 export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => EditorHandle;
-export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor };
+export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor, naming: namingEditor };
 
 /** An extra control under a text block's text area (Task 12 adds "Make this a naming rule"); null shows nothing. */
 export type TextAction = (block: Block<"text">, sectionId: string, ctx: PaneCtx, area: HTMLTextAreaElement) => HTMLElement | null;
-export const TEXT_ACTIONS: TextAction[] = [];
+export const TEXT_ACTIONS: TextAction[] = [makeNamingRule];
+
+/** An extra control under a closed block (the naming block's install); null shows nothing. */
+export type ClosedAction = (block: Block, ctx: PaneCtx, sectionId: string) => HTMLElement | null;
+export const CLOSED_ACTIONS: Partial<Record<BlockKind, ClosedAction>> = { naming: installNamingRule };
 
 /** A document nobody has published yet shows each section's guidance open; once a version exists it folds. */
 export const guidanceOpen = (st: WorkspaceState): boolean => st.doc?.status === "wip" && st.versions.length === 0;
@@ -36,12 +42,6 @@ const NO_EDITOR = "Filled in a later release; shown as stored.";
 const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const editorOf = (b: Block): BlockEditor | undefined => (typeof b.kind === "string" && has(EDITORS, b.kind) ? EDITORS[b.kind] : undefined);
 const nameOf = (b: Block): string => (typeof b.kind === "string" && has(BLOCK_NAMES, b.kind) ? BLOCK_NAMES[b.kind] : "part");
-
-/** The text a refused or stale call leaves to show: "" when the project or document changed meanwhile (the answer is no longer this page's), else the bridge's words or the fallback. */
-function refusal(ctx: PaneCtx, fallback: string): string {
-  const now = ctx.ws.state();
-  return now.key !== ctx.st.key || !now.doc || now.doc.id !== ctx.st.doc?.id ? "" : now.message || fallback;
-}
 
 EDITORS.text = (block, ctx, sid) => {
   const d = ctx.doc;
@@ -178,12 +178,13 @@ export function editPane(ctx: PaneCtx): HTMLElement {
 
     const closed = () => {
       open.delete(b.id); current = null; seed = undefined;
-      body.replaceChildren(renderBlock(b, rc, ctx.doc), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]));
+      const extra = typeof b.kind === "string" && has(CLOSED_ACTIONS, b.kind) ? CLOSED_ACTIONS[b.kind]!(b, ctx, s.id) : null;
+      body.replaceChildren(renderBlock(b, rc, ctx.doc), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]), ...(extra ? [extra] : []));
       bar.replaceChildren(...(editor ? [act("Edit", () => opened())] : []), ...tail());
     };
     const opened = () => {
       if (!editor) return;
-      current = editor(seed ? { ...b, title: seed.title, data: seed.data } as Block : b, ctx, s.id);
+      current = editor(seed ? { ...b, title: seed.title, data: seed.data } as Block : b, { ...ctx, sectionApplied: (sid, fresh) => applied(sid, fresh) }, s.id);
       open.set(b.id, { sid: s.id, value: () => current!.value() });
       body.replaceChildren(current.el);
       const save = act("Save", async () => { if (current && !current.problems?.().length) await done(await ctx.ws.write("PUT", blockPath(s.id, b.id), current.value()), b.id); });

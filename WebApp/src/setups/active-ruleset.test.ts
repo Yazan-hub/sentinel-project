@@ -79,6 +79,11 @@ describe("installArtefact", () => {
     await expect(installArtefact("http://b", "k", "ruleset", {}, "web")).rejects.toThrow("rules[3].mode");
   });
 
+  it("a refusal carries its status, so a changed rule (412) can be told from a refusal", async () => {
+    bfetch.mockResolvedValue(res(412, { message: "naming changed by lead@x at 2026-10-25 10:00 UTC — reload to see it; nothing was saved" }));
+    await expect(installArtefact("http://b", "k", "naming", {}, "web", "ab12")).rejects.toMatchObject({ status: 412 });
+  });
+
   it("STD-F: an install fires sentinel:standard-installed on this window (Settings and the Next strip re-read); a refusal fires nothing", async () => {
     const seen: Array<{ type: string; detail: unknown }> = [];
     vi.stubGlobal("dispatchEvent", (e: CustomEvent) => { seen.push({ type: e.type, detail: e.detail }); return true; });
