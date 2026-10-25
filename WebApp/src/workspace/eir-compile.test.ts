@@ -34,6 +34,14 @@ describe("compileLines", () => {
     expect(lines.map((l) => l.text).join(" ")).not.toMatch(/source_sentence|unmatched| — /);
   });
 });
+describe("F-R1b-3: a held-back line has no dash", () => {
+  it("the bridge's wording is split into sentences", () => {
+    const lines = compileLines({ stats: {}, specifications: [], unmatched: [], kept: 0, current: null, xml_skipped: [], xml: "", ids: {},
+      skipped: [{ name: "WALL — FireRating", reason: "already checked by 'Walls carry fire rating' — held back so it is not checked twice, and put back if that check goes" }] });
+    expect(lines).toContainEqual({ text: "WALL, FireRating: already checked by 'Walls carry fire rating'. Held back so it is not checked twice, and put back if that check goes.", tone: "warn" });
+    expect(lines.map((l) => l.text).join(" ")).not.toContain(" — ");
+  });
+});
 describe("eirCompile install", () => {
   it("sends If-Match with the sha of the IDS in force read before the compile", async () => {
     const st = lead();

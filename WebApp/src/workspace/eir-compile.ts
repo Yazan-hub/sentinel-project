@@ -18,6 +18,9 @@ export const eirText = (doc: Pick<DocRow, "title" | "sections">): string =>
   [doc.title, ...doc.sections.flatMap((s) => [s.heading, s.body])].filter(Boolean).join("\n\n");
 
 const arr = <T,>(x: unknown): T[] => (Array.isArray(x) ? (x as T[]) : []);
+/** The bridge writes " — " in a name and a reason; the screen says a comma in a name, and a new sentence in a reason. */
+const inName = (s: string): string => s.replace(/ — /g, ", ");
+const inReason = (s: string): string => { const t = s.replace(/ — (.)/g, (_, c: string) => `. ${c.toUpperCase()}`); return /[.!?]$/.test(t) ? t : `${t}.`; };
 
 /** What the compile found, as lines of plain words: the checks made, the sentence each came from, and what is not in the IDS. */
 export function compileLines(r: CompileResult): { text: string; tone: Tone }[] {
@@ -28,7 +31,7 @@ export function compileLines(r: CompileResult): { text: string; tone: Tone }[] {
   out.push({ text: r.current
     ? `Installing keeps ${r.kept} check(s) of ${r.current}. The checks made from the contract and naming rules stay. It replaces what an earlier EIR compile added.`
     : "No IDS is installed on this project yet.", tone: "note" });
-  for (const sk of skipped) out.push({ text: `${sk.name}: ${sk.reason}`, tone: "warn" });
+  for (const sk of skipped) out.push({ text: `${inName(sk.name)}: ${inReason(sk.reason)}`, tone: "warn" });
   for (const sp of arr<Spec>(r.specifications).filter((s) => !skipped.some((k) => k.name === s.name && k.source_sentence === s.source_sentence))) {
     out.push({ text: sp.name || `${sp.entity || "?"}: ${sp.property || "?"}`, tone: "ok" });
     if (sp.source_sentence) out.push({ text: `from: “${sp.source_sentence}”`, tone: "note" });
