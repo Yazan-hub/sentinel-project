@@ -60,7 +60,7 @@ describe("eirCompile install", () => {
     const el = eirCompile(pane({ state: () => st, post: vi.fn(async () => ({ ...result, specifications: [] })) }, st));
     await press(el, "Compile to IDS");
     expect(findAll(el, "button").map(textOf)).not.toContain("Install on this project");
-    const st2 = lead(), c2 = { ...pane({ state: () => st2, post: vi.fn(async () => result) }, st2), canGovern: false };
+    const st2 = lead({ role: "contributor" }), c2 = pane({ state: () => st2, post: vi.fn(async () => result) }, st2); // F4: by role, not by canGovern
     const el2 = eirCompile(c2);
     await press(el2, "Compile to IDS");
     expect(findAll(el2, "button").map(textOf)).not.toContain("Install on this project");
@@ -100,7 +100,42 @@ describe("eirCompile install", () => {
       expect(made[0].type).toBe("application/xml");
       expect(await made[0].text()).toBe("<ids/>");
       expect(clicked).toHaveLength(1);
-      expect([clicked[0].getAttribute("href"), clicked[0].getAttribute("download")]).toEqual(["blob:x", "Client_EIR.ids"]);
+      expect([clicked[0].getAttribute("href"), clicked[0].getAttribute("download")]).toEqual(["blob:x", "Client-EIR.ids"]);
     } finally { [url.createObjectURL, url.revokeObjectURL] = was; }
+  });
+});
+
+describe("final review: install by role on any status (F4), Download .ids (F13)", () => {
+  const published = (role: string) => lead({ role, doc: { id: "e1", doc_type: "EIR", title: "Client EIR", status: "published", sections: [] } });
+  it("F4: a published EIR shows Install to a lead after Compile; a contributor sees none", async () => {
+    for (const [role, shown] of [["lead", true], ["contributor", false]] as const) {
+      const st = published(role), c = pane({ state: () => st, post: vi.fn(async () => result) }, st);
+      c.canGovern = false; c.canEdit = false; // what rightsOf gives for a published document
+      const el = eirCompile(c);
+      await press(el, "Compile to IDS");
+      expect(findAll(el, "button").some((b) => textOf(b) === "Install on this project"), role).toBe(shown);
+    }
+  });
+  it("F13: the file name keeps any letters and digits; the link is revoked after the click had time", async () => {
+    vi.useFakeTimers();
+    try {
+      const made: any[] = [], revoked: string[] = [];
+      vi.stubGlobal("URL", { createObjectURL: () => "blob:1", revokeObjectURL: (u: string) => { revoked.push(u); } });
+      for (const [title, name] of [["مخطط EIR 2", "مخطط-EIR-2.ids"], ["!!!", "compiled.ids"]]) {
+        const st = lead({ doc: { id: "e1", doc_type: "EIR", title, sections: [] } }), c = pane({ state: () => st, post: vi.fn(async () => result) }, st);
+        const make = c.doc.createElement.bind(c.doc);
+        c.doc.createElement = (t: string) => { const e = make(t); if (t === "a") { e.click = vi.fn(); made.push(e); } return e; };
+        const el = eirCompile(c);
+        click(findAll(el, "button").find((b) => textOf(b) === "Compile to IDS")!);
+        await vi.advanceTimersByTimeAsync(0); await vi.advanceTimersByTimeAsync(0);
+        click(findAll(el, "button").find((b) => textOf(b) === "Download .ids")!);
+        expect(made[made.length - 1].getAttribute("download")).toBe(name);
+        expect(made[made.length - 1].click).toHaveBeenCalled();
+        expect(revoked).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(revoked).toEqual(["blob:1"]);
+        revoked.length = 0;
+      }
+    } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
   });
 });

@@ -57,3 +57,13 @@ describe("R1b carried reviews", () => {
   it("the strip note says a bound section that is not yet written is not scored either", () =>
     expect(src).toContain("bound to a planned check, or bound but not yet written — not scored"));
 });
+
+describe("F3: an ingest read while the project switched is not committed into the new project", () => {
+  it("the project is recorded before the upload and checked between the answer and onIngested, with words", () => {
+    const f = fn("runIngest");
+    const at = f.indexOf("const at = pid();"), fetchAt = f.indexOf("await bfetch("), check = f.indexOf("if (pid() !== at)"), handOver = f.indexOf("opts.onIngested?.(");
+    expect(at).toBeGreaterThan(-1); expect(at).toBeLessThan(fetchAt);
+    expect(check).toBeGreaterThan(fetchAt); expect(check).toBeLessThan(handOver);
+    expect(f).toContain("The project changed while the file was read. Ingest it again in that project.");
+  });
+});

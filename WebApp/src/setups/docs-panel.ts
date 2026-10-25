@@ -1,5 +1,6 @@
 // Documents panel — ISO 19650 project documents (BEP/EIR): create from template, edit sections,
-// manage states, publish immutable versions, print/PDF via a print stylesheet. Plain-DOM like files-panel.
+// manage states, publish immutable versions, read a document with its Markdown rendered (printing is the workspace's
+// Read view). Plain-DOM like files-panel.
 import { type Block, oldPanelEditable, oldPanelSaveBody, OLD_PANEL_NOTE } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
@@ -152,12 +153,18 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     body.append(busy);
     try {
       const docType = /bep/i.test(file.name) ? "BEP" : "EIR";
+      const at = pid(); // the mapping can take a minute: its answer belongs to this project only
       const r = await bfetch(
-        `${base}/bimdocs/${encodeURIComponent(pid())}/ingest?name=${encodeURIComponent(file.name)}&doc_type=${docType}`,
+        `${base}/bimdocs/${encodeURIComponent(at)}/ingest?name=${encodeURIComponent(file.name)}&doc_type=${docType}`,
         { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: await file.arrayBuffer() },
       );
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((j as { message?: string }).message || `HTTP ${r.status}`);
+      if (pid() !== at) { // never reviewed or committed into the project switched to meanwhile
+        await showList();
+        msg("The project changed while the file was read. Ingest it again in that project.", true);
+        return;
+      }
       opts.onIngested?.(j as IngestProposal); // the review is the workspace's
       await showList();
     } catch (e) {
@@ -770,7 +777,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     } catch (e: any) { if (mine !== seq) return; msg(e.message, true); }
   }
 
-  // ── Document view (read + print) ──────────────────────────────────────────
+  // ── Document view (read only; printing is in the workspace) ──────────────────────────────────────────
   async function showDocView(doc: Doc, versionLabel?: string) {
     const mine = seq;
     bar.replaceChildren();

@@ -88,6 +88,13 @@ describe("qualityTab", () => {
     expect(textOf(root.childNodes[0] as any)).toContain("Compile to IDS");
     expect(button(qualityTab(ctxWith()), "Compile to IDS")).toBeUndefined();
   });
+  it("F11: Compile to IDS shows from contributor up on any status, never to a viewer", () => {
+    for (const [role, shown] of [["viewer", false], ["contributor", true], ["lead", true]] as const) {
+      const c = ctxWith({ canGovern: false, canEdit: false });
+      c.st.role = role; c.st.doc = { ...docRow, doc_type: "EIR", status: "published" };
+      expect(!!button(qualityTab(c), "Compile to IDS"), role).toBe(shown);
+    }
+  });
   it("reads the headline from the state each time it is built", () => {
     const c = ctxWith();
     expect(textOf(qualityTab(c))).toContain("20 %");

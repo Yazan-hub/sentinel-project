@@ -54,7 +54,7 @@ const SNW = "`SNW_<role>_<number>`\n\n| Field | Values |\n|---|---|\n| Role | A,
 const dataOf = () => namingFromText(SNW)!;
 const nblock = (data = dataOf()) => ({ id: "n1", kind: "naming", title: "Container naming", data }) as any;
 function ctxWith(o: { ws?: Record<string, unknown>; canEdit?: boolean; canGovern?: boolean; key?: string } = {}) {
-  const st = { key: o.key ?? "snowdon-lifecycle", doc: { id: "d1", title: "SNW BEP", sections: [] }, versions: [], comments: [], ex: null, role: "lead", me: "lead@x", problems: [], message: "", viewing: null, respondsTo: null };
+  const st = { key: o.key ?? "snowdon-lifecycle", doc: { id: "d1", title: "SNW BEP", sections: [] }, versions: [], comments: [], ex: null, role: o.canGovern === false ? "contributor" : "lead", me: "lead@x", problems: [], message: "", viewing: null, respondsTo: null };
   const ctx = { st, doc: fakeDocument(), base: "http://b", canEdit: o.canEdit ?? true, canGovern: o.canGovern ?? true, focused: null, focus: vi.fn(), show: vi.fn(), refresh: vi.fn(), openDoc: vi.fn(),
     ws: { state: vi.fn(() => st), write: vi.fn(async () => null), post: vi.fn(), get: vi.fn(), rescore: vi.fn(), open: vi.fn(), reload: vi.fn(), viewVersion: vi.fn(), ...o.ws } } as any;
   return { ctx, st: st as any };
@@ -208,8 +208,9 @@ describe("installNamingRule", () => {
     bfetch.mockResolvedValueOnce(getRule(body)).mockResolvedValueOnce(res(201, { kind: "naming", version: 4, sha256: "n" }));
     const { el } = mount();
     click(button(el, "Install as the project's naming rule")!); await flush();
-    expect(textOf(el)).toContain("Keeps strip_extensions (.ifc, .rvt) from the rule in force.");
-    expect(textOf(el)).toContain("Keeps note from the rule in force.");
+    expect(textOf(el)).toContain("Keeps file extensions removed before a name is checked (.ifc, .rvt) from the rule in force.");
+    expect(textOf(el)).toContain("Keeps another setting of the rule in force (note).");
+    expect(textOf(el)).not.toContain("strip_extensions");
     click(button(el, "Install on this project")!); await flush();
     const sent = JSON.parse(((bfetch.mock.calls[1] as any)[1] as RequestInit).body as string);
     expect(sent).toMatchObject({ strip_extensions: [".ifc", ".rvt"], note: "x", separator: "_", source: { block: "n1" } });
@@ -223,7 +224,7 @@ describe("installNamingRule", () => {
     const { el } = mount();
     click(button(el, "Install as the project's naming rule")!); await flush();
     click(button(el, "Install on this project")!); await flush();
-    expect(textOf(el)).toContain("Keeps strip_extensions (.rvt) from the rule in force.");
+    expect(textOf(el)).toContain("Keeps file extensions removed before a name is checked (.rvt) from the rule in force.");
     click(button(el, "Install on this project")!); await flush();
     expect(JSON.parse(((bfetch.mock.calls[3] as any)[1] as RequestInit).body as string).strip_extensions).toEqual([".rvt"]);
   });
@@ -293,6 +294,14 @@ describe("the closed naming block in the edit view", () => {
     const lead = ctxWith(); lead.st.doc = row;
     expect(button(editPane(lead.ctx), "Install as the project's naming rule")).toBeDefined();
     const contributor = ctxWith({ canGovern: false }); contributor.st.doc = row;
+    expect(button(editPane(contributor.ctx), "Install as the project's naming rule")).toBeUndefined();
+  });
+  it("F4: by role on any status: a lead is offered the install in the read-only edit view, a contributor is not", () => {
+    const row = { id: "d1", doc_type: "BEP", title: "T", status: "published", stage: "pre_appointment", suitability: "S0", responds_to: null, responds_to_version: null, template_id: null, template_version: null, updated_at: "t1",
+      sections: [{ id: "s1", heading: "S", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [nblock()] }] };
+    const lead = ctxWith({ canEdit: false, canGovern: false }); lead.st.role = "lead"; lead.st.doc = row;
+    expect(button(editPane(lead.ctx), "Install as the project's naming rule")).toBeDefined();
+    const contributor = ctxWith({ canEdit: false, canGovern: false }); contributor.st.doc = row;
     expect(button(editPane(contributor.ctx), "Install as the project's naming rule")).toBeUndefined();
   });
   it("Make this a naming rule adds the block beside the text and keeps the text being edited", async () => {

@@ -8,6 +8,9 @@ vi.mock("../setups/active-ruleset", () => ({ artefactInForce: async () => {
   return { body: { title: "SNW", separator: "_", enforce: asks.enforce, fields: [{ key: "p", label: "Project", enum: ["SNW"] }, { key: "n", label: "Number", pattern: "^[0-9]{4}$" }] } };
 } }));
 
+const ids = vi.hoisted(() => ({ user: "u1" as string | null }));
+vi.mock("../setups/auth", () => ({ sessionUserId: () => ids.user }));
+
 import { emptyState } from "./workspace-state";
 import { fakeDocument, fakeWindow, findAll, textOf, click } from "./fake-dom";
 import { readView, readVersion, startPrint } from "./read-view";
@@ -122,10 +125,32 @@ describe("startPrint: what is printed (Review Focus 5)", () => {
     readView(ctx); await flush(); readView(ctx); await flush();
     expect(calls.length).toBe(1);
   });
-  it("with no identity (the lookup failed) nothing is cached, so two people never share an entry", async () => {
-    const { ctx, calls } = ctxOf(published("p7", { me: "" }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
-    readView(ctx); await flush(); readView(ctx); await flush();
-    expect(calls.length).toBe(2);
+  it("F9: with no signed-in user id nothing is cached (me falls back to web)", async () => {
+    ids.user = null;
+    try {
+      const { ctx, calls } = ctxOf(published("p7", { me: "web" }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+      readView(ctx); await flush(); readView(ctx); await flush();
+      expect(calls.length).toBe(2);
+    } finally { ids.user = "u1"; }
+  });
+  it("F9: two people in one tab never share an entry, whatever me says", async () => {
+    const one = ctxOf(published("p9", { me: "web" }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+    await readVersion(one.ctx, 2);
+    ids.user = "u2";
+    try {
+      const two = ctxOf(published("p9", { me: "web" }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));
+      await readVersion(two.ctx, 2);
+      expect(two.calls).toEqual(["/bimdocs/p9/d1/versions/2"]);
+    } finally { ids.user = "u1"; }
+  });
+  it("F4: a published document's naming rule can be installed from Read by a lead, not by a contributor", async () => {
+    const naming = { id: "n1", kind: "naming", title: "Container naming", data: { separator: "_", enforce: "reject", fields: [{ key: "p", label: "Project", pattern: null, enum: ["SNW"], placeholders: [], description: "" }] } };
+    const snap = doc({ status: "published", sections: [{ id: "s7", heading: "7. Naming", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [naming] } as any] });
+    for (const [role, shown] of [["lead", true], ["contributor", false]] as const) {
+      const { ctx } = ctxOf(published(`n-${role}`, { role }), () => ({ ...ver(2), document_id: "d1", snapshot: snap }));
+      const el = readView(ctx); await flush();
+      expect(findAll(el, "button").some((b) => textOf(b) === "Install as the project's naming rule"), role).toBe(shown);
+    }
   });
   it("readVersion is the one cache: a number already fetched is not fetched again, a viewed one is not fetched at all", async () => {
     const { ctx, calls } = ctxOf(published("p8", { viewing: { ...ver(1), document_id: "d1", snapshot: frozen } }), () => ({ ...ver(2), document_id: "d1", snapshot: frozen }));

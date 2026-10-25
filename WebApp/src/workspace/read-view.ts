@@ -2,11 +2,13 @@
 // and the Print button. Built with ctx.doc only; the question for the container ID goes through askText, the print
 // through the popup (print-render.ts). The sandbox has no allow-modals.
 import type { NamingRuleset } from "../sentinel-core/naming";
-import type { Snapshot, VersionListRow, VersionRow } from "../sentinel-core/doc-blocks";
+import { blocksOf, type Snapshot, type VersionListRow, type VersionRow } from "../sentinel-core/doc-blocks";
 import { pathSegment } from "../setups/escape-html";
 import { artefactInForce } from "../setups/active-ruleset";
+import { sessionUserId } from "../setups/auth";
 import { askText } from "../setups/ask";
 import type { WorkspaceState } from "./workspace-state";
+import { installNamingRule } from "./naming-block";
 import { C, btn, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
 import { containerIdReasons, pickPrintSource, POPUP_BLOCKED, printDocument, PAPER_CSS, liveWord, renderPrintable, type PrintInput } from "./print-render";
@@ -16,22 +18,23 @@ const UNREADABLE_VERSION = "The published version could not be read.";
 const RULE_UNREADABLE = "The naming rule could not be read, so the container ID was not checked. Nothing was printed.";
 const MOVED_ON = "The document changed while the question was open. Nothing was printed.";
 let lastContainerId = ""; // remembered for this tab
-// Published versions never change, so one already fetched is kept (per project, person, role, document, number).
+// Published versions never change, so one already fetched is kept (per project, signed-in user id, role, document, number).
 const fetched = new Map<string, VersionRow>();
 const FETCHED_MAX = 20;
 
 /** One version of the open document: the one being viewed, one already fetched (this module's only cache), or read through the bridge.
- *  Without an identity (the lookup failed) nothing is cached, so two people in one tab never share an entry. Null: unreadable (ws.message says why). */
+ *  Keyed on the signed-in user id (st.me can fall back to "web"); with no user id nothing is cached, so two people in one tab never
+ *  share an entry. Null: unreadable (ws.message says why). */
 export async function readVersion(ctx: PaneCtx, n: number): Promise<VersionRow | null> {
   const st = ctx.ws.state();
   if (!st.doc) return null;
   if (st.viewing?.version_no === n) return st.viewing;
-  const at = [st.key, st.me, st.role, st.doc.id, n].join("|");
-  const kept = st.me ? fetched.get(at) : undefined;
+  const uid = sessionUserId(), at = [st.key, uid, st.role, st.doc.id, n].join("|");
+  const kept = uid ? fetched.get(at) : undefined;
   if (kept) return kept;
   const full = await ctx.ws.get<VersionRow>(`/bimdocs/${pathSegment(st.key)}/${pathSegment(st.doc.id)}/versions/${n}`);
   if (!full?.snapshot) return null;
-  if (st.me) { if (fetched.size >= FETCHED_MAX) fetched.clear(); fetched.set(at, full); }
+  if (uid) { if (fetched.size >= FETCHED_MAX) fetched.clear(); fetched.set(at, full); }
   return full;
 }
 
@@ -71,14 +74,28 @@ export function readView(ctx: PaneCtx): HTMLElement {
   bar.append(print);
   const paper = h(d, "div", "border-radius:.3rem;overflow:hidden");
   const css = h(d, "style", "", PAPER_CSS);
-  root.append(bar, msg, css, paper);
+  const installs = h(d, "div", "margin-top:.8rem");
+  root.append(bar, msg, css, paper, installs);
 
   paper.append(h(d, "div", `color:${C.muted}`, LOADING));
   const show = (text: string): void => paper.replaceChildren(h(d, "div", `color:${C.warn}`, text));
   loadInput(ctx, null).then(
-    (input) => { try { if (input) paper.replaceChildren(renderPrintable(input, d)); else show(UNREADABLE_VERSION); } catch (e) { show(`The document could not be shown: ${errText(e)}`); } },
+    (input) => { try { if (input) { paper.replaceChildren(renderPrintable(input, d)); installs.replaceChildren(...namingInstalls(ctx, input.row)); } else show(UNREADABLE_VERSION); } catch (e) { show(`The document could not be shown: ${errText(e)}`); } },
     (e) => show(`The document could not be shown: ${errText(e)}`));
   return root;
+}
+
+/** Under the paper, for a lead: install each naming block of the version shown as the project's rule (a published standard is what is installed). */
+function namingInstalls(ctx: PaneCtx, row: Snapshot): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const s of Array.isArray(row.sections) ? row.sections : []) {
+    if (!s || typeof s !== "object") continue;
+    for (const b of blocksOf(s)) {
+      const el = b.kind === "naming" ? installNamingRule(b, ctx, s.id) : null;
+      if (el) out.push(h(ctx.doc, "div", `color:${C.muted};font:12px system-ui;margin-top:.4rem`, `${String(s.heading ?? "")}: ${b.title || "naming rule"}`), el);
+    }
+  }
+  return out;
 }
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));

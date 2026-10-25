@@ -5,6 +5,7 @@ import type { Executability } from "../sentinel-core/doc-blocks";
 import { aiBody, aiPicker } from "../setups/ai-picker";
 import { pathSegment } from "../setups/escape-html";
 import { C, btn, h } from "./dom";
+import { canEditRole } from "../setups/my-role";
 import { eirCompile } from "./eir-compile";
 import { refusal } from "./refusal";
 import type { PaneCtx } from "./workspace-page";
@@ -89,7 +90,8 @@ export function qualityTab(ctx: PaneCtx): HTMLElement {
   const actions = h(d, "div", "display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin:.6rem 0");
   const note = h(d, "div", `color:${C.warn};margin:.3rem 0`);
   const work = h(d, "div");
-  root.append(...(doc.doc_type === "EIR" ? [eirCompile(ctx)] : []), top, lists, actions, note, work); // Compile to IDS first, for an EIR
+  // Compile to IDS first, for an EIR: from contributor up on any status (it writes nothing; the install is a lead's).
+  root.append(...(doc.doc_type === "EIR" && canEditRole(ctx.st.role) ? [eirCompile(ctx)] : []), top, lists, actions, note, work);
 
   const say = (text: string | string[]) => note.replaceChildren(...(Array.isArray(text) ? text : [text]).filter(Boolean).map((t) => h(d, "div", "", t)));
   if (pending && pending.key === ctx.st.key && pending.doc === doc.id) { say(pending.lines); pending = null; }

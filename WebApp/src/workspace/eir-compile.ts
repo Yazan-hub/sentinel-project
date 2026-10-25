@@ -4,6 +4,7 @@
 // held only in this element: a rebuild of the tab (any side refresh) loses it and the lead compiles again.
 import type { DocRow } from "../sentinel-core/doc-blocks";
 import { artefactInForce, installArtefact, type InForce } from "../setups/active-ruleset";
+import { canGovernRole } from "../setups/my-role";
 import { C, btn, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
 
@@ -72,12 +73,13 @@ export function eirCompile(ctx: PaneCtx): HTMLElement {
     download.addEventListener("click", () => { // in the published app's sandbox the browser may refuse the download
       const url = URL.createObjectURL(new Blob([String(r.xml ?? "")], { type: "application/xml" }));
       const a = d.createElement("a");
-      a.setAttribute("href", url); a.setAttribute("download", `${doc.title.replace(/[^\w-]+/g, "_")}.ids`);
-      a.click(); URL.revokeObjectURL(url);
+      a.setAttribute("href", url); a.setAttribute("download", `${doc.title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/g, "") || "compiled"}.ids`); // any script's letters and digits
+      a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); // revoked at once, the browser may not have started the download
     });
     actions.append(download);
     if (unusable) result.textContent = "The IDS in force could not be read; nothing can be installed now.";
-    else if (ctx.canGovern && arr(r.specifications).length > 0) { // a compile with no checks would pass every model vacuously: not offered
+    // Installing is a governance action on the project, not an edit of this EIR: a lead's, on any status (a published EIR is what is installed).
+    else if (canGovernRole(st.role) && arr(r.specifications).length > 0) { // a compile with no checks would pass every model vacuously: not offered
       const install = btn(d, "Install on this project", true);
       install.addEventListener("click", async () => {
         install.disabled = true; install.textContent = "Installing…"; result.textContent = "";

@@ -96,6 +96,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
   const root: EditPaneEl = Object.assign(h(d, "div", "max-width:52rem;margin:0 auto"), {
     drafts: () => new Map([...open].map(([id, e]) => [id, e.h.value()])), editor: (id: string) => open.get(id)?.h });
   const doc: DocRow | null = ctx.st.doc;
+  const closedAction = (b: Block, sid: string): HTMLElement | null => (typeof b.kind === "string" && has(CLOSED_ACTIONS, b.kind) ? CLOSED_ACTIONS[b.kind]!(b, ctx, sid) : null);
   root.append(h(d, "h1", "font:700 22px system-ui;margin:0 0 1rem;color:#fff", doc?.title ?? ""));
   if (!doc) return root;
   const sections = (doc.sections ?? []).filter((s): s is SectionRow => !!s && typeof s === "object");
@@ -105,6 +106,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
       const sec = h(d, "section", "margin:0 0 1.6rem");
       sec.dataset.section = s.id;
       sec.append(h(d, "h2", "font:600 16px system-ui;margin:0 0 .4rem;color:#f4f4f5", String(s.heading ?? "")), renderSectionBody(s, rc, d));
+      for (const b of blocksOf(s)) { const extra = closedAction(b, s.id); if (extra) sec.append(extra); } // a lead's install, on any status
       root.append(sec);
     }
     return root;
@@ -192,7 +194,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
 
     const closed = () => {
       open.delete(b.id); current = null; seed = undefined;
-      const extra = typeof b.kind === "string" && has(CLOSED_ACTIONS, b.kind) ? CLOSED_ACTIONS[b.kind]!(b, ctx, s.id) : null;
+      const extra = closedAction(b, s.id);
       body.replaceChildren(renderBlock(b, rc, ctx.doc), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]), ...(extra ? [extra] : []));
       bar.replaceChildren(...(editor ? [act("Edit", () => opened())] : []), ...tail());
     };

@@ -7,6 +7,7 @@ import { diffNaming, type NamingDiff } from "../sentinel-core/naming-diff";
 import type { NamingRuleset } from "../sentinel-core/naming";
 import { pathSegment } from "../setups/escape-html";
 import { artefactInForce, installArtefact, refLabel, type InForce } from "../setups/active-ruleset";
+import { canGovernRole } from "../setups/my-role";
 import { ENFORCE_WORDS, renderBlock } from "./block-render";
 import { C, btn, h } from "./dom";
 import { refusal } from "./refusal";
@@ -64,8 +65,9 @@ export function bumpMinor(v: string | null | undefined): string {
 const MODELLED = ["title", "standard_key", "semver", "separator", "enforce", "fields", "source", "installed_by"]; // source and installed_by are lifted out by the install route
 const extrasOf = (body: Rule | undefined): Record<string, unknown> =>
   body && typeof body === "object" ? Object.fromEntries(Object.entries(body).filter(([k]) => !MODELLED.includes(k))) : {};
-const keepLine = ([k, v]: [string, unknown]): string =>
-  `Keeps ${k}${Array.isArray(v) && v.every((x) => typeof x === "string") ? ` (${v.join(", ")})` : ""} from the rule in force.`;
+const keepLine = ([k, v]: [string, unknown]): string => k === "strip_extensions"
+  ? `Keeps file extensions removed before a name is checked${Array.isArray(v) && v.every((x) => typeof x === "string") ? ` (${v.join(", ")})` : ""} from the rule in force.`
+  : `Keeps another setting of the rule in force (${k}).`;
 
 const isSame = (d: NamingDiff): boolean => !d.added.length && !d.removed.length && !d.changed.length && !d.header.length;
 
@@ -181,9 +183,10 @@ export const makeNamingRule: TextAction = (block, sectionId, ctx, area) => {
 
 // ---- install as the project's naming rule ----
 
-/** A closed naming block, for a lead or owner: read the rule in force, show the difference, install this block whole with If-Match. */
+/** A closed naming block, for a lead or owner: read the rule in force, show the difference, install this block whole with If-Match.
+ *  Installing is a governance action on the project, not an edit of the document: by role, on any status (Edit, read-only Edit, Read). */
 export const installNamingRule: ClosedAction = (block, ctx, sectionId) => {
-  if (!ctx.canGovern) return null;
+  if (!canGovernRole(ctx.st.role)) return null;
   const d = ctx.doc, data = (block as Block<"naming">).data, wrap = h(d, "div", `margin:.4rem 0;padding-top:.3rem;border-top:1px solid ${C.line}`);
   const start = btn(d, "Install as the project's naming rule"), problems = namingProblems(data);
   wrap.append(start);
