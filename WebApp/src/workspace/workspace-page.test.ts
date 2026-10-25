@@ -300,3 +300,27 @@ describe("F-R1b-4: leaving the page tells the main shell once", () => {
     expect(onLeave).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("F-R1b-2: the header during an ingest review", () => {
+  const headerOf = (p: ReturnType<typeof page>) => p.el.childNodes[0];
+  const openDoc = async () => { answers["/bimdocs/k/d1"] = row("BEP", [{ id: "a1", heading: "1. A", body: "x", fragments: [] }]); const p = page(); await p.el.open("d1"); await tick(); return p; };
+  it("shows Review ingestion and no view tabs, not the open document's title and status", async () => {
+    const p = await openDoc();
+    expect(textOf(headerOf(p))).toContain("Doc");
+    p.el.openIngest(proposal);
+    const t = textOf(headerOf(p));
+    expect(t).toContain("Review ingestion");
+    expect(t).not.toContain("Doc");
+    expect(t).not.toContain("Draft");
+    for (const tab of ["Read", "Compare", "Versions"]) expect(t).not.toContain(tab);
+  });
+  it("opening a document brings the header back", async () => {
+    const p = await openDoc();
+    p.el.openIngest(proposal);
+    await p.el.open("d1"); await tick();
+    const t = textOf(headerOf(p));
+    expect(t).toContain("Doc");
+    expect(t).toContain("Read");
+    expect(t).not.toContain("Review ingestion");
+  });
+});
