@@ -76,3 +76,30 @@ describe("follow-up E: an ingest that failed says so after the list is drawn", (
     expect(tail.indexOf("await showList();")).toBeLessThan(tail.indexOf("msg(`Ingestion failed:"));
   });
 });
+
+describe("F-R1b-4: the panel re-reads what it shows when the person comes back from the workspace", () => {
+  it("it exposes refresh(), which re-opens the open document by id or re-reads the list", () => {
+    expect(src).toContain("Object.assign(root, { refresh })");
+    const at = src.indexOf("const refresh = ");
+    expect(at).toBeGreaterThan(-1);
+    const f = src.slice(at, src.indexOf("\n  };", at));
+    expect(f).toContain("showEditor(openId, true)"); // the open document, by id
+    expect(f).toContain("showList()"); // else the list
+  });
+  it("an editor with unsaved input is never replaced by the refresh", () => {
+    const at = src.indexOf("const refresh = "), f = src.slice(at, src.indexOf("\n  };", at));
+    expect(f).toMatch(/dirty\(\)/);
+    expect(f).toMatch(/touchedSelect\(\)/);
+  });
+  it("a document that is gone (read fails) or archived falls back to the list", () => {
+    const f = fn("showEditor");
+    expect(f).toContain("return showList();"); // the failed read
+    expect(f).toMatch(/fromRefresh && doc\.status === "archived"/);
+  });
+  it("the open document is recorded after the stale check and cleared by the list and the create form", () => {
+    expect(fn("showList")).toContain("openId = null;");
+    expect(fn("showCreate")).toContain("openId = null;");
+    const f = fn("showEditor");
+    expect(f.indexOf("openId = doc.id;")).toBeGreaterThan(f.lastIndexOf("if (mine !== seq) return;", f.indexOf("openId = doc.id;")));
+  });
+});

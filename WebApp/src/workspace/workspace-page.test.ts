@@ -281,3 +281,22 @@ describe("follow-up B: a carried draft over a part someone else changed", () => 
     expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1);
   });
 });
+
+describe("F-R1b-4: leaving the page tells the main shell once", () => {
+  const ro: { cb?: () => void } = {};
+  beforeEach(() => { vi.stubGlobal("ResizeObserver", class { constructor(cb: () => void) { ro.cb = cb; } observe() {} }); });
+  afterEach(() => vi.unstubAllGlobals());
+  it("onLeave runs on the shown to hidden edge only", () => {
+    const onLeave = vi.fn();
+    const el = workspacePage({ baseUrl: "http://b", onBack: () => {}, onLeave, doc: fakeDocument() }) as any;
+    el.clientWidth = 0; el.clientHeight = 0; ro.cb!(); // never shown yet: nothing
+    expect(onLeave).not.toHaveBeenCalled();
+    el.clientWidth = 800; el.clientHeight = 600; ro.cb!();
+    el.clientWidth = 801; ro.cb!(); // a resize while shown: nothing
+    expect(onLeave).not.toHaveBeenCalled();
+    el.clientWidth = 0; el.clientHeight = 0; ro.cb!();
+    expect(onLeave).toHaveBeenCalledTimes(1);
+    ro.cb!(); // still hidden: no second call
+    expect(onLeave).toHaveBeenCalledTimes(1);
+  });
+});

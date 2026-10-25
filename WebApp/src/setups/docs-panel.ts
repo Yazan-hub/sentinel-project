@@ -107,7 +107,7 @@ const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
   error: { color: "#eab308", icon: "!" },
 };
 
-export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string; onOpenWorkspace?: (docId: string) => void; onIngested?: (p: IngestProposal) => void } = {}): HTMLElement {
+export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string; onOpenWorkspace?: (docId: string) => void; onIngested?: (p: IngestProposal) => void } = {}): HTMLElement & { refresh: () => void } {
   const base = (opts.baseUrl || SERVICE_URL).replace(/\/$/, "");
   const pid = () => activePid();
   const api = async (path: string, init: RequestInit = {}) => {
@@ -179,8 +179,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   // (load-scope.ts) — every other view is opened from it, so it is theirs too.
   let seq = 0;
   let loadedScope = "";
+  let openId: string | null = null; // the document the editor shows; null on the list and the create form
+  let onList = false;
   async function showList() {
     const mine = ++seq, key = pid();
+    openId = null; onList = true;
     loadedScope = loadScope(key);
     bar.replaceChildren(); body.replaceChildren(); // F-R1a-1: the previous project's document never stays on screen while the role is asked
     // Fail CLOSED (my-role.ts): an unanswered role question renders read-only; a non-member is said as one (W-2 G7).
@@ -243,6 +246,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
 
   // ── Create view ───────────────────────────────────────────────────────────
   async function showCreate() {
+    openId = null; onList = false;
     body.replaceChildren();
     const templates: { template_id: string; doc_type: string; title: string; sections: number; when_to_use: string }[] = await api("/templates");
     const wrap = document.createElement("div");
@@ -319,11 +323,13 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   }
 
   // ── Editor view ───────────────────────────────────────────────────────────
-  async function showEditor(docId: string) {
+  async function showEditor(docId: string, fromRefresh = false) {
     const mine = seq; // a project switch (showList) while a read is in flight drops its answer
     let doc: Doc;
     try { doc = await api(`/${encodeURIComponent(pid())}/${docId}`); } catch (e: any) { if (mine !== seq) return; msg(e.message, true); return showList(); }
     if (mine !== seq) return;
+    if (fromRefresh && doc.status === "archived") return showList(); // came back from the workspace: an archived document leaves the editor
+    openId = doc.id; onList = false;
     if (doc.doc_type === "READINESS") return showReadinessEditor(doc);
     bar.replaceChildren();
     const back = btn("← Documents"); back.onclick = showList;
@@ -853,6 +859,12 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     if (loadScope(pid()) === loadedScope && (dirty() || touchedSelect())) return;
     void showList();
   });
+  // The person came back from the workspace, which may have changed what this panel shows: the list is read again, or the
+  // open document by id (gone or archived: the list). Unsaved input in the editor is never replaced.
+  const refresh = () => {
+    if (openId) { if (!dirty() && !touchedSelect()) void showEditor(openId, true); }
+    else if (onList) void showList();
+  };
   showList();
-  return root;
+  return Object.assign(root, { refresh });
 }

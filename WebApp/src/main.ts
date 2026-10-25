@@ -295,7 +295,7 @@ async function main() {
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
   // The BIM documents workspace — a full page (layout "Workspace"); the 3D viewer stays hidden, not destroyed, while it is open.
-  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); } });
+  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); }, onLeave: () => docsEl.refresh() });
   // Documents panel — ISO 19650 project documents (BEP/EIR) with states, versions, print/PDF.
   const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { app.layout = "Workspace"; void workspaceEl.open(docId, at); };
   // The project's BEP (newest first from the bridge); none yet: the Documents tab, where "+ New document" makes one.

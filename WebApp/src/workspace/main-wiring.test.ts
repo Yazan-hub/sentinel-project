@@ -27,4 +27,8 @@ describe("entry points (spec section 5)", () => {
 describe("R1b hand-over wiring", () => {
   it("an upload in the old panel opens its review in the workspace", () =>
     expect(main).toContain('onIngested: (p) => { app.layout = "Workspace"; workspaceEl.openIngest(p); }'));
+  it("leaving the Workspace layout (Back, the activity bar, any path) makes the old panel re-read what it shows", () => {
+    expect(main).toContain("onLeave: () => docsEl.refresh()");
+    expect(main).toContain("const docsEl = docsPanel("); // docsEl is read only when the person leaves, after it exists
+  });
 });

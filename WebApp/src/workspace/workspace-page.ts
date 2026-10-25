@@ -50,7 +50,7 @@ export const OUTLINE: { pane: (ctx: PaneCtx) => HTMLElement } = { pane: outlineP
 
 const VIEW_NAMES: [View, string][] = [["edit", "Edit"], ["read", "Read"], ["compare", "Compare"], ["versions", "Versions"]];
 
-export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?: Document }): WorkspaceEl {
+export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLeave?: () => void; doc?: Document }): WorkspaceEl {
   const d = opts.doc ?? document;
   const base = opts.baseUrl.replace(/\/$/, "");
   const ws = createWorkspace({
@@ -210,6 +210,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
     new ResizeObserver(() => {
       const now = root.clientWidth > 0 && root.clientHeight > 0; // 0 = hidden behind another layout
       const edge = becameVisible(shown, now);
+      if (shown && !now) opts.onLeave?.(); // left for another layout (Back, the activity bar): the old Documents panel re-reads
       shown = now;
       if (!edge || opening > 0) return; // a resize while shown never reads; an explicit open in flight wins
       if (ws.state().doc) { void ws.reload(); return; }
