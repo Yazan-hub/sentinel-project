@@ -6,9 +6,11 @@ import { activePid, onActiveProjectChange } from "../setups/active-project";
 import { myRoleRead } from "../setups/my-role";
 import { currentUser } from "../setups/auth";
 import { askYesNo } from "../setups/ask";
+import { aiPicker } from "../setups/ai-picker";
 import { statusLine } from "../sentinel-core/doc-blocks";
 import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
+import { editPane } from "./block-editors";
 import { commentsTab, outlinePane } from "./outline";
 import { readView } from "./read-view";
 import { compareView, versionsView } from "./versions-view";
@@ -20,23 +22,7 @@ export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; bas
 export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View }): Promise<void> };
 
 // Every view marks each section node with dataset.section = its id (PaneCtx.focus scrolls to it).
-const sectionsView = (ctx: PaneCtx): HTMLElement => {
-  const d = ctx.doc;
-  const article = h(d, "div", "max-width:52rem;margin:0 auto");
-  article.append(h(d, "h1", "font:700 22px system-ui;margin:0 0 1rem;color:#fff", ctx.st.doc?.title ?? ""));
-  for (const s of ctx.st.doc?.sections ?? []) {
-    const sec = h(d, "div", "margin:0 0 1.6rem");
-    sec.dataset.section = s.id;
-    sec.append(
-      h(d, "h2", "font:600 16px system-ui;margin:0 0 .4rem;color:#f4f4f5", String(s.heading ?? "")),
-      h(d, "div", `white-space:pre-wrap;line-height:1.55;color:${C.soft}`, typeof s.body === "string" ? s.body : ""),
-    );
-    article.append(sec);
-  }
-  return article;
-};
-
-export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: sectionsView, read: readView, compare: compareView, versions: versionsView };
+export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPane, read: readView, compare: compareView, versions: versionsView };
 
 const SIDE_TEXT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
 export const SIDE_TABS: Record<"quality" | "review" | "comments", (ctx: PaneCtx) => HTMLElement> = {
@@ -107,6 +93,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; doc?:
     statusEl.textContent = c.st.doc ? statusLine(c.st.doc) : "";
     viewBar.replaceChildren();
     if (!c.st.doc) return;
+    if (view === "edit" && c.canEdit) viewBar.append(aiPicker(c.base, () => c.st.key)); // the one AI picker; Draft with AI reads its selection
     for (const [v, label] of VIEW_NAMES) {
       if (v === "edit" && !c.canEdit) continue;
       const b = btn(d, label, v === view);

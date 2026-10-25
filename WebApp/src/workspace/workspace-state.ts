@@ -18,6 +18,8 @@ export interface Workspace {
   open(docId: string): Promise<void>; reload(): Promise<void>; viewVersion(n: number | null): Promise<void>;
   write(method: "POST" | "PUT" | "PATCH", rest: string, body?: object): Promise<DocRow | null>; // rest after /bimdocs/:key/:docId
   get<T>(path: string): Promise<T | null>; // guarded GET of any bridge path; null when stale or refused (message set)
+  post<T>(path: string, body?: object): Promise<T | null>; // guarded POST of any other bridge path; adds actor, never updated_at; any non-2xx (a 409 too) sets message and returns null without asking
+  rescore(): Promise<void>; // guarded re-read of …/executability into state.ex; no render
   state(): WorkspaceState;
 }
 
@@ -121,6 +123,25 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     return r.body as T;
   }
 
+  async function post<T>(path: string, body: object = {}): Promise<T | null> {
+    const mine = tok;
+    if (state.key !== deps.activePid()) return null;
+    const actor = await deps.me().catch(() => state.me);
+    if (mine !== tok) return null;
+    const r = await call("POST", path, { ...body, actor });
+    if (mine !== tok) return null;
+    if (!r) { say("The bridge did not answer."); return null; }
+    if (!is2xx(r)) { say(words(r, "")); return null; }
+    return r.body as T;
+  }
+
+  async function rescore(): Promise<void> {
+    const doc = state.doc;
+    if (!doc) return;
+    const ex = await get<Executability>(`/bimdocs/${pathSegment(state.key)}/${pathSegment(doc.id)}/executability`);
+    if (ex && typeof ex === "object" && state.doc?.id === doc.id) state = { ...state, ex };
+  }
+
   async function writeNow(method: "POST" | "PUT" | "PATCH", rest: string, body: object): Promise<DocRow | null> {
     const mine = tok;
     const doc = state.doc;
@@ -157,7 +178,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     return p;
   }
 
-  return { open, reload: async () => { await reload(); }, viewVersion, write, get, state: () => state };
+  return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, state: () => state };
 }
 
 export function docProblems(doc: DocRow): string[] {

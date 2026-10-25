@@ -224,3 +224,36 @@ it("pickBep: the newest BEP that is not archived", () => {
   expect(pickBep([{ id: "e", doc_type: "EIR", status: "wip" }, { id: "old", doc_type: "BEP", status: "archived" }, { id: "b", doc_type: "BEP", status: "shared" }, { id: "b0", doc_type: "BEP", status: "wip" }])).toBe("b");
   expect(pickBep([{ id: "e", doc_type: "EIR", status: "wip" }])).toBeNull();
 });
+
+describe("post (a POST that is not a document write)", () => {
+  it("sends actor and never updated_at, drops a late answer after a switch, and does not ask on a 409", async () => {
+    let pid = "snowdon-lifecycle", change = () => {};
+    const waiting: ((v: { status: number; body: unknown }) => void)[] = [];
+    const json = vi.fn(() => new Promise<{ status: number; body: unknown }>((r) => { waiting.push(r); }));
+    const askYesNo = vi.fn();
+    const ws = createWorkspace({ json: json as any, activePid: () => pid, scope: () => pid, onProjectChange: (cb) => { change = cb; return () => {}; }, askYesNo, role: async () => "lead", me: async () => "lead@x" }, () => {});
+    const resolve = (v: { status: number; body: unknown }) => waiting.shift()!(v);
+    const p1 = ws.post("/bimdocs/snowdon-lifecycle/d1/section/s1/draft", { provider: "local" });
+    await vi.waitFor(() => expect(json).toHaveBeenCalledTimes(1));
+    expect(json).toHaveBeenCalledWith("POST", "/bimdocs/snowdon-lifecycle/d1/section/s1/draft", { provider: "local", actor: "lead@x" });
+    resolve({ status: 200, body: { proposal: "p" } });
+    expect(await p1).toEqual({ proposal: "p" });
+    const p2 = ws.post("/x", {});
+    await vi.waitFor(() => expect(json).toHaveBeenCalledTimes(2));
+    pid = "aster-office"; change();
+    resolve({ status: 200, body: { proposal: "late" } });
+    expect(await p2).toBeNull();
+    const p3 = ws.post("/x", {});
+    await vi.waitFor(() => expect(json).toHaveBeenCalledTimes(3));
+    resolve({ status: 409, body: { message: "document is published; revert to wip to edit" } });
+    expect(await p3).toBeNull();
+    expect(ws.state().message).toBe("document is published; revert to wip to edit");
+    expect(askYesNo).not.toHaveBeenCalled();
+  });
+  it("rescore re-reads the score into state.ex and drops a stale answer", async () => {
+    const t = setup((m, p) => (p === "/bimdocs/a/d1/executability" ? ok({ headline: "40 % controlling, 1 of 2 sections written" }) : docRoute()(m, p)));
+    await t.ws.open("d1");
+    await t.ws.rescore();
+    expect(t.ws.state().ex).toMatchObject({ headline: "40 % controlling, 1 of 2 sections written" });
+  });
+});

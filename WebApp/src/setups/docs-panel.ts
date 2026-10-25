@@ -13,6 +13,7 @@ import { myRoleRead, roleWords } from "./my-role";
 import { diffNaming, findNamingCandidate } from "../sentinel-core/naming-diff";
 import type { NamingRuleset } from "../sentinel-core/naming";
 import { escapeHtml as esc, pathSegment } from "./escape-html";
+import { aiBody, aiPicker } from "./ai-picker";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -174,57 +175,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   };
   const actor = async () => { try { return (await currentUser())?.email || "web"; } catch { return "web"; } };
 
-  // ── AI provider/model selection — shared by Draft with AI (editor view) and Check integrity
-  // (document view). Same rule as the copilot panel: the panel only picks WHICH; every call still
-  // goes through the bridge, where the keys live and local-default/cloud-opt-in is enforced.
+  // (the AI provider/model picker lives in ./ai-picker)
   let myRole: string | null = "service";
   const canEdit = () => myRole === "service" || ["owner", "lead", "contributor"].includes(myRole ?? "");
   const canGovern = () => myRole === "service" || ["owner", "lead"].includes(myRole ?? "");
-
-  let aiProvider = "local";
-  let aiModel = ""; // "" = the provider's own default
-  let aiProviders: { key: string; list: { id: string; label: string; available: boolean; blocked?: string; note?: string }[] } | null = null;
-  const aiBody = () => JSON.stringify(aiModel ? { provider: aiProvider, model: aiModel } : { provider: aiProvider });
-  /** A fresh picker instance for a view's bar; all instances read/write the shared selection. */
-  const aiPicker = (): HTMLElement => {
-    const wrap = document.createElement("span");
-    wrap.style.cssText = "display:inline-flex;gap:.3rem;align-items:center";
-    const selCss = "max-width:110px;background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem";
-    const providerSel = document.createElement("select");
-    providerSel.title = "Which AI drafts/analyses (keys stay in the bridge; local is the private default)";
-    providerSel.style.cssText = selCss;
-    const modelSel = document.createElement("select");
-    modelSel.title = "Model (empty = provider default)";
-    modelSel.style.cssText = selCss;
-    const loadModels = async () => {
-      modelSel.replaceChildren();
-      try {
-        const r = await bfetch(`${base}/ai/models?provider=${encodeURIComponent(aiProvider)}`);
-        const { models } = await r.json();
-        for (const m of models as string[]) modelSel.appendChild(new Option(m, m)); // Option() text is DOM-safe
-        if (aiModel && (models as string[]).includes(aiModel)) modelSel.value = aiModel;
-        aiModel = modelSel.value || "";
-      } catch { aiModel = ""; /* provider offline — the bridge will say so honestly on use */ }
-    };
-    void (async () => {
-      try {
-        // Per project: its AI policy can make the cloud rows unavailable (spec 2026-10-20), said in each row's title.
-        if (aiProviders?.key !== pid()) aiProviders = { key: pid(), list: (await (await bfetch(`${base}/ai/providers?project=${encodeURIComponent(pid())}`)).json()).providers };
-        for (const p of aiProviders.list) {
-          const o = new Option(p.available ? p.label : `${p.label} — unavailable`, p.id);
-          o.disabled = !p.available;
-          if (p.blocked || p.note) o.title = p.blocked || p.note || "";
-          providerSel.appendChild(o);
-        }
-        providerSel.value = aiProvider;
-        await loadModels();
-      } catch { /* AI endpoints unreachable — buttons still work with the local default */ }
-    })();
-    providerSel.addEventListener("change", async () => { aiProvider = providerSel.value; aiModel = ""; await loadModels(); });
-    modelSel.addEventListener("change", () => { aiModel = modelSel.value; });
-    wrap.append(providerSel, modelSel);
-    return wrap;
-  };
 
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;background:#16161a;color:#c9cfda;font:12px system-ui";
@@ -706,7 +660,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       const suggestBtn = btn("Suggest bindings"); suggestBtn.onclick = () => showSuggestBindings(doc, () => showEditor(doc.id));
       bar.append(suggestBtn);
     }
-    bar.append(aiPicker());
+    bar.append(aiPicker(base, pid));
     // document-level transitions (governance)
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
@@ -803,7 +757,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
           const prev = draftBtn.textContent;
           draftBtn.textContent = "Drafting…";
           try {
-            const r = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}/draft`, { method: "POST", body: aiBody() });
+            const r = await api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}/draft`, { method: "POST", body: JSON.stringify(aiBody()) });
             ta.value = r.proposal;                        // model output → .value (XSS-safe)
             ta.dispatchEvent(new Event("input"));         // fire any dirty-tracking the editor has
             msg(`AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)) — review before saving.`);
@@ -1185,7 +1139,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     const printBtn = btn("Print / PDF", true);
     const integrityBtn = btn("Check integrity");
     const stripBtn = btn("Strip test");
-    bar.append(printBtn, aiPicker(), integrityBtn, stripBtn);
+    bar.append(printBtn, aiPicker(base, pid), integrityBtn, stripBtn);
     // EIR only: compile the requirement prose into a PROPOSED IDS (deterministic, installs nothing).
     // The compiler existed as a bridge route with no way to reach it from the app (found in the simulation room).
     const compileBtn = doc.doc_type === "EIR" ? btn("Compile to IDS") : null;
@@ -1324,7 +1278,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       integrityBtn.textContent = "Analysing…";
       integrityOut.replaceChildren();
       try {
-        const r: IntegrityReport = await api(`/${encodeURIComponent(pid())}/${doc.id}/integrity`, { method: "POST", body: aiBody() });
+        const r: IntegrityReport = await api(`/${encodeURIComponent(pid())}/${doc.id}/integrity`, { method: "POST", body: JSON.stringify(aiBody()) });
         renderIntegrity(integrityOut, r, doc);
       } catch (e) {
         const d = document.createElement("div");
