@@ -1,0 +1,7 @@
+{
+  "title": "BIM Execution Plan, minimal",
+  "extends": "bep-comprehensive",
+  "variant": "minimal",
+  "when_to_use": "The eight sections a tender needs. Use it for a small project or a quick bid; add sections later.",
+  "keep": ["project-information", "eir-response", "roles-and-responsibilities", "information-delivery-strategy", "cde-and-workflow", "information-standard", "delivery-plans", "project-documents"]
+}

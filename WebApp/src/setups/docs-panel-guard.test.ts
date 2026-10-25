@@ -29,4 +29,8 @@ describe("R1b entry points in the old panel", () => {
     expect(fn("showCreate")).toContain('(t.doc_type === "BEP" || t.doc_type === "EIR") && opts.onOpenWorkspace');
     expect(fn("showCreate")).toContain("opts.onOpenWorkspace(doc.id)");
   });
+  it("+ New document creates by template and says when to use it as text", () => {
+    expect(src).toContain("template_id: t.template_id");
+    expect(src).toMatch(/\.textContent = t\.when_to_use/);
+  });
 });

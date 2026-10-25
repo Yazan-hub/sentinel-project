@@ -3,7 +3,7 @@
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
 import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
-import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
+import { loadTemplates, pickTemplate, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
 import { requireDocAccess } from "./doc-access.mjs";
 import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS } from "./doc-blocks.mjs";
@@ -49,7 +49,7 @@ function patchSections(doc, sections) {
 const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc(doc.status)}&updated_at=eq.${enc(doc.updated_at)}`);
 
 export const listTemplates = () =>
-  loadTemplates().map((t) => ({ doc_type: t.doc_type, title: t.title, sections: t.sections.length }));
+  loadTemplates().map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: t.default }));
 
 /** The start of every section write: read the document (a non-member gets the 404 here), ask for `level` on it, refuse a
  *  published or archived one, and refuse a write based on a stale copy (when the caller sent the updated_at it loaded). */
@@ -72,12 +72,11 @@ const checkText = (v, what) => {
   if (v != null && (typeof v !== "string" || v.length > LIMITS.titleChars)) throw err(400, `${what} must be text of at most ${LIMITS.titleChars} characters`);
 };
 
-export async function createDoc(key, { doc_type, title, actor } = {}) {
+export async function createDoc(key, { doc_type, template_id, title, actor } = {}) {
   checkText(title, "a document title");
   const proj = await ensureProject(key);
   await requireDocAccess(key, null, "edit");
-  const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
-  if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
+  const tpl = pickTemplate(doc_type, template_id);
   // created_by is the signed-in caller's verified identity, never the body's name (bimdocs-3); the machine credential keeps its label.
   const body = { ...instantiateTemplate(tpl, { title, actor: resolveActor(actor, "web") }), project_id: proj.id };
   if (tooLarge(body.sections)) throw err(422, TOO_LARGE);
@@ -208,8 +207,7 @@ export async function createDocFromIngest(key, { doc_type, title, sections, sour
   if (!doc_type) throw err(400, "doc_type is required");
   if (doc_type === "READINESS") throw err(422, "A readiness assessment is made from its template, not imported. Nothing was saved.");
   checkText(title, "a document title");
-  const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
-  if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
+  const tpl = pickTemplate(doc_type);
   const normalizedSections = validateSections(sections);
   if (normalizedSections.length > LIMITS.sectionsPerDoc) throw err(422, `A document holds at most ${LIMITS.sectionsPerDoc} sections. Nothing was saved.`);
   if (tooLarge(normalizedSections)) throw err(422, TOO_LARGE);
@@ -410,6 +408,52 @@ export async function reorderSections(key, docId, { order, updated_at, actor } =
   const sections = order.map((id) => doc.sections.find((s) => s.id === id));
   const row = await patchSections(doc, sections);
   await auditStructure(doc, sections, { op: "reorder" }, actor);
+  return row;
+}
+
+// ── The start of a comprehensive BEP — a lead's; the only writer of responds_to.
+const START_REFUSED = (why) => err(422, `${why} Nothing was saved.`);
+const ASSUMPTIONS = "EIR assumptions and clarifications";
+export async function pickStart(key, docId, { start, eir_id, updated_at, actor } = {}) {
+  if (start !== "eir_received" && start !== "no_eir") throw err(400, "start must be eir_received or no_eir");
+  const doc = await openForWrite(key, docId, "govern", updated_at);
+  const tpl = loadTemplates().find((t) => t.template_id === doc.template_id);
+  const startBlocks = tpl?.starts?.no_eir?.blocks;
+  // A BEP stored with the old template id 'bep' (no file any more) is refused here in words, never thrown on.
+  if (!String(doc.template_id ?? "").startsWith("bep-comprehensive") || !startBlocks) throw START_REFUSED("Only a BEP made from the comprehensive template has a start.");
+  const sections = Array.isArray(doc.sections) ? doc.sections : [];
+  const si = sections.findIndex((s) => s?.template_key === "eir-response");
+  if (si < 0) throw START_REFUSED("This BEP has no EIR response section from the template, so it has no start.");
+  const old = sections[si], blocks = blocksOf(old);
+  let next, responds_to = doc.responds_to ?? null, responds_to_version = null, rows_filled = 0;
+  if (start === "no_eir") {
+    if (responds_to || blocks.some((b) => String(b?.id).endsWith(".part-e"))) throw START_REFUSED("This BEP already has its start.");
+    if (blocks.length + startBlocks.length > LIMITS.blocksPerSection) throw START_REFUSED(`A section holds at most ${LIMITS.blocksPerSection} blocks.`);
+    next = withBlocks(old, [...startBlocks.map((b) => validateBlock({ ...b, id: `${old.id}.${b.id_suffix}` })), ...blocks]);
+  } else {
+    let eir = null;
+    try { eir = isUuid(eir_id) ? await getDoc(key, eir_id) : null; } catch (e) { if (e?.status !== 404) throw e; }
+    if (!eir || eir.doc_type !== "EIR") throw START_REFUSED("Pick an EIR of this project.");
+    await requireDocAccess(key, eir, "read");
+    if (responds_to && responds_to !== eir.id) throw START_REFUSED("This BEP already answers another EIR.");
+    responds_to = eir.id;
+    responds_to_version = one(await sb(`bim_document_versions?document_id=eq.${enc(eir.id)}&select=version_no&order=version_no.desc&limit=1`, { service: true }))?.version_no ?? null;
+    const table = blocks.find((b) => b?.kind === "table" && b.title === ASSUMPTIONS);
+    let fresh = blocks;
+    if (table && !table.data?.rows?.length && Array.isArray(eir.sections) && eir.sections.length) {
+      const rows = eir.sections.slice(0, LIMITS.rows).map((s) => ({ cells: { clause: String(s?.heading ?? "").slice(0, LIMITS.cellChars), answer: null, note: "" } }));
+      const filled = validateBlock({ ...table, data: { ...table.data, rows } });
+      fresh = blocks.map((b) => (b === table ? filled : b));
+      rows_filled = rows.length;
+    }
+    next = withBlocks(old, fresh);
+  }
+  const written = swap({ ...doc, sections }, si, next);
+  const size = JSON.stringify(written).length; // the size refusal patchSections makes
+  if (size > LIMITS.docChars && size > JSON.stringify(doc.sections).length) throw err(422, TOO_LARGE);
+  const row = await writeDoc(doc, { sections: written, ...(start === "eir_received" && { responds_to, responds_to_version }) }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);
+  await audit(doc.project_id, "bim_document", doc.id, "document_start_picked", actor || "web", { responds_to: doc.responds_to ?? null },
+    { start, responds_to, responds_to_version, rows_filled });
   return row;
 }
 

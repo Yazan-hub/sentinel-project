@@ -1,0 +1,179 @@
+{
+  "doc_type": "BEP",
+  "title": "BIM Execution Plan",
+  "version": 1,
+  "default": true,
+  "variant": "full",
+  "when_to_use": "Every section ISO 19650-2 asks for, at tender and after appointment. Use it when several task teams deliver or the client issued an EIR.",
+  "sections": [
+    {
+      "key": "project-information",
+      "heading": "1. Project information",
+      "guidance": "Name the project, the appointing party, the lead appointed party and the main dates, so a reader knows what this plan covers. (ISO 19650-2 clause 5.3.2)",
+      "bindings": { "checks": [] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "eir-response",
+      "heading": "2. Response to the EIR",
+      "guidance": "Say how this plan answers the exchange information requirements: what you answer, what you assume and what you need the client to clarify. (ISO 19650-2 clauses 5.2.1 and 5.3.2)",
+      "bindings": { "checks": [] },
+      "blocks": [
+        { "kind": "text", "title": "", "data": { "markdown": "" } },
+        {
+          "kind": "table",
+          "title": "EIR assumptions and clarifications",
+          "data": {
+            "columns": [
+              { "key": "clause", "label": "Clause", "type": "text" },
+              { "key": "answer", "label": "Answer", "type": "choice", "choices": ["answered", "assumed", "excluded", "query"] },
+              { "key": "note", "label": "Note", "type": "text" }
+            ],
+            "rows": []
+          }
+        }
+      ]
+    },
+    {
+      "key": "roles-and-responsibilities",
+      "heading": "3. Information delivery team and responsibilities",
+      "guidance": "List the key people and task teams and who is responsible for producing each kind of information. (ISO 19650-2 clause 5.3.2 a and d)",
+      "bindings": { "checks": [ { "id": "roles.responsibility", "params": {} } ] },
+      "blocks": [
+        { "kind": "text", "title": "", "data": { "markdown": "" } },
+        { "kind": "matrix", "title": "High-level responsibility matrix", "data": { "preset": "high_level" } }
+      ]
+    },
+    {
+      "key": "information-delivery-strategy",
+      "heading": "4. Information delivery strategy",
+      "guidance": "Describe how and when information is delivered against the project milestones. (ISO 19650-2 clause 5.3.2 b)",
+      "bindings": { "checks": [ { "id": "midp.milestones", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "federation-strategy",
+      "heading": "5. Federation strategy",
+      "guidance": "Explain how the models are split and put together, and how the split follows the breakdown of the project. (ISO 19650-2 clause 5.3.2 c)",
+      "bindings": { "checks": [ { "id": "federation.breakdown", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "cde-and-workflow",
+      "heading": "6. Common data environment and workflow",
+      "guidance": "Describe the common data environment, its states and how information moves through them. (ISO 19650-2 clause 5.1.7)",
+      "bindings": { "checks": [ { "id": "cde.states", "params": {} }, { "id": "cde.versioned", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "information-standard",
+      "heading": "7. Information standard and container naming",
+      "guidance": "State the information standard that applies and the rule for naming information containers. (ISO 19650-2 clauses 5.3.2 f and 5.1.4)",
+      "bindings": { "checks": [ { "id": "naming.containers", "params": {} }, { "id": "cde.suitability", "params": {} } ] },
+      "blocks": [
+        { "kind": "text", "title": "", "data": { "markdown": "" } },
+        { "kind": "naming", "title": "Container naming", "data": { "separator": "-", "enforce": "reject", "fields": [] } }
+      ]
+    },
+    {
+      "key": "level-of-information-need",
+      "heading": "8. Level of information need",
+      "guidance": "Say how much geometry, detail and data each deliverable needs at each milestone. (ISO 19650-2 clause 5.2.1)",
+      "bindings": { "checks": [ { "id": "loin.levels", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "production-methods",
+      "heading": "9. Production methods and procedures",
+      "guidance": "Set out the methods and procedures used to produce information, and any additions to the appointing party's. (ISO 19650-2 clauses 5.3.2 e and 5.1.5)",
+      "bindings": { "checks": [ { "id": "project.standards_pack", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "software-hardware-it",
+      "heading": "10. Software, hardware and IT infrastructure",
+      "guidance": "List the software, hardware and IT the delivery team uses, with versions where they matter. (ISO 19650-2 clause 5.3.2 g)",
+      "bindings": { "checks": [] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "quality-assurance",
+      "heading": "11. Quality assurance and model checking",
+      "guidance": "Describe how information is checked before it is shared or issued, and what a failed check leads to. (ISO 19650-2 clause 5.6.3)",
+      "bindings": { "checks": [ { "id": "ids.last_verdict", "params": {} }, { "id": "gate.stage", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "capability-and-capacity",
+      "heading": "12. Capability and capacity",
+      "guidance": "Show that the task teams have the capability and capacity to deliver the information required. (ISO 19650-2 clauses 5.3.3 and 5.3.4)",
+      "bindings": { "checks": [] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "mobilisation",
+      "heading": "13. Mobilisation",
+      "guidance": "Say how resources, information technology and the delivery team are made ready and tested before work starts. (ISO 19650-2 clause 5.3.5)",
+      "bindings": { "checks": [] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "risk-register",
+      "heading": "14. Information delivery risks",
+      "guidance": "Record the risks to delivering the information and how each is handled. (ISO 19650-2 clause 5.3.6)",
+      "bindings": { "checks": [] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "delivery-plans",
+      "heading": "15. Delivery plans (MIDP and TIDP)",
+      "guidance": "Point to the master information delivery plan and the task information delivery plans that sit under it. (ISO 19650-2 clauses 5.4.4 and 5.4.5)",
+      "bindings": { "checks": [ { "id": "midp.plan_completeness", "params": {} }, { "id": "midp.review", "params": {} } ] },
+      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+    },
+    {
+      "key": "project-documents",
+      "heading": "16. Project documents",
+      "guidance": "List the documents this plan relies on, with their version and who issued them. (ISO 19650-2 clauses 5.1.4 to 5.1.6)",
+      "bindings": { "checks": [] },
+      "blocks": [
+        { "kind": "text", "title": "", "data": { "markdown": "" } },
+        { "kind": "references", "title": "Project documents", "data": { "rows": [] } }
+      ]
+    }
+  ],
+  "starts": {
+    "no_eir": {
+      "section": "eir-response",
+      "blocks": [
+        {
+          "id_suffix": "part-e",
+          "kind": "text",
+          "title": "",
+          "data": { "markdown": "**The project is not yet following ISO 19650.** The appointing party has not issued exchange information requirements (EIR) with this tender. This pre-appointment BEP anticipates them (ISO 19650-2 clause 5.3.2), and we will agree the EIR with the appointing party before this BEP is confirmed." }
+        },
+        {
+          "id_suffix": "checklist",
+          "kind": "table",
+          "title": "ISO 19650-2 clause 5.3.2 checklist",
+          "data": {
+            "columns": [
+              { "key": "item", "label": "Item", "type": "text" },
+              { "key": "covered", "label": "Covered", "type": "choice", "choices": ["yes", "partly", "no"] },
+              { "key": "where", "label": "Where in this BEP", "type": "text" }
+            ],
+            "rows": [
+              { "cells": { "item": "A. Proposed information delivery team: the key individuals", "covered": null, "where": "" } },
+              { "cells": { "item": "B. Information delivery strategy", "covered": null, "where": "" } },
+              { "cells": { "item": "C. Federation strategy", "covered": null, "where": "" } },
+              { "cells": { "item": "D. High-level responsibility matrix", "covered": null, "where": "" } },
+              { "cells": { "item": "E. Additions or amendments to the production methods and procedures", "covered": null, "where": "" } },
+              { "cells": { "item": "F. Additions or amendments to the project information standard", "covered": null, "where": "" } },
+              { "cells": { "item": "G. Schedule of software, hardware and IT infrastructure", "covered": null, "where": "" } }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

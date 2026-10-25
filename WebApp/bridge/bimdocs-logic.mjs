@@ -8,14 +8,40 @@ import { textBlock, validateBlock, deriveBody } from "./doc-blocks.mjs";
 
 const TPL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "templates");
 
-/** All document templates ({template_id, version, doc_type, title, sections:[{heading, guidance, body?, blocks?}]}); the id is the file name without "-template.json". */
-export function loadTemplates() {
-  return readdirSync(TPL_DIR)
+/** All document templates ({template_id, version, doc_type, title, variant, when_to_use, default, starts, sections:[{heading, guidance, body?, blocks?}]}); the id is the file name without "-template.json".
+ *  A template with `extends` + `keep` takes its parent's doc_type, version, starts and the kept sections (in the parent's order, headings renumbered "N. ");
+ *  its own title, variant, when_to_use and default stay its own. Each doc_type has exactly one default. */
+export function loadTemplates(dir = TPL_DIR) {
+  const raw = readdirSync(dir)
     .filter((f) => f.endsWith("-template.json"))
-    .map((f) => {
-      const json = JSON.parse(readFileSync(resolve(TPL_DIR, f), "utf8"));
-      return { ...json, template_id: f.replace(/-template\.json$/, ""), version: json.version ?? 1 };
-    });
+    .map((f) => ({ ...JSON.parse(readFileSync(resolve(dir, f), "utf8")), template_id: f.replace(/-template\.json$/, "") }));
+  const all = raw.map((json) => {
+    let base = json;
+    if (json.extends) {
+      const parent = raw.find((p) => p.template_id === json.extends);
+      if (!parent) throw new Error(`templates: ${json.template_id} extends unknown '${json.extends}'`);
+      const keys = json.keep ?? [];
+      for (const k of keys) if (!parent.sections.some((s) => s.key === k)) throw new Error(`templates: ${json.template_id} keeps unknown section '${k}'`);
+      const kept = parent.sections.filter((s) => keys.includes(s.key));
+      base = { ...parent, ...json, doc_type: parent.doc_type, version: parent.version, starts: parent.starts,
+        sections: kept.map((s, i) => ({ ...s, heading: s.heading.replace(/^\d+\.\s+/, `${i + 1}. `) })) };
+    }
+    return { ...base, template_id: json.template_id, version: base.version ?? 1, variant: json.variant ?? null, when_to_use: json.when_to_use ?? "", default: json.default === true, starts: base.starts ?? {} };
+  });
+  for (const type of new Set(all.map((t) => t.doc_type)))
+    if (all.filter((t) => t.doc_type === type && t.default).length !== 1) throw new Error(`templates: ${type} needs exactly one default`);
+  return all;
+}
+
+const refuse = (message) => Object.assign(new Error(message), { status: 400 });
+/** The template of this doc_type: the named one, or the default when none is named. 400 in words for an unknown type or id. */
+export function pickTemplate(doc_type, template_id, templates = loadTemplates()) {
+  const ofType = templates.filter((t) => t.doc_type === doc_type);
+  if (!ofType.length) throw refuse(`unknown doc_type '${doc_type}'`);
+  if (template_id == null) return ofType.find((t) => t.default);
+  const t = ofType.find((x) => x.template_id === template_id);
+  if (!t) throw refuse(`unknown template '${template_id}' for ${doc_type}`);
+  return t;
 }
 
 /** Deep-copy a template into a new document row body: fresh section and block ids, everything wip, bindings reserved. */

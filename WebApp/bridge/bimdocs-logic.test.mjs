@@ -1,20 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { loadTemplates, instantiateTemplate, validateTransition, validateDocTransition, ALLOWED_TRANSITIONS, buildSnapshot, maskVersion, VERSION_KEEP, SNAPSHOT_KEEP } from "./bimdocs-logic.mjs";
+import { loadTemplates, pickTemplate, instantiateTemplate, validateTransition, validateDocTransition, ALLOWED_TRANSITIONS, buildSnapshot, maskVersion, VERSION_KEEP, SNAPSHOT_KEEP } from "./bimdocs-logic.mjs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("loadTemplates", () => {
   it("loads BEP and EIR templates with sections", () => {
     const ts = loadTemplates();
     const types = ts.map((t) => t.doc_type).sort();
-    expect(types).toEqual(["BEP", "EIR", "READINESS", "TIDP"]);
+    expect(types).toEqual(["BEP", "BEP", "EIR", "READINESS", "TIDP"]);
     for (const t of ts) expect(t.sections.length).toBeGreaterThan(4);
   });
 });
 
 describe("instantiateTemplate", () => {
   it("creates a wip document with fresh ids and reserved bindings", () => {
-    const [bep] = loadTemplates().filter((t) => t.doc_type === "BEP");
+    const [bep] = loadTemplates().filter((t) => t.doc_type === "EIR");
     const doc = instantiateTemplate(bep, { title: "My BEP", actor: "yazan" });
-    expect(doc.doc_type).toBe("BEP");
+    expect(doc.doc_type).toBe("EIR");
     expect(doc.title).toBe("My BEP");
     expect(doc.status).toBe("wip");
     expect(doc.created_by).toBe("yazan");
@@ -57,10 +60,10 @@ describe("buildSnapshot", () => {
 });
 
 describe("R1a: templates carry blocks and their id", () => {
-  it("every template is named by its file", () => expect(loadTemplates().map((t) => t.template_id).sort()).toEqual(["bep", "eir", "readiness", "tidp"]));
+  it("every template is named by its file", () => expect(loadTemplates().map((t) => t.template_id).sort()).toEqual(["bep-comprehensive", "bep-comprehensive-minimal", "eir", "readiness", "tidp"]));
   it("each new section holds one text block whose markdown is the body", () => {
-    const d = instantiateTemplate(loadTemplates().find((t) => t.template_id === "bep"));
-    expect(d).toMatchObject({ template_id: "bep", template_version: 1 });
+    const d = instantiateTemplate(loadTemplates().find((t) => t.template_id === "eir"));
+    expect(d).toMatchObject({ template_id: "eir", template_version: 1 });
     for (const s of d.sections) expect(s.blocks).toEqual([{ id: `${s.id}.t0`, kind: "text", title: "", data: { markdown: "" } }]);
   });
   it("READINESS keeps its fields beside the blocks", () => {
@@ -91,5 +94,61 @@ describe("maskVersion — the viewer's version (spec section 4, Review Focus 4)"
     expect(maskVersion(null)).toEqual({}); expect(maskVersion("x")).toEqual({});
     expect(maskVersion({ version_no: 1, snapshot: 5 })).toEqual({ version_no: 1, snapshot: { sections: [] } });
     expect(maskVersion({ snapshot: { sections: [null, 3, { id: "s", answer: "x" }, { id: "r", answer: null }] } }).snapshot.sections).toEqual([{ id: "s" }, { id: "r", answer: null }]);
+  });
+});
+
+const KEYS = ["project-information", "eir-response", "roles-and-responsibilities", "information-delivery-strategy", "federation-strategy", "cde-and-workflow", "information-standard",
+  "level-of-information-need", "production-methods", "software-hardware-it", "quality-assurance", "capability-and-capacity", "mobilisation", "risk-register", "delivery-plans", "project-documents"];
+const MINIMAL = ["project-information", "eir-response", "roles-and-responsibilities", "information-delivery-strategy", "cde-and-workflow", "information-standard", "delivery-plans", "project-documents"];
+const BOUND = {
+  "roles-and-responsibilities": ["roles.responsibility"], "information-delivery-strategy": ["midp.milestones"], "federation-strategy": ["federation.breakdown"],
+  "cde-and-workflow": ["cde.states", "cde.versioned"], "information-standard": ["naming.containers", "cde.suitability"], "level-of-information-need": ["loin.levels"],
+  "production-methods": ["project.standards_pack"], "quality-assurance": ["ids.last_verdict", "gate.stage"], "delivery-plans": ["midp.plan_completeness", "midp.review"],
+};
+const tpl = (id) => loadTemplates().find((t) => t.template_id === id);
+const dir = (files) => {
+  const d = mkdtempSync(join(tmpdir(), "tpl-"));
+  for (const [name, json] of Object.entries(files)) writeFileSync(join(d, name), JSON.stringify(json), "utf8");
+  return d;
+};
+const bep = (o) => ({ doc_type: "BEP", title: "B", sections: [{ key: "a", heading: "A" }, { key: "b", heading: "B" }], ...o });
+
+describe("R1b: template choice", () => {
+  it("ships these templates, exactly one default per document type", () => {
+    expect(loadTemplates().map((t) => t.template_id).sort()).toEqual(["bep-comprehensive", "bep-comprehensive-minimal", "eir", "readiness", "tidp"]);
+    for (const type of ["BEP", "EIR", "READINESS", "TIDP"]) expect(loadTemplates().filter((t) => t.doc_type === type && t.default).length).toBe(1);
+  });
+  it("the comprehensive BEP: 16 numbered sections in order, pre-bound, with its blocks", () => {
+    const t = tpl("bep-comprehensive");
+    expect(t).toMatchObject({ doc_type: "BEP", variant: "full", default: true });
+    expect(t.sections.map((s) => s.key)).toEqual(KEYS);
+    t.sections.forEach((s, i) => expect(s.heading.startsWith(`${i + 1}. `)).toBe(true));
+    expect(t.sections[0].heading).toBe("1. Project information");
+    expect(t.sections[15].heading).toBe("16. Project documents");
+    for (const s of t.sections) expect((s.bindings?.checks ?? []).map((c) => c.id)).toEqual(BOUND[s.key] ?? []);
+    const kinds = Object.fromEntries(t.sections.map((s) => [s.key, s.blocks.map((b) => b.kind)]));
+    expect(kinds["eir-response"]).toEqual(["text", "table"]);
+    expect(kinds["roles-and-responsibilities"]).toEqual(["text", "matrix"]);
+    expect(kinds["information-standard"]).toEqual(["text", "naming"]);
+    expect(kinds["project-documents"]).toEqual(["text", "references"]);
+    expect(kinds["mobilisation"]).toEqual(["text"]);
+  });
+  it("the minimal variant extends it: 8 sections in the parent's order, its starts, not a default", () => {
+    const m = tpl("bep-comprehensive-minimal");
+    expect(m).toMatchObject({ doc_type: "BEP", variant: "minimal", default: false, starts: tpl("bep-comprehensive").starts });
+    expect(m.sections.map((s) => s.key)).toEqual(MINIMAL);
+    m.sections.forEach((s, i) => expect(s.heading.startsWith(`${i + 1}. `), s.heading).toBe(true)); // renumbered: "5. CDE and workflow", not "6."
+    expect(tpl("bep-comprehensive").sections[5].heading).toBe("6. Common data environment and workflow"); // the parent is untouched
+  });
+  it("pickTemplate takes the default whatever the file order, a named one, or refuses in words", () => {
+    expect(pickTemplate("BEP", undefined, [...loadTemplates()].reverse()).template_id).toBe("bep-comprehensive");
+    expect(pickTemplate("BEP", "bep-comprehensive-minimal").template_id).toBe("bep-comprehensive-minimal");
+    expect(() => pickTemplate("BEP", "eir")).toThrow("unknown template 'eir' for BEP");
+    expect(() => pickTemplate("XYZ")).toThrow("unknown doc_type 'XYZ'");
+  });
+  it("refuses two defaults, an unknown parent and an unknown kept section", () => {
+    expect(() => loadTemplates(dir({ "a-template.json": bep({ default: true }), "b-template.json": bep({ default: true }) }))).toThrow("templates: BEP needs exactly one default");
+    expect(() => loadTemplates(dir({ "a-template.json": bep({ default: true }), "m-template.json": { extends: "nope", keep: ["a"] } }))).toThrow("templates: m extends unknown 'nope'");
+    expect(() => loadTemplates(dir({ "a-template.json": bep({ default: true }), "m-template.json": { extends: "a", keep: ["zz"] } }))).toThrow("templates: m keeps unknown section 'zz'");
   });
 });

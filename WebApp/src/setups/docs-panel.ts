@@ -420,7 +420,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   // ── Create view ───────────────────────────────────────────────────────────
   async function showCreate() {
     body.replaceChildren();
-    const templates: { doc_type: string; title: string; sections: number }[] = await api("/templates");
+    const templates: { template_id: string; doc_type: string; title: string; sections: number; when_to_use: string }[] = await api("/templates");
     const wrap = document.createElement("div");
     wrap.style.cssText = "max-width:420px;display:flex;flex-direction:column;gap:.5rem";
     const input = document.createElement("input");
@@ -431,12 +431,15 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       const b = btn(`Create ${t.doc_type} — ${t.title} (${t.sections} sections)`);
       b.onclick = async () => {
         try {
-          const doc = await api(`/${encodeURIComponent(pid())}`, { method: "POST", body: JSON.stringify({ doc_type: t.doc_type, title: input.value || t.title, actor: await actor() }) });
+          const doc = await api(`/${encodeURIComponent(pid())}`, { method: "POST", body: JSON.stringify({ doc_type: t.doc_type, template_id: t.template_id, title: input.value || t.title, actor: await actor() }) });
           if ((t.doc_type === "BEP" || t.doc_type === "EIR") && opts.onOpenWorkspace) { void showList(); opts.onOpenWorkspace(doc.id); }
           else showEditor(doc.id);
         } catch (e: any) { msg(e.message, true); }
       };
-      wrap.append(b);
+      const when = document.createElement("div");
+      when.style.cssText = "color:#9a9aa5;font-size:.8rem;margin:-.25rem 0 .25rem";
+      when.textContent = t.when_to_use;
+      wrap.append(b, when);
     }
     const back = btn("← Back"); back.onclick = showList; wrap.append(back);
     body.append(wrap);

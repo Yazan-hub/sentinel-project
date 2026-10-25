@@ -1,4 +1,6 @@
 {
+  "default": true,
+  "when_to_use": "The client's exchange information requirements. Use it when you write or ingest an EIR.",
   "doc_type": "EIR",
   "title": "Exchange Information Requirements",
   "sections": [

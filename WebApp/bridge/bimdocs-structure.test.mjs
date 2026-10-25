@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createHash } from "node:crypto";
-import { loadTemplates } from "./bimdocs-logic.mjs";
+import { loadTemplates, instantiateTemplate } from "./bimdocs-logic.mjs";
+import { validateBlock } from "./doc-blocks.mjs";
 
 // Section, block and version tests for bimdocs-store.mjs need a mocked cde-store.mjs (Supabase network layer) so we can assert
 // on what is PATCHed and which ledger rows are written. Kept in its own file so it never interferes with
@@ -116,7 +117,7 @@ describe("old panel save rule", () => {
     sb.mockImplementation(async (p, o) => (o?.method === "POST" ? [{ id: doc.id, doc_type: "BEP", title: "B" }] : [doc]));
     const posted = () => sb.mock.calls.find(([p, o]) => p === "bim_documents" && o?.method === "POST")[1].body;
     await createDoc("k", { doc_type: "BEP" });
-    expect(posted()).toMatchObject({ template_id: "bep", template_version: 1 });
+    expect(posted()).toMatchObject({ template_id: "bep-comprehensive", template_version: 1 });
     sb.mockClear();
     await createDocFromIngest("k", { doc_type: "EIR", sections: [{ heading: "H", body: "b" }] });
     expect(posted()).toMatchObject({ template_id: "eir", template_version: 1 });
@@ -566,5 +567,99 @@ describe("R1b: the variant comes from the template", () => {
     doc.template_id = "no-such-template"; expect((await executabilityReport("k", doc.id)).variant).toBeNull();
     delete doc.template_id; const r = await executabilityReport("k", doc.id);
     expect(r.variant).toBeNull(); expect(r.headline).toBe("0 % controlling, 0 of 1 sections written");
+  });
+});
+
+const { pickStart, listTemplates, validateBindings } = await import("./bimdocs-store.mjs");
+const EIR_ID = "33333333-3333-4333-8333-333333333333";
+const PART_E = "**The project is not yet following ISO 19650.** The appointing party has not issued exchange information requirements (EIR) with this tender. This pre-appointment BEP anticipates them (ISO 19650-2 clause 5.3.2), and we will agree the EIR with the appointing party before this BEP is confirmed.";
+const assumptions = { id: "asm", kind: "table", title: "EIR assumptions and clarifications", data: { columns: [{ key: "clause", label: "Clause", type: "text", choices: [], choices_from: null },
+  { key: "answer", label: "Answer", type: "choice", choices: ["answered", "assumed", "excluded", "query"], choices_from: null }, { key: "note", label: "Note", type: "text", choices: [], choices_from: null }], rows: [], group_by_team: false } };
+const startDoc = (o = {}) => makeDoc({ template_id: "bep-comprehensive", responds_to: null, sections: [
+  { id: "sec1", heading: "1. Project information", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }] },
+  { id: "sec2", heading: "2. Response to the EIR", template_key: "eir-response", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "sec2.t0", kind: "text", title: "", data: { markdown: "" } }, assumptions] }], ...o });
+const eir = { id: EIR_ID, project_id: "proj1", doc_type: "EIR", title: "Client EIR", status: "published", sections: [{ id: "e1", heading: "1. Context" }, { id: "e2", heading: "2. Requirements" }] };
+
+describe("R1b: the start route (a lead's; the only writer of responds_to)", () => {
+  beforeEach(() => {
+    doc = startDoc();
+    sb.mockImplementation(async (path, o) => {
+      if (o?.method === "PATCH") return [{ ...doc, ...o.body }];
+      if (path.startsWith(`bim_documents?id=eq.${EIR_ID}`)) return [eir];
+      if (path.startsWith("bim_document_versions")) return [{ version_no: 2 }];
+      return [doc];
+    });
+  });
+  it("no EIR received: the statement and the 5.3.2 checklist go first in the EIR response, in one write and one ledger row", async () => {
+    await pickStart("k", doc.id, { start: "no_eir" });
+    expect(patches()).toHaveLength(1);
+    const s = patches()[0][1].body.sections[1];
+    expect(s.blocks.map((b) => b.id)).toEqual(["sec2.part-e", "sec2.checklist", "sec2.t0", "asm"]);
+    expect(s.blocks[0].data.markdown).toBe(PART_E);
+    expect(s.blocks[1]).toMatchObject({ kind: "table", title: "ISO 19650-2 clause 5.3.2 checklist" });
+    expect(s.blocks[1].data.rows.map((r) => r.cells.item[0])).toEqual(["A", "B", "C", "D", "E", "F", "G"]);
+    expect(s.blocks[1].data.rows[0].cells.item).toBe("A. Proposed information delivery team: the key individuals");
+    expect(s.body).toContain("The project is not yet following ISO 19650.");
+    expect(patches()[0][1].body).not.toHaveProperty("responds_to");
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "document_start_picked", "web", { responds_to: null },
+      { start: "no_eir", responds_to: null, responds_to_version: null, rows_filled: 0 });
+  });
+  it("EIR received: links the EIR at its latest version and fills the assumptions table once", async () => {
+    await pickStart("k", doc.id, { start: "eir_received", eir_id: EIR_ID });
+    const body = patches()[0][1].body;
+    expect(body).toMatchObject({ responds_to: EIR_ID, responds_to_version: 2 });
+    expect(body.sections[1].blocks[1].data.rows.map((r) => r.cells)).toEqual([{ clause: "1. Context", answer: null, note: "" }, { clause: "2. Requirements", answer: null, note: "" }]);
+    expect(audit.mock.calls.at(-1)[6]).toEqual({ start: "eir_received", responds_to: EIR_ID, responds_to_version: 2, rows_filled: 2 });
+    doc = startDoc({ responds_to: EIR_ID, sections: body.sections }); sb.mockClear(); audit.mockClear();
+    await pickStart("k", doc.id, { start: "eir_received", eir_id: EIR_ID });
+    expect(audit.mock.calls.at(-1)[6].rows_filled).toBe(0);
+  });
+  it.each([
+    [{ start: "maybe" }, {}, 400, "start must be eir_received or no_eir"],
+    [{ start: "no_eir" }, { template_id: "bep" }, 422, "Only a BEP made from the comprehensive template has a start. Nothing was saved."],
+    [{ start: "no_eir" }, { sections: [{ id: "sec1", heading: "1", body: "", state: "wip", owner: null, bindings: {} }] }, 422, "This BEP has no EIR response section from the template, so it has no start. Nothing was saved."],
+    [{ start: "no_eir" }, { responds_to: EIR_ID }, 422, "This BEP already has its start. Nothing was saved."],
+    [{ start: "eir_received", eir_id: "44444444-4444-4444-8444-444444444444" }, {}, 422, "Pick an EIR of this project. Nothing was saved."],
+    [{ start: "eir_received", eir_id: EIR_ID }, { responds_to: "55555555-5555-4555-8555-555555555555" }, 422, "This BEP already answers another EIR. Nothing was saved."],
+  ])("refuses %j on %j in words, writing nothing", async (args, over, status, message) => {
+    doc = startDoc(over);
+    if (args.eir_id === "44444444-4444-4444-8444-444444444444") sb.mockImplementation(async (p, o) => (p.startsWith("bim_documents?id=eq.4444") ? [] : [doc]));
+    await expect(pickStart("k", doc.id, args)).rejects.toMatchObject({ status, message });
+    expect(patches()).toHaveLength(0);
+    expect(audit).not.toHaveBeenCalled();
+  });
+  it("a contributor is refused", async () => {
+    globalThis.__testRole = "contributor";
+    try { await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 403 }); } finally { globalThis.__testRole = undefined; }
+  });
+});
+
+describe("R1b: shipped templates instantiate cleanly, and the list says which to use", () => {
+  it("every section's blocks and bindings pass the bridge's own checks (an unknown check id is refused there)", () => {
+    for (const t of loadTemplates()) {
+      const d = instantiateTemplate(t);
+      for (const s of d.sections) {
+        for (const b of s.blocks) expect(() => validateBlock(b)).not.toThrow();
+        expect(() => validateBindings(s.bindings)).not.toThrow();
+      }
+      for (const b of t.starts?.no_eir?.blocks ?? []) expect(() => validateBlock({ ...b, id: `x.${b.id_suffix}` })).not.toThrow();
+    }
+  });
+  it("listTemplates names the template, its variant, when to use it and the default", () => {
+    expect(listTemplates().find((t) => t.template_id === "bep-comprehensive-minimal")).toEqual({ template_id: "bep-comprehensive-minimal", doc_type: "BEP",
+      title: "BIM Execution Plan, minimal", sections: 8, variant: "minimal", default: false,
+      when_to_use: "The eight sections a tender needs. Use it for a small project or a quick bid; add sections later." });
+  });
+  it("createDoc takes a named template and refuses an unknown one", async () => {
+    sb.mockImplementation(async (p, o) => (o?.method === "POST" ? [{ id: doc.id, doc_type: "BEP", title: "B" }] : [doc]));
+    await createDoc("k", { doc_type: "BEP", template_id: "bep-comprehensive-minimal" });
+    expect(sb.mock.calls.find(([p, o]) => p === "bim_documents" && o?.method === "POST")[1].body.sections).toHaveLength(8);
+    await expect(createDoc("k", { doc_type: "BEP", template_id: "nope" })).rejects.toMatchObject({ status: 400, message: "unknown template 'nope' for BEP" });
+  });
+  it("a stored BEP whose template_id is the old bep (no longer a file) still reads: variant null, no throw; its start is refused in words", async () => {
+    doc = startDoc({ template_id: "bep" });
+    sb.mockImplementation(async () => [doc]);
+    expect((await executabilityReport("k", doc.id)).variant).toBeNull();
+    await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 422 });
   });
 });

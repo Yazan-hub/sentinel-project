@@ -1807,6 +1807,15 @@ describe("bimdocs structure routes (R1a)", () => {
     expect((await call("POST", `${D}/section/s1/blocks/${bid}/remove`, "contributor", {})).status).toBe(200);
     expect(await call("POST", `${D}/section/s1/blocks`, "viewer", { kind: "text" })).toEqual(refused("contributor", "viewer"));
   });
+  it("R1b: a lead picks the start; a contributor is refused in words", async () => {
+    db.bim_documents[0] = { ...structuredClone(DOC), template_id: "bep-comprehensive", responds_to: null,
+      sections: [{ ...structuredClone(DOC.sections[0]), template_key: "eir-response" }] };
+    expect(await call("POST", `${D}/start`, "contributor", { start: "no_eir" })).toEqual(refused("lead", "contributor"));
+    const r = await call("POST", `${D}/start`, "lead", { start: "no_eir" });
+    expect(r.status).toBe(200);
+    expect(r.body.sections[0].blocks.map((b) => b.id)).toEqual(["s1.part-e", "s1.checklist", "s1.t0"]);
+    expect(writes("audit_log").filter((w) => w.body.action === "document_start_picked")).toHaveLength(1);
+  });
   it("the old PATCH still edits a text-only section", async () =>
     expect((await call("PATCH", `${D}/section/s1`, "contributor", { body: "x" })).body.sections[0].body).toBe("x"));
 });

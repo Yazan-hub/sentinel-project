@@ -1,4 +1,6 @@
 {
+  "default": true,
+  "when_to_use": "An old prose task team plan. Plan deliveries in Deliverables; this stays until the measured plan arrives.",
   "doc_type": "TIDP",
   "title": "Task Information Delivery Plan",
   "sections": [

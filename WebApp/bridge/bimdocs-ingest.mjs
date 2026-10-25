@@ -7,7 +7,7 @@ import { join, resolve, sep, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { extractText } from "./doc-text.mjs";
 import { chunkPages, buildMappingPrompt, parseProposal, mergeProposal } from "./ingest-logic.mjs";
-import { loadTemplates } from "./bimdocs-logic.mjs";
+import { pickTemplate } from "./bimdocs-logic.mjs";
 import { chat } from "./ai-gateway.mjs";
 
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -56,8 +56,7 @@ export function sourceFilePath(projectId, file_id) {
  */
 export async function ingestDocument(buffer, { filename, doc_type, project_id } = {}) {
   const dir = projectSourceDir(project_id); // no project, no work: refused before anything is stored or asked
-  const tpl = loadTemplates().find((t) => t.doc_type === doc_type);
-  if (!tpl) throw err(400, `unknown doc_type '${doc_type}'`);
+  const tpl = pickTemplate(doc_type);
 
   const { pages, kind } = await extractText(buffer, filename);
 

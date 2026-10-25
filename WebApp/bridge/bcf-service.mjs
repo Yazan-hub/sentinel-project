@@ -2143,7 +2143,7 @@ async function handleRequest(req, res) {
 
   // ── BIM Documents (BEP/EIR) — structured ISO 19650 documents, versioned & audited ──
   //   GET  /bimdocs/templates · POST /bimdocs/compile-ids { text } (prose → proposed IDS, installs nothing)
-  //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, title }
+  //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, template_id?, title }
   //   GET  /bimdocs/:key/:docId
   //   PATCH /bimdocs/:key/:docId/section/:sectionId { body?, owner?, state?, updated_at }
   //   POST /bimdocs/:key/:docId/section/:sectionId/draft { provider?, model? } · POST /bimdocs/:key/:docId/integrity { provider?, model? }
@@ -2152,6 +2152,7 @@ async function handleRequest(req, res) {
   //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
   //   POST /bimdocs/:key/:docId/section { heading, guidance?, after? } · PUT .../section/:sid/heading { heading } · POST .../section/:sid/remove { confirm_bound? }
   //   PUT  /bimdocs/:key/:docId/outline { order: [sectionId] }
+  //   POST /bimdocs/:key/:docId/start { start: "eir_received" | "no_eir", eir_id?, updated_at? }  (a lead's; the only writer of responds_to)
   //   POST /bimdocs/:key/:docId/section/:sid/blocks { kind, title?, data?, after? } · PUT .../blocks { order: [blockId] }
   //   PUT  /bimdocs/:key/:docId/section/:sid/blocks/:bid { title?, data? } · POST .../blocks/:bid/remove   (all take updated_at?)
   if (top === "bimdocs") {
@@ -2237,6 +2238,7 @@ async function handleRequest(req, res) {
         return send(res, 200, await bimdocs.editBlock(p1, p2, p4, seg[6], { ...body, actor }));
       if (p3 === "section" && p4 && seg[5] === "blocks" && seg[6] && seg[7] === "remove" && !seg[8] && req.method === "POST")
         return send(res, 200, await bimdocs.removeBlock(p1, p2, p4, seg[6], { ...body, actor }));
+      if (p3 === "start" && !p4 && req.method === "POST") return send(res, 200, await bimdocs.pickStart(p1, p2, { ...body, actor }));
       if (p3 === "compliance" && !p4 && req.method === "GET")
         return send(res, 200, await bimdocs.complianceReport(p1, p2));
       if (p3 === "executability" && req.method === "GET")
