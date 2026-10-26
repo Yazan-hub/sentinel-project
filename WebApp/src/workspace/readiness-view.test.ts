@@ -2,9 +2,9 @@ import { describe, it, expect, vi } from "vitest";
 
 vi.mock("../setups/bridge-fetch", () => ({ bfetch: vi.fn() }));
 
-import { READ_ONLY_NOTE, readinessView, renderReadiness } from "./readiness-view";
+import { READ_ONLY_NOTE, VERSION_NOTE, readinessView, renderReadiness } from "./readiness-view";
 import { emptyState } from "./workspace-state";
-import { fakeDocument, findAll, textOf } from "./fake-dom";
+import { click, fakeDocument, findAll, textOf } from "./fake-dom";
 
 const pillar = (o: Record<string, unknown> = {}) => ({ measured: { met: 0, violation: 0, not_checkable: 0, unbound: 0, items: [] }, declared: { yes: 0, partial: 0, no: 0, unanswered: 0, items: [] }, missing: [], ...o });
 const doc = { id: "r", doc_type: "READINESS", title: "SNW Office readiness (tender)", status: "wip", sections: [
@@ -61,6 +61,22 @@ describe("readinessView", () => {
     await tick();
     expect(get).toHaveBeenCalledWith("/bimdocs/k/r/readiness");
     expect(textOf(el)).toContain("Standards: Measured 0 met");
+  });
+  it("reads a version being viewed from that version's answers, not the live document (F-R1b-6)", async () => {
+    const snapshot = { ...doc, sections: [{ id: "r2", heading: "12. Training plan", kind: "declared", question: "Is there a training plan?", answer: { value: "no", note: "Not yet" }, due: null }] };
+    const viewing = { id: "v2", document_id: "r", version_no: 2, label: "Assessment 2", published_by: "a@x", published_at: "2026-09-22T00:00:00Z", stage: null, suitability: null, revision: null, sha: "s", snapshot };
+    const st = { ...emptyState("k"), doc, viewing };
+    const get = vi.fn(), viewVersion = vi.fn(async () => {});
+    const el = readinessView({ st, ws: { state: () => st, get, viewVersion }, doc: fakeDocument() } as any);
+    await tick();
+    const t = textOf(el);
+    expect(get).not.toHaveBeenCalled(); // a version is not measured again
+    for (const s of ["Viewing v2, Assessment 2.", VERSION_NOTE, "Is there a training plan?", "No: Not yet"]) expect(t).toContain(s);
+    for (const s of ["Partly: Half the team", "Standards: Measured", "Computing readiness"]) expect(t).not.toContain(s);
+    const buttons = findAll(el, "button");
+    expect(buttons.map(textOf)).toEqual(["Back to the current document"]);
+    click(buttons[0]);
+    expect(viewVersion).toHaveBeenCalledWith(null);
   });
   it("shows nothing when the project changed while it read", async () => {
     const st = { ...emptyState("k"), doc }, now = { ...st };

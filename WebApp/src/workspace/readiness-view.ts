@@ -2,13 +2,14 @@
 // due dates from the document; answering and planning stay in the Documents tab. Everything goes in as text.
 import type { DocRow } from "../sentinel-core/doc-blocks";
 import { pathSegment } from "../setups/escape-html";
-import { C, h } from "./dom";
+import { btn, C, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
 
 export const READ_ONLY_NOTE: Record<"READINESS" | "TIDP", string> = {
   READINESS: "Answer the questions and plan in the Documents tab.",
   TIDP: "Old task team plans are read here; plan deliveries in Deliverables.",
 };
+export const VERSION_NOTE = "These are the answers as published. Measured results are not kept with a version: Back to the current document shows today's.";
 export const ANSWER_WORDS: Record<string, string> = { yes: "Yes", partial: "Partly", no: "No" };
 const PILLARS: [string, string][] = [["standards", "Standards"], ["people", "People"], ["process", "Process"]];
 
@@ -26,11 +27,13 @@ function pillarLines(rep: unknown): string[] | null {
   });
 }
 
-export function renderReadiness(doc: DocRow, rep: unknown, d: Document): HTMLElement {
+/** `version`: a published version's answers, which carry no measurement, so the note replaces the report's numbers. */
+export function renderReadiness(doc: Pick<DocRow, "sections">, rep: unknown, d: Document, version = false): HTMLElement {
   const root = h(d, "div", "max-width:52rem;margin:0 auto");
   root.append(h(d, "div", `color:${C.muted};font:12px system-ui;margin:0 0 .8rem`, READ_ONLY_NOTE.READINESS));
-  const lines = pillarLines(rep);
-  if (lines) for (const l of lines) root.append(h(d, "div", `color:${C.soft};font:12px system-ui;margin:.15rem 0`, l));
+  const lines = version ? null : pillarLines(rep);
+  if (version) root.append(h(d, "div", `color:${C.soft};font:12px system-ui;margin:.15rem 0`, VERSION_NOTE));
+  else if (lines) for (const l of lines) root.append(h(d, "div", `color:${C.soft};font:12px system-ui;margin:.15rem 0`, l));
   else root.append(h(d, "div", `color:${C.warn};font:12px system-ui`, "Readiness could not be computed; the questions are shown below."));
   for (const s of Array.isArray(doc.sections) ? doc.sections : []) {
     const box = h(d, "div", `border-top:1px solid ${C.line};padding:.6rem 0`);
@@ -46,11 +49,21 @@ export function renderReadiness(doc: DocRow, rep: unknown, d: Document): HTMLEle
   return root;
 }
 
-/** The READINESS centre (Read view): fetches the bridge's report, then renders it. A stale answer shows nothing. */
+/** The READINESS centre (Read view). A version being viewed (Versions ▸ Read) shows its own answers and says which version it is
+ *  (F-R1b-6): the bridge measures only the document as it is now. Otherwise it fetches the bridge's report, then renders it; a stale
+ *  answer shows nothing. */
 export function readinessView(ctx: PaneCtx): HTMLElement {
-  const d = ctx.doc, doc = ctx.st.doc, key = ctx.st.key;
+  const d = ctx.doc, doc = ctx.st.doc, key = ctx.st.key, v = ctx.st.viewing;
   const root = h(d, "div");
   if (!doc) return root;
+  if (v) {
+    const bar = h(d, "div", "display:flex;align-items:center;gap:.5rem;max-width:52rem;margin:0 auto .6rem");
+    const back = btn(d, "Back to the current document");
+    back.addEventListener("click", () => { void ctx.ws.viewVersion(null); });
+    bar.append(h(d, "span", `color:${C.soft};font:12px system-ui;flex:1;min-width:0`, `Viewing v${v.version_no}, ${v.label}.`), back);
+    root.append(bar, renderReadiness(v.snapshot, null, d, true));
+    return root;
+  }
   root.append(h(d, "div", `color:${C.muted}`, "Computing readiness…"));
   void ctx.ws.get<unknown>(`/bimdocs/${pathSegment(key)}/${pathSegment(doc.id)}/readiness`).then((rep) => {
     const now = ctx.ws.state();
