@@ -89,12 +89,12 @@ describe("the workspace controller", () => {
     first.resolve(ok(doc({ updated_at: "t2" }))); await a; await b;
     expect(puts(t.json).map((x: any) => x.updated_at)).toEqual(["t1", "t2"]); expect(t.ws.state().doc?.updated_at).toBe("t3");
   });
-  it("a write sends updated_at and the actor, keeps the returned row and does not re-render", async () => {
+  it("a write sends updated_at and the actor, keeps the returned row and renders only the Saving… change (start and end)", async () => {
     const t = setup((m, p) => (m === "PUT" ? ok(doc({ updated_at: "t2" })) : docRoute()(m, p)));
     await t.ws.open("d1"); const n = t.renders.length;
     expect((await t.ws.write("PUT", "/section/s1/blocks/s1.t0", { data: { markdown: "y" } }))?.updated_at).toBe("t2");
     expect(t.json).toHaveBeenLastCalledWith("PUT", "/bimdocs/a/d1/section/s1/blocks/s1.t0", { data: { markdown: "y" }, updated_at: "t1", actor: "lead@x" });
-    expect(t.ws.state().doc?.updated_at).toBe("t2"); expect(t.renders.length).toBe(n);
+    expect(t.ws.state().doc?.updated_at).toBe("t2"); expect(t.renders.length).toBe(n + 2);
   });
   it("a 409 asks, yes resends without updated_at (Review Focus 2)", async () => {
     let n = 0; const t = setup((m, p) => (m === "PUT" ? (++n === 1 ? { status: 409, body: { message: "the document changed or was issued meanwhile — nothing was saved" } } : ok(doc({ updated_at: "t3" }))) : docRoute()(m, p)));
@@ -329,5 +329,36 @@ describe("ruling: a failed re-read keeps the document only when it says nothing 
   it.each([[403], [404], [410]])("%s empties the page with that answer's words", async (status) => {
     const st = await reread(status);
     expect(st.doc).toBeNull(); expect(st.message).toBe(`The document could not be read: answer ${status}.`);
+  });
+});
+
+describe("F-R1b-5: writes in flight are counted and the page is told", () => {
+  it("pending() is 1 while a PUT is in flight, 2 with a second queued, 0 after both answer; a render at the start and at the end", async () => {
+    const a = deferred<unknown>(), b = deferred<unknown>(); let n = 0;
+    const t = setup((m, p) => (m === "PUT" ? (++n === 1 ? a.p : b.p) : docRoute()(m, p)));
+    await t.ws.open("d1");
+    expect(t.ws.pending()).toBe(0);
+    const seen = t.renders.length;
+    const w1 = t.ws.write("PUT", "/x", {});
+    expect(t.ws.pending()).toBe(1);
+    expect(t.renders.length).toBe(seen + 1); // 0 -> 1: the page is told
+    const w2 = t.ws.write("PUT", "/y", {});
+    expect(t.ws.pending()).toBe(2);
+    expect(t.renders.length).toBe(seen + 1); // 1 -> 2: nothing new to show
+    a.resolve(ok(doc({ updated_at: "t2" }))); await w1;
+    expect(t.ws.pending()).toBe(1);
+    expect(t.renders.length).toBe(seen + 1);
+    b.resolve(ok(doc({ updated_at: "t3" }))); await w2;
+    expect(t.ws.pending()).toBe(0);
+    expect(t.renders.length).toBe(seen + 2); // 1 -> 0: the page is told again
+  });
+  it("a write that returns early (another document open, not sent) still counts down", async () => {
+    const gate = deferred<unknown>(); let first = true;
+    const slow = setup((m, p) => (m === "PUT" && first ? ((first = false), gate.p) : docRoute()(m, p)));
+    await slow.ws.open("d1");
+    const w1 = slow.ws.write("PUT", "/x", {}), w2 = slow.ws.write("PUT", "/y", {});
+    slow.switchTo("b"); gate.resolve(ok(doc({ updated_at: "t2" })));
+    expect(await w1).toBeNull(); expect(await w2).toBeNull();
+    expect(slow.ws.pending()).toBe(0);
   });
 });

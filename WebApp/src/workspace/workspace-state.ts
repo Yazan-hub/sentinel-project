@@ -20,6 +20,7 @@ export interface Workspace {
   get<T>(path: string): Promise<T | null>; // guarded GET of any bridge path; null when stale or refused (message set)
   post<T>(path: string, body?: object): Promise<T | null>; // guarded POST of any other bridge path; adds actor, never updated_at; any non-2xx (a 409 too) sets message and returns null without asking
   rescore(): Promise<void>; // guarded re-read of …/executability into state.ex; no render
+  pending(): number; // writes queued or sent and not yet answered; render runs when it goes from 0 to more, and back to 0
   state(): WorkspaceState;
 }
 
@@ -48,6 +49,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   let viewTok = 0; // the latest version view
   let scopeAt = deps.scope();
   let queue: Promise<unknown> = Promise.resolve();
+  let inflight = 0;
   const call = (m: "GET" | "POST" | "PUT" | "PATCH", p: string, b?: object): Promise<Reply | null> =>
     (b === undefined ? deps.json(m, p) : deps.json(m, p, b)).catch(() => null);
   const say = (message: string) => { state = { ...state, message }; };
@@ -186,12 +188,13 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   function write(method: "POST" | "PUT" | "PATCH", rest: string, body: object = {}): Promise<DocRow | null> {
     const docId = state.doc?.id; // the document this write was made for; updated_at and the project are read when its turn comes
     const run = () => writeNow(method, rest, body, docId);
+    if (inflight++ === 0) render(state); // the page shows "Saving…" while the bridge is slow
     const p = queue.then(run, run);
     queue = p.catch(() => undefined);
-    return p;
+    return p.finally(() => { if (--inflight === 0) render(state); }); // a write that returned early (not sent) counts down too
   }
 
-  return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, state: () => state };
+  return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, pending: () => inflight, state: () => state };
 }
 
 export function docProblems(doc: DocRow): string[] {

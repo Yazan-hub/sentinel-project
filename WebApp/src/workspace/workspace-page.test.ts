@@ -324,3 +324,26 @@ describe("F-R1b-2: the header during an ingest review", () => {
     expect(t).not.toContain("Review ingestion");
   });
 });
+
+describe("F-R1b-5: the page says Saving… while a write is in flight", () => {
+  it("the message bar leads with Saving… and the outline actions are off until the bridge answers", async () => {
+    answers["/bimdocs/k/d1"] = bep("one", "two");
+    answers["/bimdocs/k/d1/executability"] = null;
+    let answer!: (v: { status: number; body: unknown }) => void;
+    answers["PUT /bimdocs/k/d1/section/s2/heading"] = () => new Promise((r) => { answer = r; });
+    const p = page();
+    await p.el.open("d1"); await tick();
+    const bar = p.el.childNodes[1] as HTMLElement;
+    expect(textOf(bar)).not.toContain("Saving");
+    click(findAll(p.outline, "button").find((b) => textOf(b).includes("S2"))!);
+    vi.mocked(askText).mockResolvedValueOnce("Renamed");
+    press(p.outline, "Rename"); await tick();
+    expect((bar.childNodes[0] as any).textContent).toBe("Saving…");
+    expect(bar.style.display).toBe("");
+    const rename = () => findAll(p.outline, "button").find((b) => textOf(b) === "Rename") as any;
+    expect(rename().disabled).toBe(true);
+    answer({ status: 200, body: { ...bep("one", "two", "t2"), sections: [sc("s1", [tb("a1", "one")]), { ...sc("s2", [tb("b1", "two")]), heading: "Renamed" }] } }); await tick();
+    expect(textOf(bar)).not.toContain("Saving");
+    expect(rename().disabled).not.toBe(true);
+  });
+});

@@ -53,6 +53,7 @@ const VIEW_NAMES: [View, string][] = [["edit", "Edit"], ["read", "Read"], ["comp
 export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLeave?: () => void; doc?: Document }): WorkspaceEl {
   const d = opts.doc ?? document;
   const base = opts.baseUrl.replace(/\/$/, "");
+  let shownBusy = false; // whether the bar and the outline were last drawn with a write in flight
   const ws = createWorkspace({
     json: async (method, path, body) => {
       const r = await bfetch(`${base}${path}`, { method, headers: { "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -64,7 +65,14 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     askYesNo: (q) => askYesNo(q, { doc: d }),
     role: async (key) => (await myRoleRead(base, key)).role,
     me: async () => (await currentUser())?.email || "web",
-  }, () => renderAll());
+  }, () => {
+    const busy = ws.pending() > 0;
+    if (busy === shownBusy) return renderAll();
+    // Only "Saving…" changed (a write started or was answered): redraw the bar and the outline, never the pane a caller is about to update itself in.
+    shownBusy = busy;
+    const c = ctx();
+    renderMessage(c); renderOutline(c);
+  });
 
   const root = h(d, "div", `display:flex;flex-direction:column;height:100%;min-height:0;background:${C.bg};color:${C.text};font:13px system-ui`) as unknown as WorkspaceEl;
   // Header: the centre 20rem stays free for the floating project pill, the right padding for the account avatar.
@@ -121,7 +129,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     }
   }
   function renderMessage(c: PaneCtx): void {
-    const lines = c.st.doc && !ingest ? [c.st.message, ...c.st.problems].filter(Boolean) : []; // with no document the centre says it
+    const lines = c.st.doc && !ingest ? [ws.pending() > 0 && "Saving…", c.st.message, ...c.st.problems].filter(Boolean) as string[] : []; // with no document the centre says it
     msgEl.replaceChildren(...lines.map((t) => h(d, "div", "", t)));
     msgEl.style.display = lines.length ? "" : "none";
   }
@@ -158,6 +166,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     grid.style.gridTemplateColumns = ingest ? "minmax(0,1fr)" : GRID;
     outlineCol.style.display = sideCol.style.display = ingest ? "none" : "";
     if (view === "edit" && !c.canEdit) view = "read";
+    shownBusy = ws.pending() > 0;
     renderHeader(c); renderMessage(c); renderOutline(c); renderCentre(c); renderSide(c);
   }
 

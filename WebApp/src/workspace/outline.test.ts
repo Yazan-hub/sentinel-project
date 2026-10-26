@@ -70,7 +70,7 @@ function ctx(canGovern: boolean, o: { focused?: string | null; versions?: Versio
   const st = { ...emptyState("k"), doc: { ...(o.d ?? doc()), id: `d${++seq}` }, role: canGovern ? "lead" : "viewer", me: "lead@x.com", versions: o.versions ?? [], comments: o.comments ?? [], message: "" };
   const write = vi.fn(async () => doc());
   const refresh = vi.fn();
-  const ws = { write, get: vi.fn((o.get as any) ?? (async () => ({ checks: [], planned: [] }))), state: () => st };
+  const ws = { write, pending: () => 0, get: vi.fn((o.get as any) ?? (async () => ({ checks: [], planned: [] }))), state: () => st };
   return { ws, st, doc: fakeDocument(), base: "", canEdit: canGovern, canGovern, focused: o.focused === undefined ? "s1" : o.focused,
     focus: vi.fn(), show: vi.fn(), refresh, openDoc: vi.fn() } as any;
 }
@@ -214,4 +214,14 @@ describe("commentsTab", () => {
     expect(t).toContain("Add comments in the Documents tab for now.");
   });
   it("says so when the section has none", () => expect(textOf(commentsTab(ctx(true, { focused: "s1" })))).toContain("No comments on this section."));
+});
+
+describe("F-R1b-5: no second structure change behind a slow one", () => {
+  it("while a write is in flight every action button is disabled; they are enabled when none is", () => {
+    const quiet = ctx(true), busy = ctx(true);
+    busy.ws.pending = () => 1;
+    const state = (c: any) => ACTIONS.map((a) => (labelled(outlinePane(c), a) as any).disabled === true);
+    expect(state(quiet)).toEqual(ACTIONS.map(() => false));
+    expect(state(busy)).toEqual(ACTIONS.map(() => true));
+  });
 });

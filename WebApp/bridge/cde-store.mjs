@@ -42,6 +42,8 @@ export const forwardingConfigured = () => !!ANON;
 // `count: true` adds Prefer count=exact and returns { data, total }: total is the N of Content-Range "a-b/N", or of
 // "*/N" for an empty page or a 416 (an offset past the end), both data []. A reply with no N is an error, never a
 // planned or estimated count.
+/** F-R1b-5: a Supabase call slower than this leaves one warning line (method, table, ms) - nothing from the query, body or headers. */
+export const SB_SLOW_MS = 2000;
 export async function sb(path, { method = "GET", body, prefer, service = false, count = false } = {}) {
   if (!cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
   const userToken = service ? null : currentUserToken();
@@ -62,8 +64,15 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
   const payload = body
     ? JSON.stringify(body).replace(/\\u0000/g, "").replace(/\\ud[89a-f][0-9a-f]{2}/gi, "")
     : undefined;
-  const r = await fetch(`${URL}/rest/v1/${path}`, { method, headers, body: payload });
-  const text = await r.text();
+  const t0 = performance.now();
+  let r, text;
+  try {
+    r = await fetch(`${URL}/rest/v1/${path}`, { method, headers, body: payload });
+    text = await r.text();
+  } finally {
+    const ms = Math.round(performance.now() - t0);
+    if (ms > SB_SLOW_MS) console.warn(`[sb] slow ${method} ${path.split("?")[0]} ${ms} ms`);
+  }
   let data;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (count && (r.ok || r.status === 416)) {

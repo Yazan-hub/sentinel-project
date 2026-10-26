@@ -170,7 +170,8 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
 
   const actions = (): HTMLElement => {
     const bar = h(d, "div", `display:flex;flex-wrap:wrap;gap:.25rem;margin:.7rem 0 0;padding-top:.6rem;border-top:1px solid ${C.line}`);
-    const add = (label: string, run: () => void): void => { const b = btn(d, label); b.addEventListener("click", run); bar.append(b); };
+    const busy = ctx.ws.pending() > 0; // a write is in flight: a second structure change would sit unseen behind it
+    const add = (label: string, run: () => void): void => { const b = btn(d, label); b.disabled = busy; b.addEventListener("click", run); bar.append(b); };
     add("Add section", () => {
       say("");
       void (async () => {
