@@ -362,3 +362,16 @@ describe("F-R1b-5: writes in flight are counted and the page is told", () => {
     expect(slow.ws.pending()).toBe(0);
   });
 });
+
+describe("F-R1b-5: a render that throws cannot stop a write or strand the count", () => {
+  it("the write is still sent, its answer returned, and pending() returns to 0", async () => {
+    const json = vi.fn(async (m: string, p: string) => (m === "PUT" ? ok(doc({ updated_at: "t2" })) : (docRoute()(m, p) as any)));
+    let boom = false;
+    const ws = createWorkspace({ json, activePid: () => "a", scope: () => "a|u", onProjectChange: () => () => {}, askYesNo: async () => true, role: async () => "lead", me: async () => "lead@x" },
+      () => { if (boom) throw new Error("page cannot draw"); });
+    await ws.open("d1"); boom = true;
+    expect((await ws.write("PUT", "/x", {}))?.updated_at).toBe("t2");
+    expect(puts(json)).toHaveLength(1);
+    expect(ws.pending()).toBe(0);
+  });
+});

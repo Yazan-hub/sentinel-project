@@ -52,6 +52,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   let inflight = 0;
   const call = (m: "GET" | "POST" | "PUT" | "PATCH", p: string, b?: object): Promise<Reply | null> =>
     (b === undefined ? deps.json(m, p) : deps.json(m, p, b)).catch(() => null);
+  const tell = (): void => { try { render(state); } catch (e) { console.error("workspace: the page could not draw the saving state", e); } }; // a page that cannot draw must not stop a write or strand the count
   const say = (message: string) => { state = { ...state, message }; };
 
   deps.onProjectChange(() => {
@@ -188,10 +189,10 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   function write(method: "POST" | "PUT" | "PATCH", rest: string, body: object = {}): Promise<DocRow | null> {
     const docId = state.doc?.id; // the document this write was made for; updated_at and the project are read when its turn comes
     const run = () => writeNow(method, rest, body, docId);
-    if (inflight++ === 0) render(state); // the page shows "Saving…" while the bridge is slow
     const p = queue.then(run, run);
     queue = p.catch(() => undefined);
-    return p.finally(() => { if (--inflight === 0) render(state); }); // a write that returned early (not sent) counts down too
+    if (inflight++ === 0) tell(); // the page shows "Saving…" while the bridge is slow
+    return p.finally(() => { if (--inflight === 0) tell(); }); // a write that returned early (not sent) counts down too
   }
 
   return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, pending: () => inflight, state: () => state };

@@ -347,3 +347,24 @@ describe("F-R1b-5: the page says Saving… while a write is in flight", () => {
     expect(rename().disabled).not.toBe(true);
   });
 });
+
+describe("F-R1b-5: Saving… never rebuilds the Edit pane", () => {
+  it("a save held on the bridge leaves the pane and another open editor's typed text as the same nodes, before, during and after", async () => {
+    const p = await openTyped("typed in a1");
+    press(shellOf(p.centre, "b1"), "Edit");
+    areaOf(p.centre, "b1").value = "saved b1";
+    let answer!: (v: { status: number; body: unknown }) => void;
+    answers["PUT /bimdocs/k/d1/section/s2/blocks/b1"] = () => new Promise((r) => { answer = r; });
+    const paneEl = p.centre.childNodes[p.centre.childNodes.length - 1], a1 = areaOf(p.centre, "a1");
+    const bar = p.el.childNodes[1] as HTMLElement;
+    press(shellOf(p.centre, "b1"), "Save"); await tick();
+    expect(textOf(bar)).toContain("Saving…"); // the flip rendered
+    expect(p.centre.childNodes[p.centre.childNodes.length - 1]).toBe(paneEl);
+    expect(areaOf(p.centre, "a1")).toBe(a1);
+    answer({ status: 200, body: bep("one", "saved b1", "t2") }); await tick();
+    expect(textOf(bar)).not.toContain("Saving");
+    expect(p.centre.childNodes[p.centre.childNodes.length - 1]).toBe(paneEl);
+    expect(areaOf(p.centre, "a1")).toBe(a1);
+    expect(areaOf(p.centre, "a1").value).toBe("typed in a1");
+  });
+});
