@@ -13,10 +13,11 @@ import { C, btn, h } from "./dom";
 import { matrixEditor, referencesEditor, tableEditor } from "./grid-editors";
 import { installNamingRule, makeNamingRule, namingEditor } from "./naming-block";
 import { refusal } from "./refusal";
+import { factsEditor, liveViewEditor } from "./live-editors";
 import { moveId, type WorkspaceState } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page"; // type-only: no import cycle
 
-export const ADDABLE_KINDS = ["text", "table", "matrix", "naming", "references"] as const;
+export const ADDABLE_KINDS = ["text", "table", "matrix", "naming", "references", "facts", "live_view"] as const;
 
 /** `/section/<sid>/blocks` (+ `/<bid>`): the path after /bimdocs/:key/:docId. */
 export const blockPath = (sectionId: string, blockId?: string): string =>
@@ -35,7 +36,7 @@ export const THEIRS_LINE = "Someone else changed this part while you were typing
 export const REPLACE_THEIRS = "Someone else changed this part while you were typing. Replace their version with yours?";
 const stored = (b: Block): Draft => ({ title: typeof b.title === "string" ? b.title : "", data: b.data });
 export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => EditorHandle;
-export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor, naming: namingEditor };
+export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor, naming: namingEditor, facts: factsEditor, live_view: liveViewEditor };
 
 /** An extra control under a text block's text area (Task 12 adds "Make this a naming rule"); null shows nothing. */
 export type TextAction = (block: Block<"text">, sectionId: string, ctx: PaneCtx, area: HTMLTextAreaElement) => HTMLElement | null;
@@ -112,7 +113,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
     for (const s of sections) {
       const sec = h(d, "section", "margin:0 0 1.6rem");
       sec.dataset.section = s.id;
-      sec.append(h(d, "h2", "font:600 16px system-ui;margin:0 0 .4rem;color:#f4f4f5", String(s.heading ?? "")), renderSectionBody(s, rc, d));
+      sec.append(h(d, "h2", "font:600 16px system-ui;margin:0 0 .4rem;color:#f4f4f5", String(s.heading ?? "")), renderSectionBody(s, rc, d, ctx.ws.state().live));
       for (const b of blocksOf(s)) { const extra = closedAction(b, s.id); if (extra) sec.append(extra); } // a lead's install, on any status
       root.append(sec);
     }
@@ -132,6 +133,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
     for (const [id, e] of open) if (e.sid === sid && id !== savedId) drafts.set(id, carried(e));
     for (const [id, e] of [...open]) if (e.sid === sid) open.delete(id);
     rows.set(sid, row);
+    if (blocksOf(row).some((b) => b.kind === "facts" || b.kind === "live_view")) await ctx.ws.reloadLive?.();
     const next = sectionNode(row);
     drafts.clear();
     nodes.set(sid, next);
@@ -202,7 +204,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
     const closed = () => {
       open.delete(b.id); current = null; seed = undefined;
       const extra = closedAction(b, s.id);
-      body.replaceChildren(renderBlock(b, rc, ctx.doc), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]), ...(extra ? [extra] : []));
+      body.replaceChildren(renderBlock(b, rc, ctx.doc, ctx.ws.state().live), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]), ...(extra ? [extra] : []));
       bar.replaceChildren(...(editor ? [act("Edit", () => opened())] : []), ...tail());
     };
     const opened = () => {

@@ -13,6 +13,7 @@ import { C, btn, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
 import { containerIdReasons, pickPrintSource, POPUP_BLOCKED, printDocument, PAPER_CSS, liveWord, renderPrintable, type PrintInput } from "./print-render";
 
+export const DRAFT_BANNER = "Draft, live data. Publishing now freezes exactly what you see.";
 const LOADING = "Loading the published version…";
 const UNREADABLE_VERSION = "The published version could not be read.";
 const RULE_UNREADABLE = "The naming rule could not be read, so the container ID was not checked. Nothing was printed.";
@@ -44,11 +45,11 @@ async function loadInput(ctx: PaneCtx, containerId: string | null): Promise<Prin
   const st = ctx.ws.state(), src = pickPrintSource(st);
   if (!st.doc) return null;
   const base = { projectKey: st.key, versions: st.versions, containerId, ctx: { respondsTo: st.respondsTo } };
-  if (src.kind === "live") return st.doc.status === "published" ? null : { ...base, row: st.doc as Snapshot, version: null }; // published without a readable version: not a draft
+  if (src.kind === "live") return st.doc.status === "published" ? null : { ...base, row: st.doc as Snapshot, version: null, live: st.live }; // published without a readable version: not a draft
   const full = await readVersion(ctx, src.n);
   if (!full?.snapshot) return null;
   const version: VersionListRow = st.versions.find((x) => x.version_no === src.n) ?? full;
-  return { ...base, row: full.snapshot, version };
+  return { ...base, row: full.snapshot, version, live: full.snapshot.frozen ?? false };
 }
 
 const sourceLine = (st: WorkspaceState): string => {
@@ -72,10 +73,11 @@ export function readView(ctx: PaneCtx): HTMLElement {
   const print = btn(d, "Print", true);
   print.addEventListener("click", () => { void startPrint(ctx, (text) => { msg.textContent = text; }); });
   bar.append(print);
+  const draftNow = pickPrintSource(st).kind === "live" && (st.doc?.status === "wip" || st.doc?.status === "shared");
   const paper = h(d, "div", "border-radius:.3rem;overflow:hidden");
   const css = h(d, "style", "", PAPER_CSS);
   const installs = h(d, "div", "margin-top:.8rem");
-  root.append(bar, msg, css, paper, installs);
+  root.append(bar, ...(draftNow ? [h(d, "div", `color:${C.warn};font:12px system-ui;margin:0 0 .6rem`, DRAFT_BANNER)] : []), msg, css, paper, installs);
 
   paper.append(h(d, "div", `color:${C.muted}`, LOADING));
   const show = (text: string): void => paper.replaceChildren(h(d, "div", `color:${C.warn}`, text));
@@ -124,7 +126,7 @@ export async function startPrint(ctx: PaneCtx, say: (text: string) => void): Pro
     if (why && !warn) { say(`${why}. Nothing was printed.`); return; } // "reject" and anything unknown refuse
     if (id) lastContainerId = id;
     // A draft prints the row as it is now; a version prints the snapshot read above (reading again would await).
-    const input: PrintInput = { ...loaded, containerId: id || null, ...(loaded.version ? {} : { row: now.doc as Snapshot, versions: now.versions }) };
+    const input: PrintInput = { ...loaded, containerId: id || null, ...(loaded.version ? {} : { row: now.doc as Snapshot, versions: now.versions, live: now.live }) };
     if (printDocument(input) === "blocked") say(POPUP_BLOCKED);
     else if (warn) say(`Printed. ${why}.`);
   } catch (e) {

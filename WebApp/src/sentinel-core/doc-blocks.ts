@@ -6,13 +6,18 @@ export interface BlockData {
   table: { columns: TableColumn[]; rows: TableRow[]; group_by_team: boolean };
   matrix: { preset: "high_level" | "detailed" | "im_assignment" | null; columns: MatrixColumn[]; show_milestone: boolean; show_recipient: boolean; rows: MatrixRow[] };
   facts: { labels: string[]; layout: "text" | "table" };
-  live_view: { source: "midp" | "tidp" | "office_register" | "risk_register" | "mobilisation"; filter: { team: string | null; stage: string | null; register_part: string | null } };
+  live_view: { source: "midp" | "tidp" | "office_register" | "risk_register" | "mobilisation" | "capability"; filter: { team: string | null; stage: string | null; register_part: string | null } };
   proposed_changes: { changes: { field_key: string; change: "added" | "removed" | "changed"; detail: string; reason: string }[] };
   eir_link: { clauses: { clause_id: string; note: string }[] };
   loin: { rows: { id: string; element: string; milestone: string; property: string; value: string; used_by: string; why: string }[] };
   naming: { separator: string; enforce: "reject" | "warn" | "off"; fields: { key: string; label: string; pattern: string | null; enum: string[]; placeholders: string[]; description: string }[] };
   references: { rows: { id: string; role: "protocol" | "information_standard" | "production_methods" | "eir" | "other"; title: string; version: string; sha: string | null; issuer: string; received: string | null; incorporated_in: string[] }[] };
 }
+/** What the bridge's live resolver returns for one facts / live_view block (GET /bimdocs/:key/:doc/live; a version's snapshot.frozen). */
+export interface Facts { kind: "facts"; items: { label: string; words: string; value: string | null; note?: string }[] }
+export interface LiveGroup { title: string; prospective?: boolean; rows: Record<string, unknown>[]; summary: string }
+export interface Live { kind: "live_view"; source: string; words: string; columns: { key: string; words: string }[]; rows: Record<string, unknown>[]; groups?: LiveGroup[]; edit_hint: string; note?: string }
+export interface LiveSet { at: string; blocks: Record<string, Facts | Live> }
 export type ColumnType = "text" | "person" | "team" | "date" | "choice" | "number";
 export interface TableColumn { key: string; label: string; type: ColumnType; choices: string[]; choices_from: string | null }
 export interface TableRow { id: string; group: string | null; cells: Record<string, string | number | null> }
@@ -39,7 +44,7 @@ export interface VersionListRow { id: string; version_no: number; label: string;
   revision: string | null; stage: string | null; suitability: string | null; sha: string | null }
 // A version recorded before 0049 has no stage or suitability in its snapshot (and null stage/suitability/sha on its row);
 // the viewer mask drops updated_at.
-export type Snapshot = Omit<DocRow, "stage" | "suitability" | "updated_at"> & { stage?: DocRow["stage"] | null; suitability?: string | null; updated_at?: string };
+export type Snapshot = Omit<DocRow, "stage" | "suitability" | "updated_at"> & { stage?: DocRow["stage"] | null; suitability?: string | null; updated_at?: string; frozen?: LiveSet };
 export interface VersionRow extends VersionListRow { document_id: string; snapshot: Snapshot }
 export interface CommentRow { id: string; section_id: string; author: string; text: string; created_at: string }
 export interface ExSection { section_id: string; heading: string; kind: "controlling" | "declared" | "narrative"; controlling_checks: string[];

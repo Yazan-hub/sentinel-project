@@ -1,6 +1,6 @@
 // The workspace controller: one open document, guarded against a project or person switch, with serialised
 // compare-and-swap writes. No DOM here; the page renders what `render` is handed.
-import type { CommentRow, DocRow, Executability, VersionListRow, VersionRow } from "../sentinel-core/doc-blocks";
+import type { CommentRow, DocRow, Executability, LiveSet, VersionListRow, VersionRow } from "../sentinel-core/doc-blocks";
 import { statusLine } from "../sentinel-core/doc-blocks";
 import { canEditRole, canGovernRole } from "../setups/my-role";
 import { pathSegment } from "../setups/escape-html";
@@ -12,13 +12,14 @@ export interface WorkspaceDeps {
   role(key: string): Promise<string>; me(): Promise<string>;
 }
 export interface WorkspaceState { key: string; doc: DocRow | null; versions: VersionListRow[]; comments: CommentRow[]; ex: Executability | null;
-  role: string; me: string; problems: string[]; message: string; viewing: VersionRow | null;
+  live: LiveSet | null /* the freeze preview: GET …/live, null when refused */; role: string; me: string; problems: string[]; message: string; viewing: VersionRow | null;
   respondsTo: { title: string; version_no: number | null } | null /* the EIR this document answers, loaded by open */ }
 export interface Workspace {
   open(docId: string): Promise<void>; reload(): Promise<void>; viewVersion(n: number | null): Promise<void>;
   write(method: "POST" | "PUT" | "PATCH", rest: string, body?: object): Promise<DocRow | null>; // rest after /bimdocs/:key/:docId
   get<T>(path: string): Promise<T | null>; // guarded GET of any bridge path; null when stale or refused (message set)
   post<T>(path: string, body?: object): Promise<T | null>; // guarded POST of any other bridge path; adds actor, never updated_at; any non-2xx (a 409 too) sets message and returns null without asking
+  reloadLive(): Promise<void>; // guarded re-read of …/live into state.live (a facts or live list block was added or saved); no render
   rescore(): Promise<void>; // guarded re-read of …/executability into state.ex; no render
   pending(): number; // writes queued or sent and not yet answered; render runs when it goes from 0 to more, and back to 0
   state(): WorkspaceState;
@@ -35,7 +36,7 @@ export const isStaleConflict = (message: unknown): boolean =>
   typeof message === "string" && /^stale write|changed or was issued meanwhile/.test(message);
 
 export const emptyState = (key: string): WorkspaceState => ({
-  key, doc: null, versions: [], comments: [], ex: null, role: "viewer", me: "", problems: [], message: "", viewing: null, respondsTo: null,
+  key, doc: null, versions: [], comments: [], ex: null, live: null, role: "viewer", me: "", problems: [], message: "", viewing: null, respondsTo: null,
 });
 
 type Reply = { status: number; body: any };
@@ -91,10 +92,11 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       const x = await call("GET", `/bimdocs/${pathSegment(key)}/${pathSegment(doc.responds_to)}`);
       return { title: (x && is2xx(x) && typeof x.body?.title === "string" && x.body.title) || "the linked EIR", version_no: doc.responds_to_version };
     };
-    const [versions, comments, ex, respondsTo, role, me] = await Promise.all([
+    const [versions, comments, ex, live, respondsTo, role, me] = await Promise.all([
       list<VersionListRow>(`${base}/versions`),
       list<CommentRow>(`${base}/comments`),
       call("GET", `${base}/executability`).then((x) => (x && is2xx(x) && x.body && typeof x.body === "object" ? (x.body as Executability) : null)),
+      call("GET", `${base}/live`).then((x) => (x && is2xx(x) && x.body && typeof x.body === "object" && x.body.blocks && typeof x.body.blocks === "object" ? (x.body as LiveSet) : null)),
       eir(),
       deps.role(key).catch(() => "viewer"),
       deps.me().catch(() => ""),
@@ -103,7 +105,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     // A write may have landed while this read ran: its newer row of the same document is kept over this older answer.
     const held = state.doc, newer = !!held && held.id === doc.id && state.key === key && typeof held.updated_at === "string" && typeof doc.updated_at === "string" && doc.updated_at < held.updated_at;
     const row = newer && held ? held : doc;
-    state = { key, doc: row, versions, comments, ex, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
+    state = { key, doc: row, versions, comments, ex, live, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
     render(state);
     return true;
   }
@@ -155,6 +157,13 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     if (ex && typeof ex === "object" && state.doc?.id === doc.id) state = { ...state, ex };
   }
 
+  async function reloadLive(): Promise<void> {
+    const doc = state.doc;
+    if (!doc) return;
+    const live = await get<LiveSet>(`/bimdocs/${pathSegment(state.key)}/${pathSegment(doc.id)}/live`);
+    if (live && typeof live === "object" && live.blocks && typeof live.blocks === "object" && state.doc?.id === doc.id) state = { ...state, live };
+  }
+
   async function writeNow(method: "POST" | "PUT" | "PATCH", rest: string, body: object, docId: string | undefined): Promise<DocRow | null> {
     const mine = tok;
     const doc = state.doc;
@@ -195,7 +204,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     return p.finally(() => { if (--inflight === 0) tell(); }); // a write that returned early (not sent) counts down too
   }
 
-  return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, pending: () => inflight, state: () => state };
+  return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, reloadLive, pending: () => inflight, state: () => state };
 }
 
 export function docProblems(doc: DocRow): string[] {

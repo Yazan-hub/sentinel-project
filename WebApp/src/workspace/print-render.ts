@@ -3,13 +3,14 @@
 // so never an in-frame print and never markup (document text reaches the page only as textContent).
 import type { NamingRuleset } from "../sentinel-core/naming";
 import { validateContainerName } from "../sentinel-core/naming";
-import { STAGE_WORDS, type Snapshot, type VersionListRow } from "../sentinel-core/doc-blocks";
+import { STAGE_WORDS, type LiveSet, type Snapshot, type VersionListRow } from "../sentinel-core/doc-blocks";
 import type { WorkspaceState } from "./workspace-state";
 import { renderSectionBody, type RenderCtx } from "./block-render";
 import { CELL, TABLE } from "./markdown";
 import { h } from "./dom";
 
-export interface PrintInput { row: Snapshot; projectKey: string; version: VersionListRow | null; versions: VersionListRow[]; containerId: string | null; ctx: RenderCtx }
+export interface PrintInput { row: Snapshot; projectKey: string; version: VersionListRow | null; versions: VersionListRow[]; containerId: string | null; ctx: RenderCtx;
+  /** Where facts and live lists come from: the draft preview, a version's snapshot.frozen, or false for a version with none. */ live?: LiveSet | null | false }
 
 export const POPUP_BLOCKED = "Popup blocked — allow popups for this page to print.";
 /** What a live print calls itself: only an archived document is "Archived"; wip and shared are drafts. */
@@ -96,7 +97,7 @@ export function renderPrintable(input: PrintInput, doc: Document, today = new Da
   for (const s of sections) {
     const sec = part("section", false);
     sec.dataset.section = String(s.id);
-    sec.append(h(doc, "h2", "font:700 18px Georgia,serif;margin:1.2rem 0 .4rem", String(s.heading ?? "")), renderSectionBody(s, input.ctx, doc));
+    sec.append(h(doc, "h2", "font:700 18px Georgia,serif;margin:1.2rem 0 .4rem", String(s.heading ?? "")), renderSectionBody(s, input.ctx, doc, input.live));
     paper.append(sec);
   }
   return paper;

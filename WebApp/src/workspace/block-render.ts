@@ -1,6 +1,6 @@
 // Read-only renderers for the ten block kinds (Task 4). Block data is untrusted: nothing here throws out, and a block that
 // cannot be read renders as one plain line. Nodes come from the document passed in; text goes in as text.
-import { BLOCK_NAMES, blocksOf, type SectionRow } from "../sentinel-core/doc-blocks";
+import { BLOCK_NAMES, blocksOf, type LiveSet, type SectionRow } from "../sentinel-core/doc-blocks";
 import { renderMarkdown, TABLE, CELL } from "./markdown";
 import { C, h } from "./dom";
 
@@ -14,7 +14,11 @@ export const ROLE_WORDS: Record<string, string> = { protocol: "Protocol", inform
 /** The derived EIR row's words, shared with the references editor. */
 export const EIR_DERIVED_NOTE = "from what this BEP answers";
 export const versionWord = (n: number | null | undefined): string => (n == null ? "—" : `v${n}`);
-export const SOURCE_WORDS: Record<string, string> = { midp: "MIDP", tidp: "TIDP", office_register: "Office register", risk_register: "Risk register", mobilisation: "Mobilisation plan" };
+export const SOURCE_WORDS: Record<string, string> = { midp: "MIDP", tidp: "TIDP", office_register: "Office register", risk_register: "Risk register", mobilisation: "Mobilisation plan", capability: "Capability" };
+export const NOT_READ = "Not read yet.";
+export const FROZEN_BEFORE = "Frozen before live lists existed.";
+/** The live values a block may be drawn from: a LiveSet (draft preview or snapshot.frozen); null/undefined: not read; false: a version published before live lists existed. */
+export type LiveArg = LiveSet | null | false | undefined;
 
 type Rec = Record<string, unknown>;
 const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
@@ -56,7 +60,8 @@ const group = (rowsOf: Rec[], cols: Rec[]): Row[] => {
   return out;
 };
 
-type Render = (data: Rec, ctx: RenderCtx, doc: Document) => HTMLElement;
+/** `v` is the resolved value of a facts / live_view block, or the words that stand in for it. */
+type Render = (data: Rec, ctx: RenderCtx, doc: Document, v: Rec | string) => HTMLElement;
 const RENDER: Record<string, Render> = {
   text: (d, _c, doc) => {
     if (typeof d.markdown !== "string") throw new Error("markdown");
@@ -92,14 +97,28 @@ const RENDER: Record<string, Render> = {
       body.push(["EIR", dash(ctx.respondsTo.title), versionWord(ctx.respondsTo.version_no), "—", `— (${EIR_DERIVED_NOTE})`]);
     return grid(doc, ["Role", "Title", "Version", "Issuer", "Received"], body);
   },
-  facts: (d, _c, doc) => {
+  facts: (d, _c, doc, v) => {
+    if (typeof v === "string") return line(doc, v, MUTED);
+    if (v.kind !== "facts") throw new Error("not facts");
+    const items = list(v.items).map(rec), val = (i: Rec): string => (typeof i.value === "string" && i.value !== "" ? i.value : txt(i.note) || "—");
+    if (d.layout === "table") return grid(doc, ["Fact", "Value"], items.map((i) => [txt(i.words), val(i)]));
     const el = h(doc, "div");
-    el.append(line(doc, `Project facts: ${list(d.labels).map(txt).filter(Boolean).join(", ")}`), line(doc, "Values are filled in a later release.", MUTED));
+    for (const i of items) el.append(line(doc, `${txt(i.words)}: ${val(i)}`));
     return el;
   },
-  live_view: (d, _c, doc) => {
-    const team = txt(rec(d.filter).team), el = h(doc, "div");
-    el.append(line(doc, `Live list: ${word(SOURCE_WORDS, d.source)}${team ? ` for team ${team}` : ""}`), line(doc, "Filled in a later release.", MUTED));
+  live_view: (_d, _c, doc, v) => {
+    if (typeof v === "string") return line(doc, v, MUTED);
+    if (v.kind !== "live_view") throw new Error("not a live list");
+    const cols = list(v.columns).map(rec), el = h(doc, "div");
+    const cells = (r: Rec): string[] => cols.map((c) => txt(own(rec(r), c.key)));
+    const head = cols.map((c) => txt(c.words));
+    el.append(line(doc, txt(v.words), MUTED));
+    if (Array.isArray(v.groups)) for (const g of v.groups.map(rec)) {
+      el.append(line(doc, `${txt(g.title)}${g.prospective === true ? " (prospective)" : ""}`, `color:${C.soft};font:700 13px system-ui;margin:.4rem 0 .2rem`), grid(doc, head, list(g.rows).map(rec).map(cells)));
+      if (txt(g.summary)) el.append(line(doc, txt(g.summary), MUTED));
+    } else el.append(grid(doc, head, list(v.rows).map(rec).map(cells)));
+    if (txt(v.note)) el.append(line(doc, txt(v.note), MUTED));
+    if (txt(v.edit_hint)) el.append(line(doc, txt(v.edit_hint), MUTED));
     return el;
   },
   proposed_changes: (d, _c, doc) => {
@@ -119,14 +138,15 @@ const RENDER: Record<string, Render> = {
 };
 
 /** One block, read-only. `dataset.block` is the block id when it is a string. Never throws. */
-export function renderBlock(block: unknown, ctx: RenderCtx, doc: Document): HTMLElement {
+export function renderBlock(block: unknown, ctx: RenderCtx, doc: Document, live?: LiveArg): HTMLElement {
   const el = h(doc, "div", "margin:.5rem 0");
   try {
     if (!isRec(block)) throw new Error("not a block");
     const kind = block.kind;
     if (typeof kind !== "string" || !has(RENDER, kind)) throw new Error("unknown kind");
     if (!isRec(block.data)) throw new Error("no data");
-    const body = RENDER[kind](block.data, ctx, doc);
+    const found = live && typeof block.id === "string" ? own(rec(live.blocks), block.id) : undefined;
+    const body = RENDER[kind](block.data, ctx, doc, live === false ? FROZEN_BEFORE : isRec(found) ? found : NOT_READ);
     const caption = typeof block.title === "string" && block.title !== "" ? block.title : kind === "text" ? "" : BLOCK_NAMES[kind as keyof typeof BLOCK_NAMES];
     if (caption) el.append(h(doc, "div", `color:${C.soft};font:700 12px system-ui;margin:.2rem 0`, caption));
     el.append(body);
@@ -141,10 +161,10 @@ export function renderBlock(block: unknown, ctx: RenderCtx, doc: Document): HTML
 const blankText = (b: unknown): boolean => isRec(b) && b.kind === "text" && isRec(b.data) && typeof b.data.markdown === "string" && b.data.markdown.trim() === "";
 
 /** A section's body: each block in order; "Not yet written." when every block is a blank text block (or there are none). */
-export function renderSectionBody(section: SectionRow, ctx: RenderCtx, doc: Document): HTMLElement {
+export function renderSectionBody(section: SectionRow, ctx: RenderCtx, doc: Document, live?: LiveArg): HTMLElement {
   const el = h(doc, "div");
   const blocks = blocksOf(section);
   if (blocks.every(blankText)) { el.append(h(doc, "div", `${MUTED};font-style:italic`, "Not yet written.")); return el; }
-  for (const b of blocks) el.append(renderBlock(b, ctx, doc));
+  for (const b of blocks) el.append(renderBlock(b, ctx, doc, live));
   return el;
 }

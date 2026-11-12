@@ -55,11 +55,7 @@ describe("renderBlock — one case per kind", () => {
   it("loin, facts, live view, proposed changes and EIR link render what is stored", () => {
     expect(rows(show({ id: "l", kind: "loin", title: "", data: { rows: [] } }))[0]).toEqual(["Element", "Milestone", "Property", "Value", "Used by", "Why"]);
     expect(rows(show({ id: "l", kind: "loin", title: "", data: { rows: [{ id: "1", element: "Wall", milestone: "S3", property: "FireRating", value: "60", used_by: "Fire", why: "Code" }] } }))[1]).toEqual(["Wall", "S3", "FireRating", "60", "Fire", "Code"]);
-    expect(textOf(show({ id: "f", kind: "facts", title: "", data: { labels: ["Project name", "Client"], layout: "text" } }))).toContain("Project facts: Project name, Client");
-    expect(textOf(show({ id: "f", kind: "facts", title: "", data: { labels: ["Project name"], layout: "text" } }))).toContain("Values are filled in a later release.");
-    const lv = textOf(show({ id: "v", kind: "live_view", title: "", data: { source: "midp", filter: { team: "ARC", stage: null, register_part: null } } }));
-    expect(lv).toContain("Live list: MIDP for team ARC"); expect(lv).toContain("Filled in a later release.");
-    expect(textOf(show({ id: "v", kind: "live_view", title: "", data: { source: "risk_register", filter: { team: null, stage: null, register_part: null } } }))).toContain("Live list: Risk register");
+    expect(textOf(show({ id: "f", kind: "facts", title: "", data: { labels: ["Project name", "Client"], layout: "text" } }))).toContain("Not read yet.");
     expect(textOf(show({ id: "p", kind: "proposed_changes", title: "", data: { changes: [{ field_key: "role", change: "added", detail: "L landscape", reason: "site team" }] } }))).toContain("role: added — L landscape (site team)");
     expect(textOf(show({ id: "e", kind: "eir_link", title: "", data: { clauses: [{ clause_id: "5.1", note: "" }] } }))).toContain("Answers EIR clauses: 5.1");
   });
@@ -91,5 +87,50 @@ describe("odd blocks render as text (Review Focus 3)", () => {
     const two = renderSectionBody({ ...s, blocks: [{ id: "a", kind: "text", title: "", data: { markdown: "a" } }, { id: "z", kind: "nope" } as never] }, none, d);
     expect(textOf(two)).toBe(`a${UNREADABLE}`);
     expect(textOf(renderSectionBody(null as never, none, d))).toBe("Not yet written.");
+  });
+});
+
+describe("renderBlock — facts and live lists (R1c)", () => {
+  const fb = (id: string, data: unknown) => ({ id, kind: "facts", title: "", data });
+  const lb = (id: string, data: unknown) => ({ id, kind: "live_view", title: "", data });
+  const set = (blocks: Record<string, unknown>) => ({ at: "t", blocks }) as never;
+  const facts = { kind: "facts", items: [{ label: "project.name", words: "Project name", value: "Snowdon" }, { label: "x", words: "Client", value: null, note: "not set yet" }, { label: "y", words: "Site", value: null }] };
+  it("facts as text lines: words: value, a null shows its note or a dash", () => {
+    const t = textOf(renderBlock(fb("f", { labels: [], layout: "text" }), none, d, set({ f: facts })));
+    expect(t).toContain("Project name: Snowdon"); expect(t).toContain("Client: not set yet"); expect(t).toContain("Site: —");
+  });
+  it("facts as a two-column table", () =>
+    expect(rows(renderBlock(fb("f", { labels: [], layout: "table" }), none, d, set({ f: facts })))).toEqual([["Fact", "Value"], ["Project name", "Snowdon"], ["Client", "not set yet"], ["Site", "—"]]));
+  it("no value yet: Not read yet.; null live too; a version with no frozen says so", () => {
+    expect(textOf(renderBlock(fb("f", {}), none, d))).toContain("Not read yet.");
+    expect(textOf(renderBlock(lb("v", {}), none, d, null))).toContain("Not read yet.");
+    expect(textOf(renderBlock(lb("v", {}), none, d, set({})))).toContain("Not read yet.");
+    expect(textOf(renderBlock(fb("f", {}), none, d, false))).toContain("Frozen before live lists existed.");
+    expect(textOf(renderBlock(lb("v", {}), none, d, false))).toContain("Frozen before live lists existed.");
+  });
+  it("a live list: columns, rows and the edit hint", () => {
+    const live = { kind: "live_view", source: "midp", words: "MIDP", columns: [{ key: "a", words: "Deliverable" }, { key: "b", words: "Due" }], rows: [{ a: "Model", b: "2026-01-01", c: "ignored" }], edit_hint: "Edit it under Deliverables." };
+    const el = renderBlock(lb("v", {}), none, d, set({ v: live }));
+    expect(rows(el)).toEqual([["Deliverable", "Due"], ["Model", "2026-01-01"]]);
+    expect(textOf(el)).toContain("Edit it under Deliverables.");
+  });
+  it("capability groups: title, (prospective), summary", () => {
+    const live = { kind: "live_view", source: "capability", words: "Capability", columns: [{ key: "n", words: "Who" }], rows: [], edit_hint: "h",
+      groups: [{ title: "Firm · Team ARC", prospective: true, rows: [{ n: "Ann" }], summary: "1 evidenced, 0 committed" }, { title: "Lead firm", rows: [{ n: "Bo" }], summary: "1 evidenced, 1 committed" }] };
+    const el = renderBlock(lb("v", {}), none, d, set({ v: live }));
+    const t = textOf(el);
+    expect(t).toContain("Firm · Team ARC (prospective)"); expect(t).toContain("1 evidenced, 0 committed"); expect(t).toContain("Lead firm1 evidenced, 1 committed".slice(0, 9));
+    expect(t.match(/prospective/g)).toHaveLength(1);
+    expect(rows(el)).toEqual([["Who"], ["Ann"], ["Who"], ["Bo"]]);
+  });
+  it("a value of the wrong kind makes the block unreadable, and text never becomes markup", () => {
+    expect(textOf(renderBlock(fb("f", {}), none, d, set({ f: { kind: "live_view" } })))).toBe(UNREADABLE);
+    const el = renderBlock(fb("f", { layout: "text" }), none, d, set({ f: { kind: "facts", items: [{ words: "<b>x</b>", value: "<i>y</i>" }] } }));
+    expect(findAll(el, "b")).toHaveLength(0); expect(textOf(el)).toContain("<b>x</b>: <i>y</i>");
+  });
+  it("renderSectionBody passes the live set to each block; capability has words", () => {
+    const sec = { id: "s", heading: "H", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [fb("f", { layout: "text" })] } as never;
+    expect(textOf(renderSectionBody(sec, none, d, set({ f: facts })))).toContain("Project name: Snowdon");
+    expect(SOURCE_WORDS.capability).toBe("Capability");
   });
 });

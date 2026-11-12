@@ -215,3 +215,26 @@ describe("startPrint: failures after the question", () => {
     expect(said[said.length - 1]).toBe("Could not print: boom");
   });
 });
+
+describe("readView: live data (R1c)", () => {
+  const fsec = { id: "s1", heading: "Facts", guidance: "", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "f1", kind: "facts", title: "", data: { labels: ["project.name"], layout: "text" } }] };
+  const lv = (name: string): any => ({ at: "t", blocks: { f1: { kind: "facts", items: [{ label: "project.name", words: "Project name", value: name }] } } });
+  it("a draft shows the banner and the live values", async () => {
+    const { ctx } = ctxOf({ ...emptyState("k"), doc: doc({ sections: [fsec as never] }), live: lv("Now") });
+    const el = readView(ctx); await flush();
+    expect(textOf(el)).toContain("Draft, live data. Publishing now freezes exactly what you see.");
+    expect(textOf(el)).toContain("Project name: Now");
+  });
+  it("a version shows snapshot.frozen, no banner, even when the live values moved on", async () => {
+    const snap = { ...frozen, sections: [fsec], frozen: lv("Then") };
+    const { ctx } = ctxOf({ ...emptyState("k"), doc: doc({ status: "published" }), versions: [ver(1)], live: lv("Now"), viewing: { ...ver(1), document_id: "d1", snapshot: snap as never } });
+    const el = readView(ctx); await flush();
+    expect(textOf(el)).toContain("Project name: Then"); expect(textOf(el)).not.toContain("Project name: Now"); expect(textOf(el)).not.toContain("Publishing now freezes");
+  });
+  it("a version published before R1c says Frozen before live lists existed.", async () => {
+    const snap = { ...frozen, sections: [fsec] };
+    const { ctx } = ctxOf({ ...emptyState("k"), doc: doc({ status: "published" }), versions: [ver(1)], viewing: { ...ver(1), document_id: "d1", snapshot: snap as never } });
+    const el = readView(ctx); await flush();
+    expect(textOf(el)).toContain("Frozen before live lists existed.");
+  });
+});

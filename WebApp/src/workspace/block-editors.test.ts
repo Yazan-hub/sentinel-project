@@ -28,8 +28,8 @@ const button = (el: HTMLElement, label: string) => findAll(el, "button").find((b
 const area = (root: HTMLElement, id: string) => findAll(shell(root, id), "textarea")[0] as HTMLTextAreaElement;
 
 describe("ADDABLE_KINDS", () => {
-  it("lists the five kinds a lead can add", () => {
-    expect(ADDABLE_KINDS).toEqual(["text", "table", "matrix", "naming", "references"]);
+  it("lists the seven kinds a lead can add", () => {
+    expect(ADDABLE_KINDS).toEqual(["text", "table", "matrix", "naming", "references", "facts", "live_view"]);
   });
 });
 
@@ -63,7 +63,7 @@ describe("editPane (G14)", () => {
     expect(textOf(shell(root, "a1"))).toContain("AI draft (local/m, grounded in 2 fact(s)): review it, then Save.");
   });
   it("a kind without an editor is shown as stored, with no Edit", () => {
-    const root = editPane(ctxWith(row([sec("s1", [{ id: "f1", kind: "facts", title: "", data: { labels: ["appointing_party.name"], layout: "text" } }])])));
+    const root = editPane(ctxWith(row([sec("s1", [{ id: "f1", kind: "eir_link", title: "", data: { clauses: [] } }])])));
     expect(textOf(shell(root, "f1"))).toContain("Filled in a later release; shown as stored.");
     expect(button(shell(root, "f1"), "Edit")).toBeUndefined();
   });
@@ -212,5 +212,21 @@ describe("grid editors in the shell", () => {
     const root = editPane(ctxWith(row([sec("s1", [tableBlock, { id: "m1", kind: "matrix", title: "", data: { preset: null, columns: [], show_milestone: false, show_recipient: false, rows: [] } },
       { id: "p1", kind: "references", title: "", data: { rows: [] } }])])));
     for (const id of ["t1", "m1", "p1"]) expect(button(shell(root, id), "Edit")).toBeDefined();
+  });
+});
+
+describe("live values refresh after a facts block is saved (R1c)", () => {
+  it("saving a facts block re-reads the live values and shows them", async () => {
+    const f = (labels: string[]) => ({ id: "f1", kind: "facts", title: "", data: { labels, layout: "text" } });
+    const saved = row([sec("s1", [f(["project.name"])])]);
+    const st: any = { live: null };
+    const ctx = ctxWith(row([sec("s1", [f(["client.name"])])]), { write: vi.fn(async () => saved), reloadLive: vi.fn(async () => { st.live = { at: "t", blocks: { f1: { kind: "facts", items: [{ label: "project.name", words: "Project name", value: "Snowdon" }] } } }; }) });
+    ctx.ws.state = vi.fn(() => ({ ...ctx.st, live: st.live }));
+    const root = editPane(ctx);
+    click(button(shell(root, "f1"), "Edit")!);
+    click(button(shell(root, "f1"), "Save")!);
+    await flush();
+    expect(ctx.ws.reloadLive).toHaveBeenCalled();
+    expect(textOf(shell(root, "f1"))).toContain("Project name: Snowdon");
   });
 });

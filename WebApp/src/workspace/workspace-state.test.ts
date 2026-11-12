@@ -44,7 +44,7 @@ describe("the workspace controller", () => {
   it("open reads the document, then its versions, comments and score, the role and the caller", async () => {
     const t = setup(); await t.ws.open("d1");
     expect(t.json.mock.calls[0].slice(0, 2)).toEqual(["GET", "/bimdocs/a/d1"]);
-    expect(t.json.mock.calls.map((c) => c[1]).sort()).toEqual(["/bimdocs/a/d1", "/bimdocs/a/d1/comments", "/bimdocs/a/d1/executability", "/bimdocs/a/d1/versions"]);
+    expect(t.json.mock.calls.map((c) => c[1]).sort()).toEqual(["/bimdocs/a/d1", "/bimdocs/a/d1/comments", "/bimdocs/a/d1/executability", "/bimdocs/a/d1/live", "/bimdocs/a/d1/versions"]);
     expect(t.ws.state()).toMatchObject({ key: "a", doc: { id: "d1" }, role: "lead", me: "lead@x", problems: [], respondsTo: null, viewing: null });
   });
   it("a linked EIR's title is read for the page", async () => {
@@ -373,5 +373,15 @@ describe("F-R1b-5: a render that throws cannot stop a write or strand the count"
     expect((await ws.write("PUT", "/x", {}))?.updated_at).toBe("t2");
     expect(puts(json)).toHaveLength(1);
     expect(ws.pending()).toBe(0);
+  });
+});
+
+describe("live data loaded with the document (R1c)", () => {
+  it("open reads …/live into state.live; a refusal leaves null", async () => {
+    const live = { at: "t", blocks: { f1: { kind: "facts", items: [] } } }, base = docRoute();
+    const yes = setup((m, p, b) => (p === "/bimdocs/a/d1/live" ? ok(live) : base(m, p, b)));
+    await yes.ws.open("d1"); expect(yes.ws.state().live).toEqual(live);
+    const no = setup((m, p, b) => (p === "/bimdocs/a/d1/live" ? { status: 403, body: { message: "no" } } : base(m, p, b)));
+    await no.ws.open("d1"); expect(no.ws.state().live).toBeNull(); expect(no.ws.state().doc?.id).toBe("d1");
   });
 });
