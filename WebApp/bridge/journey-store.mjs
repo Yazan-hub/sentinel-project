@@ -22,6 +22,8 @@ async function wire(deps = {}) {
     getFederation: await pick("getFederation", "./federation-store.mjs"),
     listTransmittals: await pick("listTransmittals", "./cde-store.mjs"),
     listAudit: await pick("listAudit", "./cde-store.mjs"),
+    listDeliverables: await pick("listDeliverables", "./deliverables-store.mjs"), // R1c: the TIDP step is measured on these and the declared teams
+    listTeams: await pick("listTeams", "./task-teams-store.mjs"),
   };
 }
 
@@ -88,6 +90,7 @@ export async function getJourney(key, deps = {}) {
       : {
           scan: run(() => d.getScan(key)), verdicts: run(() => d.listVersionVerdictRows(key)), files: run(() => d.listFiles(key)),
           federation: run(() => d.getFederation(key)), transmittals: run(() => d.listTransmittals(key)),
+          deliverables: run(() => d.listDeliverables(key)), teams: run(() => d.listTeams(key)),
           lod: run(() => newestLodRow(key, d.listAudit)),                           // MA-2b: the LOD state line, from the ledger
           lodMx: run(() => d.resolveArtefact(key, "lod_matrix")),                    // … while the matrix it measured against is in force
         }),

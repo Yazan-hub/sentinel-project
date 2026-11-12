@@ -23,7 +23,8 @@ export const PROJECT_STEPS = [
   { id: "standards", label: "Standards in force", how: { web: web("Settings", "Standards in force — inherited from the office, or install here: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
   { id: "bep", label: "BEP drafted", how: { web: web("Workspace", "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP"), revit: null, who: "lead" } },
   // Paperwork slice 4 (ISO 19650-2 §5.4): each task team's delivery plan is a governed document too.
-  { id: "tidp", label: "TIDP drafted", how: { web: web("Documents", "+ New document ▸ Create TIDP"), revit: null, who: "lead" } },
+  // R1c (call 7): measured on the deliverables — every declared task team has at least one, and none names an undeclared team. A TIDP document no longer satisfies it.
+  { id: "tidp", label: "TIDP drafted", how: { web: web("Deliverables", "Teams ▸ Declare team, then + Add a deliverable per team"), revit: null, who: "lead" } },
   { id: "model", label: "Model connected", how: { web: null, revit: "Sentinel ▸ Standards ▸ Project Setup (bind this project), then Synchronize with Central — the scan report is sent after each sync", who: "member" } },
   { id: "verdict", label: "First governed verdict", how: { web: null, revit: GOVERNED_PUBLISH, who: "member" } },
   // A2: Governed Publish only registers versions as `wip`; the Published state is set on the web (Coordination ▸ CDE), so how.revit is null here.
@@ -53,6 +54,21 @@ const standards = (own) => (s) => {
 const docOf = (type, label) => (docs) => {
   const d = docs.find((x) => x.doc_type === type);
   return d ? { evidence: { ref: ref(d.id), label: label(d) } } : { reason: `no ${type} document yet` };
+};
+// R1c call 7: the TIDP is measured on the deliverables — a team is matched by its code, without case (0026).
+const tidp = (deliverables, teams) => {
+  if (!teams.length) return { reason: "no task team declared yet" };
+  const key = (c) => String(c ?? "").trim().toLowerCase();
+  const declared = new Set(teams.map((t) => key(t.code)));
+  const named = new Set(deliverables.map((x) => key(x.responsible_team)).filter(Boolean));
+  const reasons = [
+    ...teams.filter((t) => !named.has(key(t.code))).map((t) => `Team ${t.code} has no deliverable yet`),
+    ...[...new Set(deliverables.filter((x) => key(x.responsible_team) && !declared.has(key(x.responsible_team))).map((x) => String(x.responsible_team).trim()))]
+      .map((c) => `a deliverable names team ${c}, which is not declared`),
+  ];
+  if (reasons.length) return { reason: reasons.join("; ") };
+  const n = deliverables.length;
+  return { evidence: { ref: teams.map((t) => t.code).join(","), label: `${n} deliverable${n === 1 ? "" : "s"} across ${teams.length} task team${teams.length === 1 ? "" : "s"}` } };
 };
 const verdict = (rows) => {
   if (!rows.length) return { reason: "no governed verdict recorded yet" };
@@ -102,7 +118,7 @@ const RULES = {
     team: [["members"], team],
     standards: [["standards"], standards(false)],
     bep: [["docs"], docOf("BEP", (d) => `BEP ${d.title} · ${d.status}`)],
-    tidp: [["docs"], docOf("TIDP", (d) => `TIDP ${d.title} · ${d.status}`)],
+    tidp: [["deliverables", "teams"], tidp],
     // A2 (2026-09-25): model measures the connection, not the judgment — still done from a scan alone — but
     // the label names what judged it, honestly, so "done" is never read as "passed by some ruleset".
     model: [["scan"], (s) => s ? { evidence: { ref: s.at ? `office_scan@${s.at}` : "", label: `scan · ${s.doc_title} · ${s.at} · judged by ${s.ruleset_ref && s.ruleset_ref !== "none" ? s.ruleset_ref : "nothing"}` } } : { reason: "no scan report received for this project" }],

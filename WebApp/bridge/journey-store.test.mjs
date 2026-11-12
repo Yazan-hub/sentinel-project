@@ -24,6 +24,8 @@ function memDeps(over = {}) {
     listFiles: vi.fn(async () => [{ iso_name: "A.ifc", container_type: "model", versions: [{ id: "v-1", revision: "P01", state: "published", is_live: true }] }]),
     getFederation: vi.fn(async () => ({ latest: null, stale: false, live_set: [{ version_id: "v-1" }] })),
     listTransmittals: vi.fn(async () => []),
+    listDeliverables: vi.fn(async () => [{ responsible_team: "ARC" }]),
+    listTeams: vi.fn(async () => [{ code: "ARC" }]),
     listAudit: vi.fn(async () => ({ rows: [], total: 0, limit: 1, offset: 0 })),
     ...over,
   };
@@ -42,6 +44,14 @@ describe("getJourney", () => {
     expect(s.federated).toMatchObject({ status: "todo", reason: "the Federation Gate has not run" });
     expect(d.getSnapshot).not.toHaveBeenCalled();                       // a project does not read the office snapshot
     expect(d.ensureProject).toHaveBeenCalledWith("aster-villa");
+  });
+  it("R1c: the TIDP step reads the declared teams and the deliverables, not the TIDP document; a project only", async () => {
+    const s = async (over, key = "aster-villa") => Object.fromEntries((await getJourney(key, memDeps(over))).steps.map((x) => [x.id, x]));
+    expect((await s({})).tidp).toMatchObject({ status: "done", evidence: { label: "1 deliverable across 1 task team" } });
+    expect((await s({ listTeams: async () => [] })).tidp).toMatchObject({ status: "todo", reason: "no task team declared yet" });
+    expect((await s({ listDeliverables: async () => [] })).tidp).toMatchObject({ status: "todo", reason: "Team ARC has no deliverable yet" });
+    const d = memDeps(); await getJourney("aster-office", d);
+    expect(d.listDeliverables).not.toHaveBeenCalled();
   });
   it("one rejected source makes only its step not_checkable with the message; the others stand", async () => {
     const j = await getJourney("aster-villa", memDeps({ listTransmittals: async () => { throw Object.assign(new Error("Supabase 500: transmittals down"), { status: 500 }); } }));

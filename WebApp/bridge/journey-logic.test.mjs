@@ -19,7 +19,7 @@ const FED_PASS = { latest: { at: "2026-09-23T10:00:00Z", result: { verdict: "pas
 const emptyProject = () => ({
   project: { key: "aster-villa", kind: "project", office_key: "aster-office" },
   members: ok([]), standards: ok(NONE), docs: ok([]), scan: ok(null), verdicts: ok([]), files: ok([]),
-  federation: ok({ latest: null, stale: false, live_set: [] }), transmittals: ok([]),
+  federation: ok({ latest: null, stale: false, live_set: [] }), transmittals: ok([]), deliverables: ok([]), teams: ok([]),
 });
 const fullProject = () => ({
   ...emptyProject(),
@@ -30,6 +30,7 @@ const fullProject = () => ({
   files: ok([file("v-1", "published")]),
   federation: ok(FED_PASS),
   transmittals: ok([{ id: "t-1", reference: "TR-001", issued_at: "2026-09-23T12:00:00Z" }]),
+  teams: ok([{ code: "ARC" }, { code: "STR" }]), deliverables: ok([{ responsible_team: "arc" }, { responsible_team: "ARC" }, { responsible_team: "str" }]),
 });
 const emptyOffice = () => ({
   project: { key: "aster-office", kind: "office", office_key: null },
@@ -84,7 +85,7 @@ describe("project journey", () => {
     expect(s.team.evidence).toEqual({ ref: "u-owner,u-lead", label: "owner u-owner, lead u-lead" });
     expect(s.standards.evidence.ref).toBe("ids@4,ruleset@1,naming@1");
     expect(s.standards.evidence.label).toContain("ids@4 · office · 23bb57937fb0…");
-    expect(s.bep.evidence.ref).toBe("d-bep"); expect(s.tidp.evidence.ref).toBe("d-tidp");
+    expect(s.bep.evidence.ref).toBe("d-bep"); expect(s.tidp.evidence).toEqual({ ref: "ARC,STR", label: "3 deliverables across 2 task teams" });
     expect(s.model.evidence.label).toBe("scan · Aster Villa · 2026-09-22T09:00:00Z · judged by nothing");
     expect(s.verdict.evidence.ref).toBe("audit#17");                         // the first verdict, oldest row
     expect(s.published.evidence.ref).toBe("version v-1 · audit#42");
@@ -96,6 +97,7 @@ describe("project journey", () => {
       team: { members: ok(TEAM) },
       standards: { standards: ok(std("project")) },
       bep: { docs: ok([{ id: "d1", doc_type: "BEP", title: "B", status: "draft" }]) },
+      tidp: { teams: ok([{ code: "ARC" }]), deliverables: ok([{ responsible_team: "ARC" }]) },
       model: { scan: ok({ doc_title: "M", at: "2026-09-22T09:00:00Z" }) },
       verdict: { verdicts: ok([{ id: 1, version_id: "v-1", verdict: "rejected" }]) },
       published: { files: ok([file("v-1", "published")]), verdicts: ok([{ id: 2, version_id: "v-1", verdict: "accepted" }]) },
@@ -142,6 +144,28 @@ describe("project journey", () => {
     expect(j).toMatchObject({ done: 6, total: 9, next: null });
     const k = buildJourney({ ...emptyProject(), members: bad("down") });
     expect(k.next).toBe("standards");
+  });
+  describe("R1c: the TIDP step is measured on the deliverables and the declared task teams", () => {
+    const tidp = (teams, deliverables, docs = []) => byId(buildJourney({ ...emptyProject(), docs: ok(docs), teams: ok(teams.map((code) => ({ code }))), deliverables: ok(deliverables.map((responsible_team) => ({ responsible_team }))) })).tidp;
+    it("how.web names the Deliverables tab and the two steps", () => {
+      expect(PROJECT_STEPS.find((s) => s.id === "tidp").how.web).toEqual({ tab: "Deliverables", hint: "Teams ▸ Declare team, then + Add a deliverable per team" });
+    });
+    it("no task team declared yet", () => expect(tidp([], ["ARC"])).toMatchObject({ status: "todo", reason: "no task team declared yet" }));
+    it("a declared team with no deliverable", () => expect(tidp(["ARC", "STR"], ["arc"])).toMatchObject({ status: "todo", reason: "Team STR has no deliverable yet" }));
+    it("a deliverable naming an undeclared team", () => expect(tidp(["ARC"], ["ARC", "XYZ"])).toMatchObject({ status: "todo", reason: "a deliverable names team XYZ, which is not declared" }));
+    it("both reasons, each said once", () => expect(tidp(["ARC", "STR"], ["ARC", "XYZ", "XYZ"]).reason).toBe("Team STR has no deliverable yet; a deliverable names team XYZ, which is not declared"));
+    it("done, matched without case, with the count in words", () => {
+      expect(tidp(["ARC", "STR"], ["arc", "ARC", "Str"])).toMatchObject({ status: "done", evidence: { ref: "ARC,STR", label: "3 deliverables across 2 task teams" } });
+      expect(tidp(["ARC"], ["ARC"]).evidence.label).toBe("1 deliverable across 1 task team");
+    });
+    it("a TIDP document alone no longer satisfies it", () => {
+      expect(tidp([], [], [{ id: "d-tidp", doc_type: "TIDP", title: "ARC TIDP", status: "draft" }])).toMatchObject({ status: "todo", evidence: null });
+    });
+    it("a deliverable with no team does not name an undeclared one", () => expect(tidp(["ARC"], ["ARC", null, ""]).status).toBe("done"));
+    it("a failed read of either fact is not_checkable", () => {
+      expect(byId(buildJourney({ ...emptyProject(), teams: bad("teams down") })).tidp).toMatchObject({ status: "not_checkable", reason: "teams down" });
+      expect(byId(buildJourney({ ...emptyProject(), deliverables: bad("deliverables down") })).tidp).toMatchObject({ status: "not_checkable", reason: "deliverables down" });
+    });
   });
   it("a fact that was never gathered is not_checkable, never todo or done", () => {
     const f = emptyProject(); delete f.transmittals;
