@@ -1639,6 +1639,16 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, result);
       }
+      // R1c: the office register — GET /cde/:office/office-register (200 {version, sha256, installed_by, installed_at, body} or 200 null)
+      // · PUT (body = the register, If-Match = the shown sha or "none") → the pointer. Lead or above of the office; never an artefact.
+      if (p2 === "office-register" && !p3) {
+        const reg = await import("./office-register.mjs");
+        if (req.method === "GET") return send(res, 200, await reg.getRegister(p1));
+        if (req.method === "PUT") {
+          const actor = url.searchParams.get("actor") || "web";
+          return send(res, 200, await reg.putRegister(p1, await readBody(req), { actor, ifMatch: req.headers["if-match"] }));
+        }
+      }
       // Project artefacts (standards in force): the store every judge reads through (cohesion phases 1 and 3).
       //   GET /cde/:key/artefacts (this project's own pointers) · GET /cde/:key/artefacts/:kind (project → office → 404;
       //   the answer names source, ref and sha) · GET /cde/:key/artefacts/:kind/:version

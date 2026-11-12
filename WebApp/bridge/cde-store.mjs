@@ -1268,7 +1268,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // Ledger verification (2026-10-20): anchor:timestamped (entity_type ledger_anchor) is ledger-anchor.mjs's — an external timestamp a note may not pass for.
 const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:", "anchor:", "document_structure_changed", "document_start_picked",
   // R2a (documents design §10 Ledger): who is in which party and who was invited are the membership trigger's and invitations-store's rows.
-  "member_invited", "member_joined", "invitation_revoked", "membership_party_changed"];
+  "member_invited", "member_joined", "invitation_revoked", "membership_party_changed",
+  // R1c: the office register's install is office-register.mjs's row (the verified lead), never a note.
+  "office_register_installed"];
 // Issue sign-offs (2026-10-21): bcf_topic rows are topic-ledger.mjs's — written with the topic change itself, never through this route.
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic"];
 
