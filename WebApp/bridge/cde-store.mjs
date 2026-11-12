@@ -1272,7 +1272,7 @@ const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "revie
   // R1c: the office register's install is office-register.mjs's row (the verified lead), never a note.
   "office_register_installed"];
 // Issue sign-offs (2026-10-21): bcf_topic rows are topic-ledger.mjs's — written with the topic change itself, never through this route.
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic", "annex"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding

@@ -2100,6 +2100,29 @@ async function handleRequest(req, res) {
     }
   }
 
+  // ── R1c living annexes: risk_register, mobilisation, capability (annex-store.mjs checks the role per annex) ──
+  //   GET /annex/:key/:name · POST /annex/:key/:name {row, rev} · PATCH /annex/:key/:name/:rowId {row, rev} · DELETE /annex/:key/:name/:rowId?rev=n
+  if (top === "annex") {
+    const an = await import("./annex-store.mjs");
+    try {
+      const [, key, name, rowId] = url.pathname.split("/").filter(Boolean);
+      if (!key || !name) return send(res, 404, { message: "annex route not found" });
+      const body = ["POST", "PATCH"].includes(req.method) ? await readBody(req) : {};
+      const actor = resolveActor(url.searchParams.get("actor") || body?.actor, "web");
+      if (!rowId && req.method === "GET") return send(res, 200, await an.listAnnex(key, name));
+      if (!rowId && req.method === "POST") return send(res, 201, await an.addRow(key, name, body?.row, { rev: body?.rev, actor }));
+      if (rowId && req.method === "PATCH") return send(res, 200, await an.updateRow(key, name, rowId, body?.row, { rev: body?.rev, actor }));
+      if (rowId && req.method === "DELETE") {
+        const rev = url.searchParams.get("rev");
+        return send(res, 200, await an.removeRow(key, name, rowId, { rev: rev == null || rev === "" ? undefined : Number(rev), actor }));
+      }
+      return send(res, 404, { message: "annex route not found" });
+    } catch (e) {
+      if (!(e?.status === 401 || e?.status === 403 || e?.status === 409)) console.error(`[annex] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
+      return send(res, e?.status || 500, { message: String(e?.message || e) });
+    }
+  }
+
   // ── Task teams: the ISO 19650 responsibility matrix a TIDP belongs to ──
   //   GET/POST /teams/:key · PATCH/DELETE /teams/:key/:id
   //   The bridge asks requireMinRole(key, "lead") itself before a write (WR-12); 0026 enforces the same rule in the database.
