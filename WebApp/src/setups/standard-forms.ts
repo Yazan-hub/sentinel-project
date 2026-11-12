@@ -525,7 +525,8 @@ function rowCards(f: Rows, list: Row[]): HTMLElement {
 
 /** The form for `form`, filled from `model` (edited in place). `onSave` gets the model; its error is shown under the
  *  buttons in its own words and the form stays open. */
-export function renderStandardForm(form: StandardForm, model: Model, opts: { from: string; onSave: (m: Model) => Promise<void>; onCancel: () => void }): HTMLElement {
+export function renderStandardForm(form: StandardForm, model: Model, opts: { from: string; onSave: (m: Model) => Promise<void>; onCancel: () => void; saveLabel?: string }): HTMLElement {
+  const saveWords = opts.saveLabel ?? "Save as the project's standard";
   const root = document.createElement("div");
   root.className = "ps-std-form";
   root.dataset.kind = form.kind;
@@ -554,14 +555,14 @@ export function renderStandardForm(form: StandardForm, model: Model, opts: { fro
     root.append(wrap);
   }
   const bar = document.createElement("div"); bar.style.cssText = "display:flex;gap:.4rem;margin-top:.7rem";
-  const save = document.createElement("button"); save.className = "ps-std-save"; save.textContent = "Save as the project's standard"; save.style.cssText = `${BTN};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd`;
+  const save = document.createElement("button"); save.className = "ps-std-save"; save.textContent = saveWords; save.style.cssText = `${BTN};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd`;
   const cancel = document.createElement("button"); cancel.textContent = "Cancel"; cancel.style.cssText = BTN;
   const out = document.createElement("div"); out.className = "ps-std-error"; out.style.cssText = "color:#fca5a5;font-size:11.5px;padding-top:.35rem;min-height:1em";
   save.addEventListener("click", async () => {
     save.disabled = true; cancel.disabled = true; out.textContent = ""; save.textContent = "Saving…";
     try { await opts.onSave(model); }
     catch (e) { out.textContent = (e as Error)?.message ?? String(e); }
-    finally { save.disabled = false; cancel.disabled = false; save.textContent = "Save as the project's standard"; }
+    finally { save.disabled = false; cancel.disabled = false; save.textContent = saveWords; }
   });
   cancel.addEventListener("click", opts.onCancel);
   bar.append(save, cancel);

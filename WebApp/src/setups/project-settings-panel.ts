@@ -11,6 +11,7 @@ import { escapeHtml as esc } from "./escape-html";
 import { PARTIES, PARTY_WORDS, NO_PARTY, INVITED_WORDS, MAIL_NOTE, partyWord, canEditParty, invitableParties, inviteProblem, groupByParty, dayOf, type Party, type MemberRow, type InvitationRow } from "./members-people";
 import { packFilename, packWords, saveAs, anchorWords, type AnchorStatus } from "./audit-pack";
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
+import { REGISTER_FORM, registerSummary, readRegister, saveRegister, type Register, type RegisterPointer } from "./office-register-form";
 import { renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
 
 /**
@@ -72,6 +73,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     "</div>" +
     '<div id="ps-standards" style="margin-top:1.2rem"></div>' +
     '<div id="ps-std-edit"></div>' +
+    '<div id="ps-register" style="margin-top:1.2rem"></div>' +
     '<div id="ps-members" style="margin-top:1.2rem"></div>' +
     '<div style="border:1px solid #7f1d1d;border-radius:.45rem;margin-top:1.6rem;padding:.7rem .8rem;background:#1c1214">' +
     '<div style="color:#fca5a5;font-weight:600;font-size:12px">Danger zone</div>' +
@@ -113,6 +115,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     for (const id of [...FIELD_IDS, "ps-created"]) setVal(id, "");
     el("ps-office").innerHTML = '<option value="">No office</option>';
     el("ps-link").textContent = "";
+    regSeq++; el("ps-register").replaceChildren(); // the register of the project before never stays under another
   }
 
   // The platform project this Sentinel project opens in by itself (platform-link.ts): the published app cannot remember a
@@ -611,6 +614,48 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     }
   }
 
+  // R1c: the office register — only an office, only its lead or owner (the bridge and the database refuse everyone else).
+  // Summary + Edit…; the form (office-register-form.ts) saves with If-Match = the sha it was filled from.
+  let regSeq = 0;
+  async function loadRegister(note?: { text: string; bad?: boolean }) {
+    const mine = ++regSeq, key = pid(), host = el("ps-register");
+    host.replaceChildren();
+    if (current?.kind !== "office") return;
+    const role = await myRole(base, key);
+    if (mine !== regSeq || !canGovernRole(role)) return;
+    const mk = (css: string, t: string) => { const d = document.createElement("div"); d.style.cssText = css; d.textContent = t; return d; };
+    host.append(mk("color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem", "Office register"));
+    let reg: Register | null = null;
+    try { reg = await readRegister(base, key); } catch (e) { if (mine === regSeq) host.append(mk("color:#fca5a5;font-size:11.5px", `Office register not read — ${(e as Error)?.message ?? String(e)}`)); return; }
+    if (mine !== regSeq) return;
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.35rem 0;font-size:12px";
+    const sum = mk("flex:1;color:#c9cfda", registerSummary(reg));
+    const edit = document.createElement("button");
+    edit.textContent = "Edit…"; edit.className = "ps-register-edit"; edit.style.cssText = `${btn};padding:.2rem .5rem;font-size:11px`;
+    row.append(sum, edit);
+    host.append(row);
+    if (note) host.append(mk(`font-size:11.5px;padding:.2rem 0;color:${note.bad ? "#fca5a5" : "#4ade80"}`, note.text));
+    const box = document.createElement("div");
+    host.append(box);
+    edit.addEventListener("click", () => {
+      const formEl = renderStandardForm(REGISTER_FORM, REGISTER_FORM.fromBody(reg?.body ?? null), {
+        from: reg ? `Starts from version ${reg.version}. Saving installs the next one; earlier versions stay.` : "Nothing entered yet — saving installs version 1.",
+        saveLabel: "Save the office register",
+        onCancel: () => box.replaceChildren(),
+        onSave: async (m) => {
+          if (key !== pid()) throw new Error(`The office in view is no longer ${key} — open the form again`);
+          const body = REGISTER_FORM.toBody(m, reg?.body ?? null, { projectKey: key });
+          let p: RegisterPointer;
+          try { p = await saveRegister(base, key, body, reg?.sha256 ?? null, await who()); }
+          catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
+          await loadRegister({ text: `✓ Office register version ${p.version} saved.` });
+        },
+      });
+      box.replaceChildren(formEl);
+    });
+  }
+
   let seq = 0; // a slower settings read for the previous project/person never lands last
   let loadedScope = "", loadedSnap = ""; // the project + person the fields hold ("" while loading or not read) and their values then
   async function load() {
@@ -657,6 +702,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       loadedScope = scope;
       loadedSnap = snapshot();
       const isOffice = current.kind === "office";
+      void loadRegister();
       renderArchiveBtn();
       renderLink();
       updateDeleteEnabled();

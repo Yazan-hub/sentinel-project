@@ -10,6 +10,7 @@ import { loadScope } from "./load-scope";
 import { myRoleRead, canGovernRole } from "./my-role";
 import { escapeHtml as esc } from "./escape-html";
 import { csvCell } from "../sentinel-core/csv";
+import { annexPanel } from "./annex-panel";
 
 type Evidence = { revision: "met" | "mismatch" | "pending" | "not_specified"; suitability: "met" | "mismatch" | "pending" | "not_specified"; actual_revisions: string[]; actual_suitabilities: string[] };
 type Exception = { container_name: string; due_date: string | null; responsible_team: string | null; kind: string; severity: "high" | "medium" | "low"; problem: string; evidence: string };
@@ -110,6 +111,12 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     reportBtn.title = "The information-delivery status report, derived fresh — nothing carried forward from last week";
     reportBtn.onclick = () => void downloadReport();
     bar.append(tidpBtn, teamsBtn, reportBtn);
+    // R1c: the living annexes — each opens its grid (annex-panel.ts); the bridge decides who may write.
+    for (const [label, name] of [["Risks", "risk_register"], ["Mobilisation", "mobilisation"], ["Capability", "capability"]] as const) {
+      const b = btn(label);
+      b.onclick = () => showAnnex(label, name);
+      bar.append(b);
+    }
     if (canEdit()) {
       const rebaseBtn = btn("Rebaseline");
       rebaseBtn.title = "Re-import the programme and see what moving it does to the plan, before anything changes";
@@ -570,6 +577,19 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       for (const r of rep.unassigned.rows) card.append(miniRow(r));
       body.append(card);
     }
+  }
+
+  /** One living annex as a grid, under a header with the way back. */
+  function showAnnex(label: string, name: string) {
+    bar.replaceChildren();
+    const title = document.createElement("span");
+    title.textContent = label;
+    title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
+    const back = btn("← All deliverables");
+    back.onclick = () => showList();
+    bar.append(title, back);
+    body.replaceChildren();
+    annexPanel(body, { base, key: pid(), name });
   }
 
   /** The responsibility matrix itself: declare the task teams and name who is accountable. */
