@@ -1,6 +1,6 @@
 import { type Session } from "@supabase/supabase-js";
 import { SERVICE_URL } from "../config";
-import { currentSession, signInWithPassword, signOut, onAuthChange, changePassword, passwordProblem, MIN_PASSWORD } from "./auth";
+import { currentSession, signInWithPassword, signOut, onAuthChange, changePassword, passwordProblem, MIN_PASSWORD, sendEmailCode, verifyEmailCode, setPassword } from "./auth";
 import { myRoleRead } from "./my-role";
 import { activePid, hasProjectOverride } from "./active-project";
 import { initialOf, accountLine } from "./account-line";
@@ -13,7 +13,8 @@ import { escapeHtml as esc } from "./escape-html";
  * password and sign-in forms open in the same card. Email + password auth (no SMTP, no redirect), iframe-safe plain DOM;
  * the auth logic is auth.ts's.
  */
-type View = "closed" | "menu" | "password" | "signin";
+// R2a: "code" is the invited person's way in (e-mail → a code by mail → the code); "setpw" is offered once after a code sign-in.
+type View = "closed" | "menu" | "password" | "signin" | "code" | "setpw";
 
 const ICON: Record<string, string> = {
   key: '<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/>',
@@ -90,6 +91,8 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
   let toastTimer: number | undefined;
   let role: { role: string; read: boolean } | null = null;
   let roleKey: string | null = null;
+  let codeSent = false;      // the code card's second state: the code field
+  let cameFromCode = false;  // this session began with a code: offer "Set a password" until it is set
 
   const q = <T extends HTMLElement = HTMLElement>(id: string) => wrap.querySelector("#" + id) as T | null;
 
@@ -102,6 +105,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     `<div class="sx-head"><div class="sx-av" aria-hidden="true">${esc(initialOf(who))}</div>` +
     `<div class="sx-who"><div class="sx-email" title="${esc(who)}">${esc(who)}</div><div class="sx-line" id="sx-line">${esc(accountLine(role, roleKey))}</div></div></div>` +
     '<div class="sx-sep"></div><div class="sx-list">' +
+    (cameFromCode ? `<button class="sx-item" role="menuitem" id="sx-setpw" type="button">${icon("key")}Set a password</button>` : "") +
     `<button class="sx-item" role="menuitem" id="sx-pw" type="button">${icon("key")}Change password</button>` +
     '<div class="sx-sep"></div>' +
     `<button class="sx-item sx-danger" role="menuitem" id="sx-out" type="button">${icon("logout")}Sign out of this browser</button>` +
@@ -119,6 +123,26 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? "Changing…" : "Change password"}</button>` +
     "</form></div>";
 
+  const setpwCard = () =>
+    '<div class="sx-card" role="dialog" aria-label="Set a password"><form class="sx-form" id="sx-setpwform" novalidate>' +
+    `<div class="sx-title"><button type="button" class="sx-iconbtn" id="sx-back" aria-label="Back to the account menu">${icon("back")}</button>Set a password</div>` +
+    '<div class="sx-check" style="display:block">You signed in with a code. A password lets you sign in without waiting for an e-mail.</div>' +
+    `<label class="sx-field"><span>New password</span><input id="sx-new" type="password" autocomplete="new-password" placeholder="At least ${MIN_PASSWORD} characters"></label>` +
+    '<label class="sx-field"><span>Repeat the new password</span><input id="sx-new2" type="password" autocomplete="new-password"></label>' +
+    (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
+    `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? "Setting…" : "Set password"}</button>` +
+    "</form></div>";
+
+  const codeCard = () =>
+    '<div class="sx-card" role="dialog" aria-label="Sign in with a code"><form class="sx-form" id="sx-codeform" novalidate>' +
+    `<div class="sx-title"><button type="button" class="sx-iconbtn" id="sx-back-signin" aria-label="Back to the password sign-in">${icon("back")}</button><span class="sx-grow">Sign in with a code</span><button type="button" class="sx-iconbtn" id="sx-close" aria-label="Close">${icon("close")}</button></div>` +
+    `<label class="sx-field"><span>Email</span><input id="sx-email" type="email" autocomplete="username" placeholder="you@firm.com" value="${esc(formEmail)}" ${codeSent ? "readonly" : ""}></label>` +
+    (codeSent ? '<label class="sx-field"><span>The 6-digit code from the e-mail</span><input id="sx-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>' : "") +
+    (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
+    `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? (codeSent ? "Signing in…" : "Sending…") : (codeSent ? "Sign in" : "Send me a code")}</button>` +
+    (codeSent ? '<button type="button" class="sx-item" id="sx-again">Send another code</button>' : "") +
+    "</form></div>";
+
   const signinCard = () =>
     '<div class="sx-card" role="dialog" aria-label="Sign in"><form class="sx-form" id="sx-inform" novalidate>' +
     `<div class="sx-title"><span class="sx-grow">Sign in to Sentinel</span><button type="button" class="sx-iconbtn" id="sx-close" aria-label="Close">${icon("close")}</button></div>` +
@@ -126,6 +150,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     '<label class="sx-field"><span>Password</span><input id="sx-pass" type="password" autocomplete="current-password"></label>' +
     (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
     `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? "Signing in…" : "Sign in"}</button>` +
+    '<button type="button" class="sx-item" id="sx-usecode">Sign in with a code instead (invited? start here)</button>' +
     "</form></div>";
 
   const render = () => {
@@ -133,6 +158,8 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     let html = who ? avatar(who) : `<button class="sx-signin" id="sx-open" type="button">${icon("user", 15)}Sign in</button>`;
     if (who && view === "menu") html += menuCard(who);
     else if (who && view === "password") html += passwordCard(who);
+    else if (who && view === "setpw") html += setpwCard();
+    else if (!who && view === "code") html += codeCard();
     else if (!who && view === "signin") html += signinCard();
     else if (toast) html += `<div class="sx-toast" role="status" id="sx-toast">${icon("check")}<span>${esc(toast)}</span></div>`;
     wrap.innerHTML = html;
@@ -170,6 +197,38 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
       if (t) t.style.opacity = "0";
       window.setTimeout(() => { toast = ""; if (view === "closed") render(); }, 400);
     }, 6000);
+  };
+
+  const codeSubmit = async () => {
+    if (busy) return;
+    const email = (q<HTMLInputElement>("sx-email")?.value ?? "").trim();
+    formEmail = email;
+    if (!email) { msg = "Enter your email."; render(); q("sx-email")?.focus(); return; }
+    if (!codeSent) {
+      busy = true; msg = ""; render();
+      const r = await sendEmailCode(email);
+      busy = false;
+      if (r.ok) { codeSent = true; msg = r.message; render(); q("sx-code")?.focus(); }
+      else { msg = r.message; if (view === "code") { render(); q("sx-email")?.focus(); } }
+      return;
+    }
+    const code = (q<HTMLInputElement>("sx-code")?.value ?? "").trim();
+    if (!code) { msg = "Enter the code from the e-mail."; render(); q("sx-code")?.focus(); return; }
+    busy = true; msg = ""; render();
+    const r = await verifyEmailCode(email, code);
+    busy = false;
+    if (r.ok) { cameFromCode = true; codeSent = false; return; } // onAuthChange renders the signed-in corner
+    msg = r.message; if (view === "code") { render(); q("sx-code")?.focus(); }
+  };
+
+  const setpwSubmit = async () => {
+    if (busy) return;
+    const nxt = q<HTMLInputElement>("sx-new")?.value ?? "", again = q<HTMLInputElement>("sx-new2")?.value ?? "";
+    busy = true; msg = ""; render();
+    const r = await setPassword(nxt, again);
+    busy = false;
+    if (r.ok) { cameFromCode = false; showToast(r.message); focusTrigger(); return; }
+    msg = r.message; if (view === "setpw") { render(); q("sx-new")?.focus(); }
   };
 
   const changeSubmit = async () => {
@@ -210,6 +269,12 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
       view = "signin"; msg = ""; render(); q("sx-email")?.focus();
     });
     q("sx-pw")?.addEventListener("click", () => { view = "password"; msg = ""; render(); q("sx-cur")?.focus(); });
+    q("sx-setpw")?.addEventListener("click", () => { view = "setpw"; msg = ""; render(); q("sx-new")?.focus(); });
+    q("sx-usecode")?.addEventListener("click", () => { formEmail = (q<HTMLInputElement>("sx-email")?.value ?? formEmail).trim(); view = "code"; codeSent = false; msg = ""; render(); q("sx-email")?.focus(); });
+    q("sx-back-signin")?.addEventListener("click", () => { view = "signin"; codeSent = false; msg = ""; render(); q("sx-email")?.focus(); });
+    q("sx-again")?.addEventListener("click", () => { codeSent = false; msg = ""; render(); void codeSubmit(); });
+    q("sx-codeform")?.addEventListener("submit", (e) => { e.preventDefault(); void codeSubmit(); });
+    q("sx-setpwform")?.addEventListener("submit", (e) => { e.preventDefault(); void setpwSubmit(); });
     q("sx-out")?.addEventListener("click", () => { view = "closed"; render(); void signOut(); });
     q("sx-back")?.addEventListener("click", () => { view = "menu"; msg = ""; render(); focusFirstItem(); void readRole(); });
     q("sx-close")?.addEventListener("click", () => closeView(true));
@@ -235,7 +300,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     // The same person (a token refresh, or the password check's own re-sign-in): an open card keeps what was typed.
     if (samePerson && view !== "closed") return;
     // A sign-in or a sign-out clears the dismissal, so a later signed-out 401 may prompt again.
-    if (!samePerson) { dismissed = false; toast = ""; role = null; roleKey = null; }
+    if (!samePerson) { dismissed = false; toast = ""; role = null; roleKey = null; codeSent = false; if (!s) cameFromCode = false; }
     view = "closed"; msg = ""; busy = false; render();
   });
   currentSession().then((s) => { session = s; render(); }).catch(() => render());

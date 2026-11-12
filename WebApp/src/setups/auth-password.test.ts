@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: {} }) }));
-const { changePassword, passwordProblem } = await import("./auth");
+const { changePassword, passwordProblem, setPassword } = await import("./auth");
 
 const fakeAuth = (o: { email?: string | null; life?: number | null; checkFails?: string; updateFails?: string; signOutFails?: string; signOutThrows?: boolean } = {}) => ({
   getSession: vi.fn(async () => ({ data: { session: o.email === null ? null : { user: { email: o.email ?? "a@firm.com" } } }, error: null })),
@@ -66,5 +66,20 @@ describe("changePassword", () => {
     const auth = fakeAuth();
     expect((await run(auth, true, "old-pass-1", "short")).ok).toBe(false);
     expect(auth.getSession).not.toHaveBeenCalled();
+  });
+});
+
+// R2a: after a code sign-in the person sets a password with no current one asked.
+describe("setPassword", () => {
+  const auth = (fails?: string) => ({ updateUser: vi.fn(async () => ({ data: {}, error: fails ? { message: fails } : null })) });
+  it("refuses a short or mismatched password before any call, in the same words as changePassword", async () => {
+    const a = auth();
+    expect(await setPassword("short", "short", a)).toEqual({ ok: false, message: "The new password needs at least 8 characters." });
+    expect(await setPassword("new-pass-12", "new-pass-13", a)).toEqual({ ok: false, message: "The two new passwords are not the same." });
+    expect(a.updateUser).not.toHaveBeenCalled();
+  });
+  it("sets it, and says a refusal changed nothing", async () => {
+    expect(await setPassword("new-pass-12", "new-pass-12", auth())).toEqual({ ok: true, message: "Password set. Next time you can sign in with it or with a code." });
+    expect(await setPassword("new-pass-12", "new-pass-12", auth("weak"))).toEqual({ ok: false, message: "The password was refused: weak — nothing was changed." });
   });
 });

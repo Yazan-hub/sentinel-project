@@ -14,6 +14,7 @@ import { editPane, type Carried, type EditorHandle, type EditPaneEl } from "./bl
 import { ingestView, type IngestProposal } from "./ingest-view";
 import { commentsTab, outlinePane } from "./outline";
 import { qualityTab } from "./quality-tab";
+import { peopleTab } from "./people-tab";
 import { readinessView, READ_ONLY_NOTE } from "./readiness-view";
 import { readView } from "./read-view";
 import { startStrip } from "./start-strip";
@@ -35,8 +36,9 @@ export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: s
 export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPane, read: readView, compare: compareView, versions: versionsView };
 
 const SIDE_TEXT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
-export const SIDE_TABS: Record<"quality" | "review" | "comments", (ctx: PaneCtx) => HTMLElement> = {
+export const SIDE_TABS: Record<"quality" | "review" | "comments" | "people", (ctx: PaneCtx) => HTMLElement> = {
   quality: qualityTab,
+  people: peopleTab, // R2a: who is in which party
   review: (ctx) => {
     const box = h(ctx.doc, "div");
     if (ctx.st.doc) box.append(...reviewLines(ctx.st.doc, ctx.st.versions).map((line) => h(ctx.doc, "p", SIDE_TEXT, line)));
@@ -44,7 +46,7 @@ export const SIDE_TABS: Record<"quality" | "review" | "comments", (ctx: PaneCtx)
   },
   comments: commentsTab,
 };
-const TAB_NAMES: [keyof typeof SIDE_TABS, string][] = [["quality", "Quality"], ["review", "Review"], ["comments", "Comments"]];
+const TAB_NAMES: [keyof typeof SIDE_TABS, string][] = [["quality", "Quality"], ["review", "Review"], ["comments", "Comments"], ["people", "People"]];
 
 export const OUTLINE: { pane: (ctx: PaneCtx) => HTMLElement } = { pane: outlinePane };
 

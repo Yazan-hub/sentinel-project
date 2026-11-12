@@ -41,16 +41,18 @@ export const authEnabled = (): boolean => import.meta.env.VITE_SENTINEL_AUTH ===
  * Send a 6-digit sign-in CODE to `email` (no redirect — the robust flow for an app embedded in the
  * platform, where magic-link redirects fight the iframe). Requires the Supabase "Magic Link" email
  * template to render `{{ .Token }}`. Returns a user-facing result, never throws.
+ * R2a: this is the invited person's way in. Sign-up is closed, so the code goes only to an account that exists
+ * (shouldCreateUser false): the invitation made it. Sentinel's mail service sends two e-mails an hour, so a code can take a while.
  */
 export async function sendEmailCode(email: string): Promise<{ ok: boolean; message: string }> {
   try {
     const { error } = await supabase().auth.signInWithOtp({
       email: email.trim(),
-      options: { shouldCreateUser: true },
+      options: { shouldCreateUser: false },
     });
     return error
-      ? { ok: false, message: error.message }
-      : { ok: true, message: `Code sent to ${email}.` };
+      ? { ok: false, message: /signup|not allowed|not found/i.test(error.message) ? "No Sentinel account has this e-mail. Ask the project's lead to invite you." : error.message }
+      : { ok: true, message: `Code sent to ${email}. It can take a few minutes; the code lasts an hour.` };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   }
@@ -101,6 +103,17 @@ export function passwordProblem(current: string, next: string, confirm: string):
 }
 
 type AuthApi = Pick<SupabaseClient["auth"], "getSession" | "signInWithPassword" | "updateUser" | "signOut">;
+
+/** R2a: after a code sign-in the person has no password yet — set one with no current password asked (the fresh code session is
+ *  the proof). A refusal changes nothing and says why. */
+export async function setPassword(next: string, confirm: string, auth: Pick<SupabaseClient["auth"], "updateUser"> = supabase().auth): Promise<{ ok: boolean; message: string }> {
+  if (next.length < MIN_PASSWORD) return { ok: false, message: `The new password needs at least ${MIN_PASSWORD} characters.` };
+  if (next !== confirm) return { ok: false, message: "The two new passwords are not the same." };
+  try {
+    const { error } = await auth.updateUser({ password: next });
+    return error ? { ok: false, message: `The password was refused: ${error.message} — nothing was changed.` } : { ok: true, message: "Password set. Next time you can sign in with it or with a code." };
+  } catch (e) { return { ok: false, message: `The password was not set (${(e as Error).message}) — nothing was changed.` }; }
+}
 
 /** Change the signed-in person's password. The current password is checked first (a signed-in tab left open is not
  *  enough to change it); a refusal changes nothing and says why. `signOutOthers` then ends every other session of the

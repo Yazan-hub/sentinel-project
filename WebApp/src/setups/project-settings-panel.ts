@@ -8,6 +8,7 @@ import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, STANDARD_INSTALLED, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
+import { PARTIES, PARTY_WORDS, NO_PARTY, INVITED_WORDS, MAIL_NOTE, partyWord, canEditParty, invitableParties, inviteProblem, groupByParty, dayOf, type Party, type MemberRow, type InvitationRow } from "./members-people";
 import { packFilename, packWords, saveAs, anchorWords, type AnchorStatus } from "./audit-pack";
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
 import { renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
@@ -145,17 +146,27 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   }
 
   // ── Members section (management is lead+; the DB 403s regardless of what renders here) ────────
-  type Member = { user_id: string; role: string; email: string };
   let membersErrDiv: HTMLElement | null = null;
 
   function memberErr(text: string) {
-    if (membersErrDiv) membersErrDiv.textContent = text;
+    if (membersErrDiv) { membersErrDiv.textContent = text; membersErrDiv.style.color = "#fca5a5"; }
   }
   function memberErrClear() {
     if (membersErrDiv) membersErrDiv.textContent = "";
   }
 
   let memSeq = 0; // a slower members read for the previous project/person never lands last
+  // R2a (documents design §6, §17): who is in which party, invitations by e-mail, pending invitations. The bridge and the
+  // database refuse what the screen does not offer; every bridge message is shown as it came.
+  const sel = (opts: [string, string][], value: string) => {
+    const el = document.createElement("select");
+    el.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
+    for (const [v, label] of opts) { const o = new Option(label, v); o.selected = v === value; el.append(o); }
+    return el;
+  };
+  const line = (text: string, color = "#a1a1aa") => { const d = document.createElement("div"); d.textContent = text; d.style.cssText = `color:${color};font-size:11px;padding:.2rem 0`; return d; };
+  const json = async (r: Response) => { const j = (await r.json().catch(() => ({}))) as { message?: string }; if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`); return j; };
+  const said = (text: string) => { memberErr(text); if (membersErrDiv) membersErrDiv.style.color = "#4ade80"; }; // the bridge's good news, in its words
   async function loadMembers() {
     const mine = ++memSeq, key = pid();
     const host = el("ps-members");
@@ -165,90 +176,164 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       if (mine !== memSeq) return;
       // a broken /me must NOT read as "not management"
       if (!meR.ok) throw new Error(`role not read — ${(await meR.json().catch(() => null))?.message || `HTTP ${meR.status}`}`);
-      const me = await meR.json().catch(() => ({}));
+      const me = (await meR.json().catch(() => ({}))) as { role?: string | null };
       if (mine !== memSeq) return;
-      const role = (me as { role?: string | null }).role ?? null;
+      const role = me.role ?? null;
       if (role !== "lead" && role !== "owner" && role !== "service") return; // genuinely not management — leave empty
-      const listR = await bfetch(`${base}/cde/${encodeURIComponent(key)}/members`);
+      const [listR, teamsR, invR, user] = await Promise.all([
+        bfetch(`${base}/cde/${encodeURIComponent(key)}/members`),
+        bfetch(`${base}/teams/${encodeURIComponent(key)}`),
+        bfetch(`${base}/cde/${encodeURIComponent(key)}/invitations`),
+        currentUser().catch(() => null),
+      ]);
       if (mine !== memSeq) return;
       if (!listR.ok) throw new Error((await listR.json().catch(() => null))?.message || `HTTP ${listR.status}`);
-      const members = (await listR.json()) as Member[];
+      const members = (await listR.json()) as MemberRow[];
+      const teamsJ = teamsR.ok ? await teamsR.json().catch(() => []) : [];
+      const teams = ((Array.isArray(teamsJ) ? teamsJ : (teamsJ as { items?: { code: string }[] }).items) || []).map((t: { code: string }) => t.code);
+      const invitations = invR.ok ? (((await invR.json().catch(() => ({ items: [] }))) as { items: InvitationRow[] }).items || []) : null;
       if (mine !== memSeq) return;
+      const myId = user?.id ?? null;
+      const teamOpts: [string, string][] = teams.length ? teams.map((t) => [t, `Team ${t}`] as [string, string]) : [["", "no task teams declared yet (Deliverables tab)"]];
+      const partyOpts = (parties: Party[]): [string, string][] => [["", NO_PARTY], ...parties.map((p) => [p, PARTY_WORDS[p]] as [string, string])];
 
       const head = document.createElement("div");
       head.textContent = "Members";
       head.style.cssText = "color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem";
       host.append(head);
 
-      for (const m of members) {
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.3rem 0";
-        const emailEl = document.createElement("span");
-        emailEl.textContent = m.email;
-        emailEl.style.cssText = "flex:1;color:#e5e7eb;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-        const sel = document.createElement("select");
-        sel.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
-        // W-2 (G2): a lead is not offered the owner role, nor an owner's row — the bridge refuses both.
-        const ownerRow = m.role === "owner" && !canDeleteProjectRole(role);
-        for (const r of ownerRow ? ["owner"] : grantableRoles(role)) { const o = new Option(r, r); o.selected = r === m.role; sel.append(o); }
-        if (ownerRow) { sel.disabled = true; sel.title = "only an owner changes or removes an owner"; }
-        sel.addEventListener("change", async () => {
-          try {
-            const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, {
-              method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: sel.value }),
+      for (const g of groupByParty(members)) {
+        host.append(line(g.title, "#e5e7eb"));
+        for (const m of g.members) {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;gap:.4rem;padding:.3rem 0 .3rem .6rem;flex-wrap:wrap";
+          const emailEl = document.createElement("span");
+          emailEl.textContent = m.email;
+          emailEl.title = m.email;
+          emailEl.style.cssText = "flex:1;min-width:8rem;color:#e5e7eb;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+          row.append(emailEl);
+          if (m.state === "invited") row.append(line(INVITED_WORDS, "#fbbf24"));
+          // Role: as before — saved on the pick (one field); an owner's row and the owner role are an owner's.
+          const ownerRow = m.role === "owner" && !canDeleteProjectRole(role);
+          const roleSel = sel((ownerRow ? ["owner"] : grantableRoles(role)).map((r) => [r, r] as [string, string]), m.role);
+          if (ownerRow) { roleSel.disabled = true; roleSel.title = "only an owner changes or removes an owner"; }
+          roleSel.addEventListener("change", async () => {
+            try {
+              await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ role: roleSel.value }),
+              }));
+              memberErrClear(); await loadMembers();
+            } catch (e) { memberErr((e as Error)?.message ?? String(e)); roleSel.value = m.role; }
+          });
+          row.append(roleSel);
+          // Party and team: an owner's, never their own row, saved by an explicit Save (F-R1a-2: no save on every pick).
+          if (canEditParty(role, m.user_id, myId)) {
+            const partySel = sel(partyOpts(PARTIES), m.party ?? "");
+            const teamSel = sel(teamOpts, m.task_team ?? teams[0] ?? "");
+            const save = document.createElement("button");
+            save.textContent = "Save party";
+            save.style.cssText = btn;
+            const sync = () => {
+              teamSel.style.display = partySel.value === "appointed" ? "" : "none";
+              const unchanged = partySel.value === (m.party ?? "") && (partySel.value !== "appointed" || teamSel.value === m.task_team);
+              save.style.display = unchanged ? "none" : "";
+            };
+            partySel.addEventListener("change", sync); teamSel.addEventListener("change", sync); sync();
+            save.addEventListener("click", async () => {
+              try {
+                await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, {
+                  method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ party: partySel.value || null, task_team: partySel.value === "appointed" ? teamSel.value : null }),
+                }));
+                memberErrClear(); await loadMembers();
+              } catch (e) { memberErr((e as Error)?.message ?? String(e)); }
             });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
-            memberErrClear();
-            await loadMembers();
-          } catch (e) { memberErr((e as Error)?.message ?? String(e)); sel.value = m.role; }
-        });
-        const rm = document.createElement("button");
-        rm.textContent = "Remove";
-        rm.style.cssText = `${btn};color:#fca5a5;border-color:#7f1d1d`;
-        let armed = false;
-        rm.addEventListener("click", async () => {
-          if (!armed) { armed = true; rm.textContent = "Confirm?"; return; }
-          try {
-            const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, { method: "DELETE" });
-            const j = await r.json().catch(() => ({}));
-            if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
-            memberErrClear();
-            await loadMembers();
-          } catch (e) { memberErr((e as Error)?.message ?? String(e)); armed = false; rm.textContent = "Remove"; }
-        });
-        row.append(emailEl, sel, ...(ownerRow ? [] : [rm]));
-        host.append(row);
+            row.append(partySel, teamSel, save);
+          } else if (m.user_id === myId && (role === "owner" || role === "service")) {
+            row.append(line("your own party is another owner's to change"));
+          }
+          if (!ownerRow) {
+            const rm = document.createElement("button");
+            rm.textContent = "Remove";
+            rm.style.cssText = `${btn};color:#fca5a5;border-color:#7f1d1d`;
+            let armed = false;
+            rm.addEventListener("click", async () => {
+              if (!armed) { armed = true; rm.textContent = "Confirm?"; return; }
+              try {
+                await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members/${encodeURIComponent(m.user_id)}`, { method: "DELETE" }));
+                memberErrClear(); await loadMembers();
+              } catch (e) { memberErr((e as Error)?.message ?? String(e)); armed = false; rm.textContent = "Remove"; }
+            });
+            row.append(rm);
+          }
+          host.append(row);
+        }
       }
 
-      // Add row
-      const addRow = document.createElement("div");
-      addRow.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.5rem 0;border-top:1px solid #2a2a30;margin-top:.4rem";
+      // Invite… (R2a): e-mail, role, party, team → one sign-in-code mail; the same answer for a new and a known address.
+      const inviteBox = document.createElement("div");
+      inviteBox.style.cssText = "padding:.5rem 0;border-top:1px solid #2a2a30;margin-top:.4rem";
+      const inviteBtn = document.createElement("button");
+      inviteBtn.textContent = "Invite…";
+      inviteBtn.style.cssText = btn;
+      const form = document.createElement("div");
+      form.style.cssText = "display:none;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.4rem 0";
       const emailIn = document.createElement("input");
-      emailIn.type = "email";
-      emailIn.placeholder = "email";
-      emailIn.style.cssText = inp + ";flex:1";
-      const roleSel = document.createElement("select");
-      roleSel.style.cssText = "background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui";
-      for (const r of grantableRoles(role)) roleSel.append(new Option(r, r));
-      roleSel.value = "viewer";
-      const addBtn = document.createElement("button");
-      addBtn.textContent = "Add";
-      addBtn.style.cssText = btn;
-      addBtn.addEventListener("click", async () => {
+      emailIn.type = "email"; emailIn.placeholder = "person@firm.com"; emailIn.style.cssText = inp + ";flex:1;min-width:10rem";
+      const roleSel = sel(grantableRoles(role).map((r) => [r, r] as [string, string]), "viewer");
+      const partySel = sel(partyOpts(invitableParties(role)), "");
+      const teamSel = sel(teamOpts, teams[0] ?? "");
+      const sendBtn = document.createElement("button");
+      sendBtn.textContent = "Send invitation"; sendBtn.style.cssText = btn;
+      const syncInvite = () => { teamSel.style.display = partySel.value === "appointed" ? "" : "none"; };
+      partySel.addEventListener("change", syncInvite); syncInvite();
+      inviteBtn.addEventListener("click", () => { form.style.display = form.style.display === "none" ? "flex" : "none"; if (form.style.display === "flex") emailIn.focus(); });
+      sendBtn.addEventListener("click", async () => {
+        const f = { email: emailIn.value, role: roleSel.value, party: partySel.value as Party | "", task_team: teamSel.value };
+        const problem = inviteProblem(f, role, grantableRoles(role));
+        if (problem) { memberErr(problem); return; }
+        sendBtn.disabled = true; sendBtn.textContent = "Sending…";
         try {
-          const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/members`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: emailIn.value, role: roleSel.value }),
-          });
-          const j = await r.json().catch(() => ({}));
-          if (!r.ok) throw new Error((j as { message?: string })?.message || `HTTP ${r.status}`);
-          memberErrClear();
+          const j = await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/invitations`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: f.email.trim(), role: f.role, party: f.party || null, task_team: f.party === "appointed" ? f.task_team : null }),
+          }));
           emailIn.value = "";
           await loadMembers();
+          said(String(j.message || "Invitation sent")); // the bridge's words, incl. "saved; the e-mail was not sent"
         } catch (e) { memberErr((e as Error)?.message ?? String(e)); }
+        finally { sendBtn.disabled = false; sendBtn.textContent = "Send invitation"; }
       });
-      addRow.append(emailIn, roleSel, addBtn);
-      host.append(addRow);
+      form.append(emailIn, roleSel, partySel, teamSel, sendBtn);
+      inviteBox.append(inviteBtn, form, line(MAIL_NOTE));
+      host.append(inviteBox);
+
+      // Pending invitations: sent, expires, Resend, Revoke (two clicks).
+      if (invitations && invitations.length) {
+        host.append(line("Pending invitations", "#e5e7eb"));
+        for (const i of invitations) {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;align-items:center;gap:.4rem;padding:.25rem 0 .25rem .6rem;flex-wrap:wrap";
+          const who = document.createElement("span");
+          who.textContent = `${i.email} · ${i.role} · ${partyWord(i.party, i.task_team)}`;
+          who.style.cssText = "flex:1;min-width:10rem;color:#e5e7eb;font-size:12px";
+          const when = line(`sent ${dayOf(i.sent_at)}, expires ${dayOf(i.expires_at)}`);
+          const resend = document.createElement("button"); resend.textContent = "Resend"; resend.style.cssText = btn;
+          resend.addEventListener("click", async () => {
+            resend.disabled = true;
+            try { const j = await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/invitations/${encodeURIComponent(i.id)}/resend`, { method: "POST" })); await loadMembers(); said(String(j.message || "Invitation sent")); }
+            catch (e) { memberErr((e as Error)?.message ?? String(e)); resend.disabled = false; }
+          });
+          const revoke = document.createElement("button"); revoke.textContent = "Revoke"; revoke.style.cssText = `${btn};color:#fca5a5;border-color:#7f1d1d`;
+          let armed = false;
+          revoke.addEventListener("click", async () => {
+            if (!armed) { armed = true; revoke.textContent = "Confirm?"; return; }
+            try { await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/invitations/${encodeURIComponent(i.id)}`, { method: "DELETE" })); memberErrClear(); await loadMembers(); }
+            catch (e) { memberErr((e as Error)?.message ?? String(e)); armed = false; revoke.textContent = "Revoke"; }
+          });
+          row.append(who, when, resend, revoke);
+          host.append(row);
+        }
+      } else if (invitations === null) host.append(line("Pending invitations not read."));
 
       membersErrDiv = document.createElement("div");
       membersErrDiv.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0;min-height:1em";
