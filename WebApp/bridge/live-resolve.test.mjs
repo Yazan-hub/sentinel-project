@@ -199,3 +199,23 @@ describe("frozen in the version", () => {
     })).rejects.toThrow(/sections are not the document's current sections/);
   }, 60_000);
 });
+
+// Review R1c fixes: no e-mail leaves the resolver from any free text; an undeclared team's TIDP list says so.
+describe("review fixes", () => {
+  it("a project setting or a deliverable cell holding an e-mail address is withheld (R1c-1)", async () => {
+    const d = mk({
+      ensureProject: vi.fn(async () => ({ id: "p1", name: "Snowdon", office_key: "off", metadata: { settings: { owner: "client@firm.com" } } })),
+      deliverableStatus: vi.fn(async () => ({ rows: [D1("a", "ARC", { title: "send to bob@firm.com" })] })),
+    });
+    const r = await run([facts(["project.appointing_party"]), live("midp")], d);
+    expect(r.blocks.f1.items[0]).toMatchObject({ value: null, note: "withheld: it holds an e-mail address" });
+    expect(r.blocks.l1.rows[0].title).toBe("(e-mail withheld)");
+    expect(JSON.stringify(r)).not.toMatch(/@firm\.com/);
+  });
+  it("a TIDP list for a team the roll-up marks undeclared gets the note, not its rows (R1c-2)", async () => {
+    const d = mk({ tidpReport: vi.fn(async () => ({ tidps: [{ code: "XYZ", declared: false, rows: [D1("z", "XYZ")] }] })) });
+    const r = await run([live("tidp", { team: "XYZ" })], d);
+    expect(r.blocks.l1.rows).toEqual([]);
+    expect(r.blocks.l1.note).toMatch(/not a task team of this project/);
+  });
+});

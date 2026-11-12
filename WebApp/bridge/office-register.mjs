@@ -99,7 +99,9 @@ export async function putRegister(officeKey, body, { actor, ifMatch } = {}, deps
   validateRegister(body);
   const prev = await d.docGet(proj.id, STORE);
   const want = ifMatchValue(ifMatch);
-  if (want != null && want !== (prev?.sha256 ?? "none")) throw staleChange("the office register was", prev?.installed_by, prev?.installed_at);
+  // Review R1c-4: a save names the version it started from ("none" for the first); without it a newer register would be overwritten unseen.
+  if (want == null) throw err(428, "Saving the office register needs the version you started from — reload and save again; nothing was saved");
+  if (want !== (prev?.sha256 ?? "none")) throw staleChange("the office register was", prev?.installed_by, prev?.installed_at);
   const version = (prev?.version || 0) + 1;
   const sha256 = canonicalSha256(body);
   const pointer = { version, sha256, installed_by: resolveActor(actor, "web"), installed_at: new Date().toISOString() };

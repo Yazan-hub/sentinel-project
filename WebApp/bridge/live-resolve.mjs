@@ -111,8 +111,14 @@ const readFact = async (c, label) => {
   const f = FACT_BY_LABEL.get(label);
   if (!f) return { label, words: label, value: null, note: "not a known fact" };
   const v = await f.read(c);
+  if (typeof v === "string" && EMAIL.test(v)) return { label, words: f.words, value: null, note: "withheld: it holds an e-mail address" }; // review R1c-1
   return { label, words: f.words, value: typeof v === "string" && v.trim() ? v : null };
 };
+
+/** Review R1c-1: no e-mail address leaves the resolver, whatever free text a project setting, team name or deliverable holds. */
+const WITHHELD = "(e-mail withheld)";
+const scrubRow = (r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, typeof v === "string" && EMAIL.test(v) ? WITHHELD : v]));
+const scrubLive = (l) => ({ ...l, rows: (l.rows || []).map(scrubRow), ...(l.groups ? { groups: l.groups.map((g) => ({ ...g, rows: (g.rows || []).map(scrubRow) })) } : {}) });
 
 const DELIV_COLS = [{ key: "container", words: "Container" }, { key: "title", words: "Title" }, { key: "team", words: "Task team" },
   { key: "stage", words: "Stage" }, { key: "due", words: "Due" }, { key: "status", words: "Status" }];
@@ -133,7 +139,7 @@ async function readLive(d, c, key, proj, doc, data) {
   if (source === "tidp") {
     const hint = "Edit in Deliverables";
     if (!f.team) return base("Task information delivery plan", { columns: DELIV_COLS, edit_hint: hint, note: "Pick a task team" });
-    const t = (await d.tidpReport(key)).tidps.find((x) => norm(x.code) === norm(f.team));
+    const t = (await d.tidpReport(key)).tidps.find((x) => x.declared !== false && norm(x.code) === norm(f.team)); // review R1c-2: an undeclared team gets the note
     return base(`Task information delivery plan — Team ${f.team}`, { columns: DELIV_COLS, edit_hint: hint,
       rows: (t?.rows || []).filter((r) => !f.stage || r.stage === f.stage).map(delivRow), ...(t ? {} : { note: `Team ${f.team} is not a task team of this project` }) });
   }
@@ -183,7 +189,7 @@ export async function resolveLive(key, doc, deps) {
     for (const b of found) {
       blocks[b.id] = b.kind === "facts"
         ? { kind: "facts", items: await Promise.all((b.data?.labels || []).map((l) => readFact(c, l))) }
-        : await readLive(d, c, key, proj, doc, b.data || {});
+        : scrubLive(await readLive(d, c, key, proj, doc, b.data || {}));
     }
   }
   return { at: new Date().toISOString(), blocks };

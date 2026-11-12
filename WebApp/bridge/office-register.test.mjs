@@ -115,7 +115,12 @@ describe("getRegister / putRegister", () => {
   });
   it("a create-only conflict is a 409 in words", async () => {
     const d = mk({ docInsert: vi.fn(async () => { throw Object.assign(new Error("dup"), { status: 409 }); }) });
-    await fails(() => putRegister("office-a", sample(), {}, d), /same moment/, 409);
+    await fails(() => putRegister("office-a", sample(), { ifMatch: "none" }, d), /same moment/, 409);
+  });
+  it("a save without the version it started from is refused before anything is written (review R1c-4)", async () => {
+    const d = mk();
+    await fails(() => putRegister("office-a", sample(), {}, d), /version you started from/, 428);
+    expect(d.docInsert).not.toHaveBeenCalled();
   });
   it("an invalid body is refused before anything is written", async () => {
     const d = mk(); const b = sample(); b.people[0].who = "x@y.com";
@@ -126,7 +131,7 @@ describe("getRegister / putRegister", () => {
 
 describe("publishedLines", () => {
   it("returns only flagged lines, with the part, and one part when asked", async () => {
-    const d = mk(); await putRegister("office-a", sample(), {}, d);
+    const d = mk(); await putRegister("office-a", sample(), { ifMatch: "none" }, d);
     const all = await publishedLines("o1", null, d);
     expect(all.map((l) => `${l.part}:${l.id}`)).toEqual(["people:bim-mgr", "software:revit"]);
     expect(all[1]).toMatchObject({ part: "software", name: "Revit", evidence: "evidenced", evidence_note: "", owner: "", due: "" });
