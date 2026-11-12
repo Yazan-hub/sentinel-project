@@ -17,7 +17,8 @@
 --   part 5: review_decide — a step's party; role viewer only on a step that names a party.
 --
 -- Dry-run: on PGlite with every migration (bridge/migration-0050.test.mjs). Probe: probes/0050_probe.sql (part 0 before, parts 1-2 after).
--- Apply: the founder's. Restart the 4100 bridge on the R2a branch right after (the new Members screen reads the new columns).
+-- APPLIED 2026-11-12 ~22:15 CET on the founder's "Yes, apply 0050" (Supabase migration 0050_party_invitations). Probe: part 0 (23 owners, 24 leads, 23 contributors, 4 viewers), part 1 11 of 11 true, part 2 "PROBE 0050: 7 of 7 as expected." (drill docs/testing/snowdon-lifecycle/R2a/R2a-RUN_2026-11-12.md).
+-- Restart the 4100 bridge on this branch (or master once merged) right after: the new Members screen reads the new columns.
 -- Rollback (never run casually): drop trigger trg_memberships_party_guard on public.memberships; drop function public.memberships_party_guard();
 --   drop function public.memberships_round_open(uuid); drop table public.invitations;
 --   alter table public.memberships drop column party, drop column task_team, drop column state;
