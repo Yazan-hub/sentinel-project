@@ -38,7 +38,7 @@ describe("standard forms — a body in force, read and written back, still insta
   });
 
   it("review, publish and roi round-trip exactly", () => {
-    const review = { steps: [{ name: "Lead check", role: "lead", approvals: 1 }, { name: "Client sign-off", role: "owner", approvals: 2 }] };
+    const review = { steps: [{ name: "Lead check", role: "lead", approvals: 1 }, { name: "Client sign-off", role: "viewer", approvals: 1, party: "appointing" }] }; // R2a: the Client decides
     const roi = { currency: "EUR", hourly_rate: 65, minutes: { delivery_gate: 30, naming: 2 }, basis: "office timesheets 2026" };
     for (const [kind, body] of [["review", review], ["publish", { auto: true }], ["publish", { auto: false }], ["roi", roi], ["review", { steps: [] }],
       ["ai_policy", { local_only: true, redact: false }], ["ai_policy", { local_only: false, redact: true }]] as const) {
@@ -103,6 +103,7 @@ describe("standard forms — the common mistakes, said in plain words before any
   it("says what is wrong", () => {
     fails("review", { steps: [r({ name: "", role: "lead", approvals: "1" })] }, /Step 1 needs a name/);
     fails("review", { steps: [r({ name: "A", role: "lead", approvals: "9" })] }, /approvals must be a whole number from 1 to 5/);
+    fails("review", { steps: [r({ name: "A", role: "viewer", approvals: "1", party: "" })] }, /lets a viewer decide, so it must name who decides/); // R2a
     fails("roi", { currency: "euro", hourly_rate: "50", delivery_gate: "10" }, /three letters/);
     fails("roi", { currency: "EUR", hourly_rate: "50" }, /at least one of the minutes/);
     fails("naming", { title: "N", separator: "--", fields: [] }, /exactly one character/);

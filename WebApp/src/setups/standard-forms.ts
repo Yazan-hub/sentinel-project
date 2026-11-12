@@ -103,20 +103,23 @@ const aiPolicy: StandardForm = {
   toBody: (m) => ({ local_only: m.local_only === true, redact: m.redact === true }),
 };
 
-// What the chain enforces (0032 review_decide: has_min_role) — a viewer is a member but never approves a step.
-const REVIEW_ROLES: [string, string][] = [["contributor", "A contributor, lead or owner (not viewers)"], ["lead", "A lead or the owner"], ["owner", "The owner"]];
+// What the chain enforces (0032 review_decide: has_min_role; R2a: the step's party) — a viewer approves only a step that names
+// the party that decides it (documents design 2026-10-24 §7, call 16): that is how the Client accepts.
+const REVIEW_ROLES: [string, string][] = [["viewer", "A viewer or above (only with a party named)"], ["contributor", "A contributor, lead or owner (not viewers)"], ["lead", "A lead or the owner"], ["owner", "The owner"]];
+const REVIEW_PARTIES: [string, string][] = [["", "Anyone with the role"], ["appointing", "The Client"], ["lead_appointed", "The Lead firm"], ["appointed", "A Firm (task team)"]];
 const review: StandardForm = {
   kind: "review", title: "Review chain",
-  intro: "The sign-offs a shared container needs before it is published, in order. No steps: no review chain.",
+  intro: "The sign-offs a shared container needs before it is published, in order. No steps: no review chain. \"Who decides\" names the party whose members decide the step; a viewer step must name one.",
   fields: [{
-    key: "steps", label: "Steps", type: "rows", add: "Add a step", item: "Step", max: 6, blank: { role: "lead", approvals: "1" },
+    key: "steps", label: "Steps", type: "rows", add: "Add a step", item: "Step", max: 6, blank: { role: "lead", approvals: "1", party: "" },
     columns: [
       { key: "name", label: "Step", type: "text", width: "12rem" },
       { key: "role", label: "Who may approve", type: "select", options: REVIEW_ROLES },
+      { key: "party", label: "Who decides", type: "select", options: REVIEW_PARTIES },
       { key: "approvals", label: "Approvals needed", type: "number", width: "5rem" },
     ],
   }],
-  fromBody: (b) => ({ steps: (Array.isArray(b?.steps) ? b.steps : []).map((s: Body) => row(s, { name: text(s.name), role: text(s.role || "lead"), approvals: text(s.approvals ?? 1) })) }),
+  fromBody: (b) => ({ steps: (Array.isArray(b?.steps) ? b.steps : []).map((s: Body) => row(s, { name: text(s.name), role: text(s.role || "lead"), party: text(s.party || ""), approvals: text(s.approvals ?? 1) })) }),
   toBody: (m) => {
     const steps = rows(m, "steps");
     if (steps.length > 6) throw new Error("A review chain has at most 6 steps");
@@ -125,7 +128,9 @@ const review: StandardForm = {
         const name = str(r.v, "name");
         if (!name) throw new Error(`Step ${i + 1} needs a name`);
         if (name.length > 80) throw new Error(`Step ${i + 1}'s name is longer than 80 characters`);
-        return { name, role: str(r.v, "role") || "lead", approvals: whole(str(r.v, "approvals") || "1", `Step ${i + 1}'s approvals`, 1, 5) };
+        const role = str(r.v, "role") || "lead", party = str(r.v, "party");
+        if (role === "viewer" && !party) throw new Error(`Step ${i + 1} lets a viewer decide, so it must name who decides (the Client, the Lead firm or a Firm)`);
+        return { name, role, approvals: whole(str(r.v, "approvals") || "1", `Step ${i + 1}'s approvals`, 1, 5), ...(party ? { party } : {}) };
       }),
     };
   },
