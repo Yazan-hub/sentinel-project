@@ -54,7 +54,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0;background:#16161a;color:#c9cfda;font:12px system-ui";
   const bar = document.createElement("div");
-  bar.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;flex:0 0 auto";
+  // F-R1c-1: wraps, so the R1c annex buttons never push "+ Add" and "Paste schedule" out of reach.
+  bar.style.cssText = "display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;flex:0 0 auto";
   const body = document.createElement("div");
   body.style.cssText = "flex:1;min-height:0;overflow:auto;padding:.6rem";
   root.append(bar, body);
