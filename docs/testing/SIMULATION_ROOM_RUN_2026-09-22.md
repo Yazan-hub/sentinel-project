@@ -4063,3 +4063,22 @@ Smaller observations (not numbered in the log): the same account raised, answere
 - During Publish Sheets the status bar shows only "Exporting … Sheet: G000 - Cover" and Cancel clicks do nothing; expect ~20 min for 55 sheets and wait.
 - Ribbon tab click worked at (941,32). Never open Revit twice; Revit 2024 was closed first.
 - Web panels (Project Files, Views) need ↻ after a publish.
+
+## Session R2a — the people side of the BIM documents workspace: parties, invitations, the Client decides (2026-11-12 local, ~21:15–23:10; branch claude/recursing-moser-a8fde0; migration 0050 applied on the founder's "Yes, apply 0050"; bridge 4100 and the :4000 bundle server run from the worktree after the founder closed his own; Chrome signed in by the founder as hotmail, gmail, user3, user4 and hotmail again; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R2a/R2a-RUN_2026-11-12.md. Plan: docs/superpowers/plans/2026-11-12-bim-documents-workspace-r2a.md.
+
+| Row | What | Result |
+|---|---|---|
+| 1 | 0050 applied; probe part 1 11 of 11, part 2 "PROBE 0050: 7 of 7 as expected."; full suite green | ✅ |
+| 3, 12 | Members groups people by party; the workspace People tab | ✅ |
+| 4 | Seat swap: gmail owner and Lead firm, hotmail viewer and Client (#3572, #3578–#3580) | ✅ |
+| 5 | A lead's party change refused by the database | ✅ by probe |
+| 6, 8 | Invite as Firm · Team ARC, resend, revoke; account cleaned up (#3581–#3584) | ✅ (mail not deliverable to example.com: the 202 path) |
+| 7 | Invitee signs in with the code | ⏸ owed: needs a real mailbox |
+| 9 | review@1 with a Client step installed by the new form; round: user3 step 1, user4 step 2, **hotmail as Client step 3 → published** (#3599–#3602) | ✅ |
+| 10 | Party change refused while the round was open | ✅ |
+| 11 | A new project's creator is owner and Lead firm | ✅ (rolled back) |
+| 13 | Same screens on the published app | after the web publish |
+
+Findings: F-R2a-1 the Review chain form had no "Who decides" (fixed 8a5027d7); F-R2a-2 the database's refusal shown wrapped in JSON (fixed 4aed8dcb).
