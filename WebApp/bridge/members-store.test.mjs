@@ -288,15 +288,22 @@ describe("R2a — changeParty, parties on addMember, myMembership", () => {
     await expect(addMember("demo", { email: "known@x.com", role: "viewer", party: "appointing" }, "w", owner)).resolves.toMatchObject({ user_id: "u-new", party: "appointing", task_team: null });
     expect(owner.sb.mock.calls.find(([, o]) => o?.method === "POST")[1].body).toMatchObject({ party: "appointing", task_team: null, role: "viewer" });
   });
-  it("myMembership answers the party fields; an invited row is flipped once (service PATCH of the row and the invitation) and answered active", async () => {
+  it("myMembership answers the party fields; an invited row is flipped once (the live invitation accepted first, then the row, both service) and answered active", async () => {
     const d = withTeams({ sub: "u-view" });
     d.rows[1] = { project_id: "p1", user_id: "u-view", role: "viewer", party: "appointing", task_team: null, state: "invited" };
+    const inner = d.sb; d.sb = vi.fn(async (p, o = {}) => (p.startsWith("invitations") && o.method === "PATCH" ? [{ id: "inv-1" }] : inner(p, o)));
     await expect(myMembership("demo", d)).resolves.toEqual({ role: "viewer", party: "appointing", task_team: null, state: "active" });
     const patches = d.sb.mock.calls.filter(([, o]) => o?.method === "PATCH");
-    expect(patches.map(([p]) => p)).toEqual(["memberships?project_id=eq.p1&user_id=eq.u-view&state=eq.invited", "invitations?project_id=eq.p1&user_id=eq.u-view&accepted_at=is.null&revoked_at=is.null"]);
+    expect(patches.map(([p]) => p.replace(/expires_at=gt\.[^&]+/, "expires_at=gt.NOW"))).toEqual(["invitations?project_id=eq.p1&user_id=eq.u-view&accepted_at=is.null&revoked_at=is.null&expires_at=gt.NOW", "memberships?project_id=eq.p1&user_id=eq.u-view&state=eq.invited"]);
     expect(patches.every(([, o]) => o.service === true)).toBe(true);
-    expect(patches[0][1].body).toEqual({ state: "active" });
+    expect(patches[1][1].body).toEqual({ state: "active" });
     expect(d.audit).not.toHaveBeenCalled(); // member_joined is the trigger's row
+    // An expired or revoked invitation (no row accepted): the person stays invited and counts as nobody (review finding 3).
+    const e = withTeams({ sub: "u-view" });
+    e.rows[1] = { project_id: "p1", user_id: "u-view", role: "viewer", party: null, task_team: null, state: "invited" };
+    const innerE = e.sb; e.sb = vi.fn(async (p, o = {}) => (p.startsWith("invitations") && o.method === "PATCH" ? [] : innerE(p, o)));
+    await expect(myMembership("demo", e)).resolves.toEqual({ role: null, party: null, task_team: null, state: "invited" });
+    expect(e.sb.mock.calls.filter(([p, o]) => p.startsWith("memberships") && o?.method === "PATCH")).toHaveLength(0);
     await expect(myMembership("demo", withTeams({ sub: "u-stranger" }))).resolves.toEqual({ role: null, party: null, task_team: null, state: null });
     await expect(myMembership("demo", withTeams())).resolves.toMatchObject({ role: "service" });
   });

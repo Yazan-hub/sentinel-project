@@ -33,8 +33,11 @@ function world({ sub = "u-owner", accounts = { "known@x.com": { id: "u-known", e
   });
   const authFetch = vi.fn(async (path, opts = {}) => {
     auth.push([opts.method || "GET", path]);
-    if (path.startsWith("/admin/users?email=")) { const e = decodeURIComponent(path.split("=")[1]); return { users: accounts[e] ? [accounts[e]] : [] }; }
-    if (path === "/admin/users" && opts.method === "POST") { const u = { id: `u-${opts.body.email.split("@")[0]}`, email: opts.body.email, last_sign_in_at: null }; accounts[u.email] = u; return u; }
+    if (path.startsWith("/admin/users?page=")) return { users: Object.values(accounts) };
+    if (path === "/admin/users" && opts.method === "POST") {
+      if (accounts[opts.body.email]) throw Object.assign(new Error("auth POST /admin/users 422: A user with this email address has already been registered"), { status: 502 });
+      const u = { id: `u-${opts.body.email.split("@")[0]}`, email: opts.body.email, last_sign_in_at: null, created_at: now.toISOString(), user_metadata: opts.body.user_metadata }; accounts[u.email] = u; return u;
+    }
     if (path.startsWith("/admin/users/") && (opts.method || "GET") === "GET") return Object.values(accounts).find((u) => u.id === decodeURIComponent(path.slice(13))) || null;
     if (path.startsWith("/admin/users/") && opts.method === "DELETE") return {};
     if (path === "/otp") { if (mailFails) throw Object.assign(new Error("auth POST /otp 429: over_email_send_rate_limit"), { status: 502 }); return {}; }
@@ -53,6 +56,7 @@ function world({ sub = "u-owner", accounts = { "known@x.com": { id: "u-known", e
   return { deps, memberships, invitations, auth, accounts };
 }
 const inviteBody = { email: "New.Person@x.com", role: "viewer", party: "appointed", task_team: "ARC" };
+const HOUR_MS = 3600_000;
 const noSecrets = (o) => { const bad = ["token", "link", "code", "otp", "action_link", "hashed_token"]; const walk = (v) => v && typeof v === "object" && Object.entries(v).forEach(([k, x]) => { expect(bad, k).not.toContain(k.toLowerCase()); walk(x); }); walk(o); };
 
 describe("invite", () => {
@@ -61,19 +65,37 @@ describe("invite", () => {
     const r = await invite("demo", inviteBody, w.deps);
     expect(r).toMatchObject({ status: 201, message: SENT, invitation: { email: "new.person@x.com", role: "viewer", party: "appointed", task_team: "ARC", expires_at: new Date(T0.getTime() + EXPIRY_DAYS * 86400_000).toISOString() } });
     noSecrets(r);
-    expect(w.auth).toEqual([["GET", "/admin/users?email=new.person%40x.com"], ["POST", "/admin/users"], ["POST", "/otp"]]);
+    expect(w.auth).toEqual([["POST", "/admin/users"], ["POST", "/otp"]]);
     const post = w.deps.sb.mock.calls.find(([p, o]) => p === "memberships" && o.method === "POST");
     expect(post[1].body).toEqual({ project_id: "p1", user_id: "u-new.person", role: "viewer", party: "appointed", task_team: "ARC", state: "invited" });
     expect(post[1].service).toBeUndefined();
     expect(w.invitations[0]).toMatchObject({ email: "new.person@x.com", user_id: "u-new.person", inviter_uid: "u-owner" });
     expect(w.deps.audit).toHaveBeenCalledWith("p1", "membership", "u-new.person", "member_invited", "web", null, expect.objectContaining({ email: "new.person@x.com", role: "viewer", party: "appointed", invitation_id: "inv-1" }));
-    expect(w.deps.budget).toHaveBeenCalledWith("invitations", { perUser: 2, all: 2 });
+    expect(w.deps.budget).toHaveBeenCalledWith("invitations", { perUser: 2, all: 2 }, "u-owner");
   });
-  it("a known address answers the same words and makes no account", async () => {
+  it("a known address answers the same words: GoTrue's 422 is swallowed, the account found by paging, no GoTrue words in the answer", async () => {
     const w = world();
     const r = await invite("demo", { email: "known@x.com", role: "contributor" }, w.deps);
     expect(r).toMatchObject({ status: 201, message: SENT, invitation: { user_id: "u-known", party: null, task_team: null } });
-    expect(w.auth.map(([m, p]) => m + " " + p.split("?")[0])).toEqual(["GET /admin/users", "POST /otp"]);
+    expect(w.auth.map(([m, p]) => m + " " + p.split("?")[0])).toEqual(["POST /admin/users", "GET /admin/users", "POST /otp"]);
+    expect(JSON.stringify(r)).not.toMatch(/registered|422/);
+  });
+  it("a failed membership insert leaves nothing behind: the account this call made is deleted, the error is the insert's (review finding 7)", async () => {
+    const w = world();
+    const inner = w.deps.sb;
+    w.deps.sb = vi.fn(async (p, o = {}) => { if (p === "memberships" && o.method === "POST") throw Object.assign(new Error("new row violates row-level security policy"), { status: 403 }); return inner(p, o); });
+    await expect(invite("demo", inviteBody, w.deps)).rejects.toThrow(/row-level security/);
+    expect(w.auth.at(-1)).toEqual(["DELETE", "/admin/users/u-new.person"]);
+    expect(w.invitations).toEqual([]);
+  });
+  it("the hourly budget: two an hour per person and for everyone, then a 429 in words", async () => {
+    const { hourlyBudget } = await import("./invitations-store.mjs");
+    const t = Date.parse("2026-11-12T12:00:00Z");
+    hourlyBudget("a", t); hourlyBudget("a", t + 1);
+    expect(() => hourlyBudget("a", t + 2)).toThrow(/two invitations an hour/);
+    expect(() => hourlyBudget("b", t + 3)).toThrow(/two invitations an hour/); // everyone's two are spent
+    hourlyBudget("b", t + HOUR_MS + 10); // an hour later
+    expect(() => hourlyBudget(null, t + 4)).not.toThrow(); // the machine credential is not budgeted
   });
   it("refusals come before any GoTrue call: a contributor, a lead inviting the Client, a lead inviting an owner, a bad e-mail, a Firm without a team, an unknown role", async () => {
     for (const [sub, body, re] of [
@@ -135,22 +157,36 @@ describe("list, resend, revoke, expiry", () => {
     const w = world();
     await invite("demo", inviteBody, w.deps);
     const r = await revoke("demo", "inv-1", { ...w.deps, sub: "u-lead" });
-    expect(r).toMatchObject({ revoked: true, reason: "revoked", account_deleted: true });
+    expect(r).toEqual({ revoked: true, reason: "revoked", invitation: expect.objectContaining({ id: "inv-1" }) }); // no account_deleted in the answer (an oracle)
     expect(w.invitations[0].revoked_at).toBe(T0.toISOString());
     expect(w.memberships.find((m) => m.user_id === "u-new.person")).toBeUndefined();
-    expect(w.deps.audit).toHaveBeenCalledWith("p1", "membership", "u-new.person", "invitation_revoked", "web", expect.objectContaining({ email: "new.person@x.com" }), { reason: "revoked", invitation_id: "inv-1" });
+    expect(w.deps.audit).toHaveBeenCalledWith("p1", "membership", "u-new.person", "invitation_revoked", "web", expect.objectContaining({ email: "new.person@x.com" }), { reason: "revoked", invitation_id: "inv-1", account_deleted: true });
     expect(w.auth.at(-1)).toEqual(["DELETE", "/admin/users/u-new.person"]);
   });
-  it("revoke keeps an account that has signed in, or that belongs to another project", async () => {
+  it("revoke keeps an account an invitation did not make, one that has signed in, or one on another project", async () => {
+    const deleted = (w) => w.deps.audit.mock.calls.find((c) => c[3] === "invitation_revoked")[6].account_deleted;
+    const w = world(); // known@x.com has no invited_to marker: the founder made it
+    await invite("demo", { email: "known@x.com", role: "viewer" }, w.deps);
+    await revoke("demo", "inv-1", w.deps);
+    expect(deleted(w)).toBe(false);
+    expect(w.auth.some(([m]) => m === "DELETE")).toBe(false);
+    const w2 = world();
+    await invite("demo", inviteBody, w2.deps);
+    w2.accounts["new.person@x.com"].last_sign_in_at = "2026-01-01T00:00:00Z";
+    await revoke("demo", "inv-1", w2.deps);
+    expect(deleted(w2)).toBe(false);
+    const w3 = world();
+    await invite("demo", inviteBody, w3.deps);
+    w3.memberships.push({ project_id: "p2", user_id: "u-new.person", role: "viewer", state: "active" });
+    await revoke("demo", "inv-1", w3.deps);
+    expect(deleted(w3)).toBe(false);
+  });
+  it("resend and revoke judge the owner rule on the live row: an invited viewer an owner later made the Client is a lead's no more", async () => {
     const w = world();
     await invite("demo", { email: "known@x.com", role: "viewer" }, w.deps);
-    w.accounts["known@x.com"].last_sign_in_at = "2026-01-01T00:00:00Z";
-    expect((await revoke("demo", "inv-1", w.deps)).account_deleted).toBe(false);
-    const w2 = world();
-    await invite("demo", { email: "known@x.com", role: "viewer" }, w2.deps);
-    w2.memberships.push({ project_id: "p2", user_id: "u-known", role: "viewer", state: "active" });
-    expect((await revoke("demo", "inv-1", w2.deps)).account_deleted).toBe(false);
-    expect(w2.auth.some(([m]) => m === "DELETE")).toBe(false);
+    w.memberships.find((m) => m.user_id === "u-known").party = "appointing";
+    await expect(resend("demo", "inv-1", { ...w.deps, sub: "u-lead" })).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/only an owner resends/) });
+    await expect(revoke("demo", "inv-1", { ...w.deps, sub: "u-lead" })).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/only an owner revokes/) });
   });
   it("only an owner revokes the Client's or an owner's invitation", async () => {
     const w = world();
@@ -165,7 +201,7 @@ describe("list, resend, revoke, expiry", () => {
     expect((await listInvitations("demo", day15)).items).toEqual([]);
     expect((await listInvitations("demo", day15)).items).toEqual([]);
     expect(w.deps.audit.mock.calls.filter((c) => c[3] === "invitation_revoked")).toHaveLength(1);
-    expect(w.deps.audit.mock.calls.find((c) => c[3] === "invitation_revoked")[6]).toEqual({ reason: "expired", invitation_id: "inv-1" });
+    expect(w.deps.audit.mock.calls.find((c) => c[3] === "invitation_revoked")[6]).toEqual({ reason: "expired", invitation_id: "inv-1", account_deleted: true });
     expect(w.memberships.find((m) => m.user_id === "u-new.person")).toBeUndefined();
   });
 });

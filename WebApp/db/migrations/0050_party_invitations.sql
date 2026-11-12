@@ -9,14 +9,18 @@
 --
 --   part 1: memberships.party, task_team, state; the creator's party (cde_bootstrap_owner); backfill owners and leads as Lead firm.
 --   part 2: is_member / member_role count active rows only (has_min_role follows member_role).
---   part 3: memberships_party_guard — the owner-only, ledgering trigger; the service credential may only flip invited -> active.
+--   part 3: memberships_party_guard — the owner-only, ledgering trigger on every insert, update and delete: a row stays on its
+--           person and project; the service credential may only flip invited -> active; while a review round is open on the
+--           project no signed-in caller inserts, deletes or changes a membership (the roster is frozen, call 1 of the plan);
+--           the Client's row is an owner's to add, change and remove.
 --   part 4: invitations — bridge-only (RLS on, no policy).
 --   part 5: review_decide — a step's party; role viewer only on a step that names a party.
 --
 -- Dry-run: on PGlite with every migration (bridge/migration-0050.test.mjs). Probe: probes/0050_probe.sql (part 0 before, parts 1-2 after).
 -- Apply: the founder's. Restart the 4100 bridge on the R2a branch right after (the new Members screen reads the new columns).
 -- Rollback (never run casually): drop trigger trg_memberships_party_guard on public.memberships; drop function public.memberships_party_guard();
---   drop table public.invitations; alter table public.memberships drop column party, drop column task_team, drop column state;
+--   drop function public.memberships_round_open(uuid); drop table public.invitations;
+--   alter table public.memberships drop column party, drop column task_team, drop column state;
 --   re-run 0004's is_member / member_role / cde_bootstrap_owner and 0043's review_decide.
 
 -- ───────────────────────────── part 1 · columns, the creator's party, backfill ─────────────────────────────
@@ -56,6 +60,15 @@ create or replace function public.member_role(p uuid) returns text
 $$;
 
 -- ───────────────────────────── part 3 · the guard ─────────────────────────────
+-- A review round is open on the project: a shared container version while a review@n with steps is in force (0032's review_template).
+create or replace function public.memberships_round_open(p uuid) returns boolean
+  language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.container_versions v join public.information_containers ic on ic.id = v.container_id
+                  where ic.project_id = p and v.state = 'shared')
+     and jsonb_array_length(coalesce(public.review_template(p)->'steps', '[]'::jsonb)) > 0;
+$$;
+revoke execute on function public.memberships_round_open(uuid) from public, anon, authenticated;
+
 create or replace function public.memberships_party_guard() returns trigger
   language plpgsql security definer set search_path = public, auth as $$
 declare
@@ -64,6 +77,17 @@ declare
   v_action text;
   v_old jsonb;
 begin
+  if tg_op = 'DELETE' then
+    if v_uid is not null then
+      if public.memberships_round_open(old.project_id) then
+        raise exception 'nobody leaves or joins while a review round is open on this project' using errcode = 'insufficient_privilege';
+      end if;
+      if old.party = 'appointing' and not public.has_min_role(old.project_id, 'owner') then
+        raise exception 'only an owner removes the Client (appointing party)' using errcode = 'insufficient_privilege';
+      end if;
+    end if;
+    return old;
+  end if;
   if new.party = 'appointed' and new.task_team is null then
     raise exception 'a Firm member belongs to a task team — pick one' using errcode = 'check_violation';
   end if;
@@ -73,9 +97,16 @@ begin
     if v_uid is not null and new.party = 'appointing' and not public.has_min_role(new.project_id, 'owner') then
       raise exception 'only an owner adds the Client (appointing party)' using errcode = 'insufficient_privilege';
     end if;
+    if v_uid is not null and public.memberships_round_open(new.project_id) then
+      raise exception 'nobody leaves or joins while a review round is open on this project' using errcode = 'insufficient_privilege';
+    end if;
     if new.party is null and new.state = 'active' then return new; end if; -- a plain 0004 insert: nothing to record here
     v_action := 'membership_party_changed';
   else
+    -- A row stays on its person and its project: moving it would hand its party to another account (review finding 1).
+    if new.user_id is distinct from old.user_id or new.project_id is distinct from old.project_id then
+      raise exception 'a membership stays on its person and project — remove it and add the other person instead' using errcode = 'insufficient_privilege';
+    end if;
     if new.party is not distinct from old.party and new.task_team is not distinct from old.task_team and new.state is not distinct from old.state then
       return new;
     end if;
@@ -87,10 +118,7 @@ begin
         raise exception 'the service credential changes only invited -> active; party and team are an owner''s, through the Members screen' using errcode = 'insufficient_privilege';
       end if;
     else
-      if not public.has_min_role(new.project_id, 'owner') or new.user_id = v_uid
-         or exists (select 1 from public.container_versions v join public.information_containers ic on ic.id = v.container_id
-                     where ic.project_id = new.project_id and v.state = 'shared'
-                       and jsonb_array_length(coalesce(public.review_template(new.project_id)->'steps', '[]'::jsonb)) > 0) then
+      if not public.has_min_role(new.project_id, 'owner') or new.user_id = v_uid or public.memberships_round_open(new.project_id) then
         raise exception 'party, team and state change only by an owner, never on your own row, and never while a review round is open'
           using errcode = 'insufficient_privilege';
       end if;
@@ -108,7 +136,7 @@ end $$;
 revoke execute on function public.memberships_party_guard() from public, anon, authenticated;
 
 drop trigger if exists trg_memberships_party_guard on public.memberships;
-create trigger trg_memberships_party_guard before insert or update of party, task_team, state on public.memberships
+create trigger trg_memberships_party_guard before insert or update or delete on public.memberships
   for each row execute function public.memberships_party_guard();
 
 -- ───────────────────────────── part 4 · invitations (bridge-only) ─────────────────────────────

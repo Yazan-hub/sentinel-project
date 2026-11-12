@@ -32,12 +32,25 @@ async function realAuthFetch(path, { method = "GET", body } = {}) {
   try { return text ? JSON.parse(text) : {}; } catch { return {}; }
 }
 
+/** Two invitations an hour per person and for everyone (Supabase's built-in mail sends 2 an hour for the whole project): a one-hour
+ *  window kept here, not takeWriteBudget's one-minute one (review finding 4). The machine credential is not budgeted. */
+const HOUR = 3600_000;
+const sent = { all: [], bySub: new Map() };
+export function hourlyBudget(sub, now = Date.now()) {
+  if (!sub) return;
+  const keep = (list) => list.filter((t) => now - t < HOUR);
+  sent.all = keep(sent.all);
+  const mine = keep(sent.bySub.get(sub) || []);
+  if (mine.length >= 2 || sent.all.length >= 2) throw err(429, "Sentinel's mail service sends two invitations an hour — try again later; nothing was saved");
+  mine.push(now); sent.all.push(now); sent.bySub.set(sub, mine);
+}
+
 const wire = (deps = {}) => ({
   sb: deps.sb || cde.sb,
   ensureProject: deps.ensureProject || cde.ensureProject,
   audit: deps.audit || cde.audit,
   authFetch: deps.authFetch || realAuthFetch,
-  budget: deps.budget || cde.takeWriteBudget,
+  budget: deps.budget || ((what, _limits, sub) => hourlyBudget(sub)),
   members: deps.members || members,
   sub: deps.sub !== undefined ? deps.sub : undefined,
   now: deps.now || (() => new Date()),
@@ -61,6 +74,22 @@ async function requireInviter(key, proj, { role, party }, d) {
   return mine;
 }
 
+/** The account for an e-mail: created (email confirmed, marked invited_to so a revoke may delete it) or, when GoTrue says it exists
+ *  (422), found by paging the admin list — GoTrue's list takes page/per_page only, so a first-page lookup would miss a known address
+ *  (review finding 5). No GoTrue words reach the caller: the same answer for a new and a known address. */
+async function accountFor(d, email, key) {
+  try { return { user: await d.authFetch("/admin/users", { method: "POST", body: { email, email_confirm: true, user_metadata: { invited_to: key } } }), created: true }; }
+  catch (e) { if (!/ 422:/.test(String(e?.message))) throw err(502, "the account could not be created or found — nothing was sent"); }
+  for (let page = 1; page <= 20; page++) {
+    const r = await d.authFetch(`/admin/users?page=${page}&per_page=1000`);
+    const list = Array.isArray(r?.users) ? r.users : [];
+    const hit = list.find((u) => (u.email || "").toLowerCase() === email);
+    if (hit) return { user: hit, created: false };
+    if (list.length < 1000) break;
+  }
+  throw err(502, "the account could not be created or found — nothing was sent");
+}
+
 /** GoTrue sends the sign-in code to an existing account. The founder's "Magic Link" template is the invitation's words. */
 async function trySend(d, email) {
   try { await d.authFetch("/otp", { method: "POST", body: { email, create_user: false } }); return { ok: true }; }
@@ -78,24 +107,30 @@ export async function invite(key, body = {}, deps) {
   const proj = await d.ensureProject(key);
   const mine = await requireInviter(key, proj, body, d);
   const fields = await d.members.partyFields({ sb: d.sb }, proj, body);
-  d.budget("invitations", { perUser: 2, all: 2 }); // Supabase's built-in mail: 2 an hour for the whole project
-  let user = await d.members.findUserByEmail(email, { adminFetch: (p) => d.authFetch(p) });
-  if (!user) user = await d.authFetch("/admin/users", { method: "POST", body: { email, email_confirm: true, user_metadata: { invited_to: key } } });
-  if (!user?.id) throw err(502, "the account could not be created — nothing was sent");
+  d.budget("invitations", { perUser: 2, all: 2 }, subOf(d)); // Supabase's built-in mail: 2 an hour for the whole project
+  const { user, created } = await accountFor(d, email, key);
+  if (!user?.id) throw err(502, "the account could not be created or found — nothing was sent");
   const rows = await d.members.listMemberRows(key, { ...d.deps, ensureProject: async () => proj });
   const existing = rows.find((m) => m.user_id === user.id);
   if (existing && existing.state !== "invited") throw err(409, "already a member — change their role or party instead");
   if (existing) {
     const open = await pending(d, proj.id, `&user_id=eq.${enc(user.id)}`);
     if (open?.length) return resend(key, open[0].id, deps);
-  } else {
-    // FORWARDED write: 0016's role cap and 0050's party rules decide whether the CALLER may insert this row.
-    await d.sb(`memberships`, { method: "POST", body: { project_id: proj.id, user_id: user.id, role: body.role, ...fields, state: "invited" }, prefer: "return=minimal" });
   }
   const expires_at = plus14(d);
-  const inv = (await d.sb(`invitations`, { method: "POST", prefer: "return=representation", service: true, body: {
-    project_id: proj.id, email, user_id: user.id, role: body.role, ...fields, inviter_uid: subOf(d) || NO_UID, inviter_email: currentActor() || (mine === "service" ? "service" : null), expires_at,
-  } }))?.[0] ?? {};
+  let inv;
+  try {
+    // FORWARDED write: 0016's role cap and 0050's party rules decide whether the CALLER may insert this row.
+    if (!existing) await d.sb(`memberships`, { method: "POST", body: { project_id: proj.id, user_id: user.id, role: body.role, ...fields, state: "invited" }, prefer: "return=minimal" });
+    inv = (await d.sb(`invitations`, { method: "POST", prefer: "return=representation", service: true, body: {
+      project_id: proj.id, email, user_id: user.id, role: body.role, ...fields, inviter_uid: subOf(d) || NO_UID, inviter_email: currentActor() || (mine === "service" ? "service" : null), expires_at,
+    } }))?.[0] ?? {};
+  } catch (e) {
+    // Nothing half-done is left behind (review finding 7): the invited row this call made, and an account only this call made.
+    await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(user.id)}&state=eq.invited`, { method: "DELETE", prefer: "return=minimal", service: true }).catch(() => {});
+    if (created) await d.authFetch(`/admin/users/${enc(user.id)}`, { method: "DELETE" }).catch(() => {});
+    throw e;
+  }
   await d.audit(proj.id, "membership", user.id, "member_invited", "web", null, { email, role: body.role, ...fields, expires_at, invitation_id: inv.id ?? null });
   const sent = await trySend(d, email);
   return { status: sent.ok ? 201 : 202, message: sent.ok ? SENT : sent.message, invitation: row({ ...inv, email, user_id: user.id, role: body.role, ...fields, expires_at }) };
@@ -123,7 +158,8 @@ export async function resend(key, id, deps) {
   await requireInviter(key, proj, {}, d);
   const inv = (await pending(d, proj.id, `&id=eq.${enc(id)}`))?.[0];
   if (!inv) throw err(404, "no pending invitation with this id — it was accepted, revoked or has expired");
-  d.budget("invitations", { perUser: 2, all: 2 });
+  await ownersOnly(d, key, proj, inv, "resends");
+  d.budget("invitations", { perUser: 2, all: 2 }, subOf(d));
   const expires_at = plus14(d), resent_at = d.now().toISOString();
   await d.sb(`invitations?id=eq.${enc(inv.id)}`, { method: "PATCH", body: { expires_at, resent_at }, prefer: "return=minimal", service: true });
   await d.audit(proj.id, "membership", inv.user_id, "member_invited", "web", null, { email: inv.email, role: inv.role, party: inv.party, task_team: inv.task_team, expires_at, invitation_id: inv.id, resent: true });
@@ -138,21 +174,32 @@ export async function revoke(key, id, deps) {
   const mine = await requireInviter(key, proj, {}, d);
   const inv = (await pending(d, proj.id, `&id=eq.${enc(id)}`))?.[0];
   if (!inv) throw err(404, "no pending invitation with this id — it was accepted, revoked or has expired");
-  if ((inv.role === "owner" || inv.party === "appointing") && mine !== "owner" && mine !== "service") throw err(403, `only an owner revokes an owner's or the Client's invitation (you are ${mine}) — nothing was changed`);
+  await ownersOnly(d, key, proj, inv, "revokes", mine);
   return revokeRow(d, key, proj, inv, "revoked");
 }
 
-/** The one revoke path: mark the row, remove the invited membership, ledger it, and delete an account that never signed in
- *  and belongs to no other project (the invitation made it; nothing else did). */
+/** An owner's or the Client's invitation is an owner's to resend or revoke — judged on the LIVE membership row (an owner may have
+ *  changed it since the invite), not the invitation's copy (review finding 6). */
+async function ownersOnly(d, key, proj, inv, verb, mine) {
+  mine ??= await d.members.requireMinRole(key, "lead", { ...d.deps, ensureProject: async () => proj });
+  if (mine === "owner" || mine === "service") return;
+  const live = (await d.members.listMemberRows(key, { ...d.deps, ensureProject: async () => proj })).find((m) => m.user_id === inv.user_id);
+  if (live?.role === "owner" || live?.party === "appointing" || inv.role === "owner" || inv.party === "appointing")
+    throw err(403, `only an owner ${verb} an owner's or the Client's invitation (you are ${mine}) — nothing was changed`);
+}
+
+/** The one revoke path: mark the row, remove the invited membership, delete the account when an invitation made it (its
+ *  user_metadata.invited_to), it never signed in and it sits on no other project (review finding 8), then ledger it all. The answer
+ *  never says whether the account was deleted (an existence oracle, review finding 4); the ledger row does. */
 async function revokeRow(d, key, proj, inv, reason) {
   await d.sb(`invitations?id=eq.${enc(inv.id)}`, { method: "PATCH", body: { revoked_at: d.now().toISOString() }, prefer: "return=minimal", service: true });
   await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(inv.user_id)}&state=eq.invited`, { method: "DELETE", prefer: "return=minimal", service: true });
-  await d.audit(proj.id, "membership", inv.user_id, "invitation_revoked", "web", { email: inv.email, role: inv.role, party: inv.party, task_team: inv.task_team }, { reason, invitation_id: inv.id });
   let account_deleted = false;
   try {
     const u = await d.authFetch(`/admin/users/${enc(inv.user_id)}`);
     const elsewhere = (await d.sb(`memberships?user_id=eq.${enc(inv.user_id)}&select=project_id`, { service: true })) || [];
-    if (u && !u.last_sign_in_at && !elsewhere.length) { await d.authFetch(`/admin/users/${enc(inv.user_id)}`, { method: "DELETE" }); account_deleted = true; }
+    if (u && u.user_metadata?.invited_to && !u.last_sign_in_at && !elsewhere.length) { await d.authFetch(`/admin/users/${enc(inv.user_id)}`, { method: "DELETE" }); account_deleted = true; }
   } catch (e) { console.warn(`[invitations] ${key}: the account of a revoked invitation was not checked or deleted: ${e?.message || e}`); }
-  return { revoked: true, reason, account_deleted, invitation: row(inv) };
+  await d.audit(proj.id, "membership", inv.user_id, "invitation_revoked", "web", { email: inv.email, role: inv.role, party: inv.party, task_team: inv.task_team }, { reason, invitation_id: inv.id, account_deleted });
+  return { revoked: true, reason, invitation: row(inv) };
 }

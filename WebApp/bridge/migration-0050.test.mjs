@@ -116,13 +116,27 @@ const decideAs = async (tx, who, v, decision = "approve", note = null) => {
 };
 const CHAIN = [{ name: "Task team", role: "contributor", approvals: 1, party: "lead_appointed" }, { name: "Lead", role: "lead", approvals: 1, party: "lead_appointed" }, { name: "Client", role: "viewer", approvals: 1, party: "appointing" }];
 
-describe("0050 part 3 — a party change while a round is open", () => {
-  it("is refused for an owner too", () => as(db, "service", async (tx) => {
+describe("0050 part 3 — while a round is open (review findings 1, 2)", () => {
+  it("a party change is refused for an owner too; nobody joins or leaves; the service flip still works", () => as(db, "service", async (tx) => {
     await installChain(tx, CHAIN);
     await sharedVersion(tx, lead);
     await claims(tx, owner);
-    await expect(tx.query("update public.memberships set party = 'appointed', task_team = 'ARC' where project_id = $1 and user_id = $2", [P, viewer.sub])).rejects.toThrow(/review round is open/);
+    await expect(refusal(tx, () => tx.query("update public.memberships set party = 'appointed', task_team = 'ARC' where project_id = $1 and user_id = $2", [P, viewer.sub]))).rejects.toThrow(/review round is open/);
+    await expect(refusal(tx, () => tx.query("delete from public.memberships where project_id = $1 and user_id = $2", [P, viewer.sub]))).rejects.toThrow(/nobody leaves or joins/);
+    await expect(refusal(tx, () => tx.query("insert into public.memberships(project_id, user_id, role) values ($1, $2, 'viewer')", [P, uuid()]))).rejects.toThrow(/nobody leaves or joins/);
+    await tx.query(`select set_config('request.jwt.claims', '', true)`);
+    await tx.query("update public.memberships set state = 'active' where project_id = $1 and user_id = $2", [P, invited.sub]);
   }));
+  it("a membership cannot be moved to another person or project (the Client's row stays the Client's)", async () => {
+    await expect(as(db, lead, (tx) => tx.query("update public.memberships set user_id = $3 where project_id = $1 and user_id = $2", [P, client.sub, uuid()]))).rejects.toThrow(/stays on its person and project/);
+    await expect(as(db, owner, (tx) => tx.query("update public.memberships set user_id = $3 where project_id = $1 and user_id = $2", [P, client.sub, uuid()]))).rejects.toThrow(/stays on its person and project/);
+    await expect(as(db, "service", (tx) => tx.query("update public.memberships set project_id = (select id from public.projects where key = 'office-50') where project_id = $1 and user_id = $2", [P, client.sub]))).rejects.toThrow(/stays on its person and project/);
+  });
+  it("only an owner removes the Client; a lead removes a viewer in no party", async () => {
+    await expect(as(db, lead, (tx) => tx.query("delete from public.memberships where project_id = $1 and user_id = $2", [P, client.sub]))).rejects.toThrow(/only an owner removes the Client/);
+    await as(db, owner, (tx) => tx.query("delete from public.memberships where project_id = $1 and user_id = $2", [P, client.sub]));
+    await as(db, lead, (tx) => tx.query("delete from public.memberships where project_id = $1 and user_id = $2", [P, viewer.sub]));
+  });
 });
 
 describe("0050 part 4 — invitations are the bridge's", () => {

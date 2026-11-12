@@ -213,14 +213,19 @@ export async function myMembership(key, deps) {
   const rows = await memberRows(d, proj.id);
   const mine = rows.find((m) => m.user_id === sub);
   if (!mine) return { role: null, party: null, task_team: null, state: null };
-  if (mine.state === "invited") await flipInvited(d, proj.id, sub);
+  // An invited row counts as nobody until a live invitation accepts it; an expired or revoked one leaves it invited (role null).
+  if (mine.state === "invited" && !(await flipInvited(d, proj.id, sub))) return { role: null, party: mine.party ?? null, task_team: mine.task_team ?? null, state: "invited" };
   return { role: mine.role, party: mine.party ?? null, task_team: mine.task_team ?? null, state: "active" };
 }
 
-/** The invited -> active flip (service write; the trigger writes member_joined) and the invitation's acceptance time. */
+/** The invited -> active flip: first the invitation is accepted — only one that is pending and not past its expiry (the WHERE,
+ *  return=representation: no row, no flip) — then the row (service write; the trigger writes member_joined). Answers whether it flipped. */
 export async function flipInvited(d, projId, userId) {
+  const now = new Date().toISOString();
+  const accepted = await d.sb(`invitations?project_id=eq.${enc(projId)}&user_id=eq.${enc(userId)}&accepted_at=is.null&revoked_at=is.null&expires_at=gt.${enc(now)}`, { method: "PATCH", body: { accepted_at: now }, prefer: "return=representation", service: true });
+  if (!Array.isArray(accepted) || !accepted.length) return false;
   await d.sb(`memberships?project_id=eq.${enc(projId)}&user_id=eq.${enc(userId)}&state=eq.invited`, { method: "PATCH", body: { state: "active" }, prefer: "return=minimal", service: true });
-  await d.sb(`invitations?project_id=eq.${enc(projId)}&user_id=eq.${enc(userId)}&accepted_at=is.null&revoked_at=is.null`, { method: "PATCH", body: { accepted_at: new Date().toISOString() }, prefer: "return=minimal", service: true });
+  return true;
 }
 
 /** 403 unless the caller's role rank meets `min`; answers the role. Machine callers pass (service trust). */

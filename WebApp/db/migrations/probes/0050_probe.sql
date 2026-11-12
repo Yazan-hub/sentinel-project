@@ -2,9 +2,9 @@
 -- Part 0: counts: memberships by role, and how many owners/leads have no party yet (all of them, before the apply).
 -- Part 1: every row must read true: the three columns exist, every owner and lead is the Lead firm, the guard is on, invitations is
 --   bridge-only, no API role may execute the guard, review_decide still belongs to authenticated only.
--- Part 2: one DO block with five refusals (claims set with set_config, no role switch, so the trigger's rules are probed, not RLS).
+-- Part 2: one DO block with seven refusals (claims set with set_config, no role switch, so the trigger's rules are probed, not RLS).
 --   It picks a project that has an owner, a lead and a third member, ALWAYS raises its summary, so everything it wrote rolls back.
---   "PROBE 0050: 5 of 5 as expected." is the pass.
+--   "PROBE 0050: 7 of 7 as expected." is the pass.
 
 -- Part 0 (before the apply)
 select 'memberships: ' || role as what, count(*)::text as n from public.memberships group by role
@@ -16,7 +16,7 @@ select 'memberships has party, task_team, state' as what,
   (select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'memberships' and column_name in ('party', 'task_team', 'state')) = 3 as ok
 union all select 'every owner and lead is the Lead firm', not exists (select 1 from public.memberships where role in ('owner', 'lead') and party is distinct from 'lead_appointed')
 union all select 'every membership is active (nobody invited yet)', not exists (select 1 from public.memberships where state <> 'active')
-union all select 'trg_memberships_party_guard is on memberships', exists (select 1 from pg_trigger t where t.tgrelid = 'public.memberships'::regclass and t.tgname = 'trg_memberships_party_guard' and not t.tgisinternal)
+union all select 'trg_memberships_party_guard is on memberships for insert, update and delete', exists (select 1 from pg_trigger t where t.tgrelid = 'public.memberships'::regclass and t.tgname = 'trg_memberships_party_guard' and not t.tgisinternal and t.tgtype & 28 = 28)
 union all select 'invitations exists with row level security on and no policy', exists (select 1 from pg_class c where c.relname = 'invitations' and c.relrowsecurity) and not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'invitations')
 union all select 'no API role may read invitations', not exists (select 1 from unnest(array['anon', 'authenticated']) r(rolname) where has_table_privilege(r.rolname, 'public.invitations', 'select'))
 union all select 'no API role may execute the guard', not exists (select 1 from unnest(array['anon', 'authenticated']) r(rolname) where has_function_privilege(r.rolname, 'public.memberships_party_guard()', 'execute'))
@@ -27,7 +27,7 @@ union all select 'is_member counts active rows only', position('state = ''active
 
 -- Part 2 (after the apply): five refusals, rolled back.
 do $$
-declare pid uuid; owner_uid uuid; lead_uid uuid; third_uid uuid; ok int := 0; total int := 5;
+declare pid uuid; owner_uid uuid; lead_uid uuid; third_uid uuid; ok int := 0; total int := 7;
   claim constant text := '{"sub":"%s","role":"authenticated","email":"probe@0050.test"}';
 begin
   select m.project_id into pid from public.memberships m
@@ -82,6 +82,32 @@ begin
     raise exception 'PROBE_ACCEPTED';
   exception when others then
     if position('belongs to a task team' in sqlerrm) > 0 then ok := ok + 1; else raise notice 'FAIL 5: %', sqlerrm; end if;
+  end;
+
+  -- 6 · a membership cannot be moved to another account (a lead handing a party to a burner)
+  begin
+    perform set_config('request.jwt.claims', format(claim, lead_uid), true);
+    update public.memberships set user_id = gen_random_uuid() where project_id = pid and user_id = third_uid;
+    raise exception 'PROBE_ACCEPTED';
+  exception when others then
+    if position('stays on its person and project' in sqlerrm) > 0 then ok := ok + 1; else raise notice 'FAIL 6: %', sqlerrm; end if;
+  end;
+
+  -- 7 · a lead cannot remove the Client (the owner's row is made the Client by the service first, inside the probe's transaction)
+  begin
+    perform set_config('request.jwt.claims', '', true);
+    update public.memberships set party = 'appointing' where project_id = pid and user_id = third_uid; -- refused by rule 4 above; so insert one instead
+    raise exception 'PROBE_ACCEPTED';
+  exception when others then
+    begin
+      perform set_config('request.jwt.claims', format(claim, owner_uid), true);
+      insert into public.memberships(project_id, user_id, role, party, state) values (pid, gen_random_uuid(), 'viewer', 'appointing', 'invited');
+      perform set_config('request.jwt.claims', format(claim, lead_uid), true);
+      delete from public.memberships where project_id = pid and party = 'appointing' and state = 'invited';
+      raise exception 'PROBE_ACCEPTED';
+    exception when others then
+      if position('only an owner removes the Client' in sqlerrm) > 0 then ok := ok + 1; else raise notice 'FAIL 7: %', sqlerrm; end if;
+    end;
   end;
 
   raise exception 'PROBE 0050: % of % as expected.', ok, total;
