@@ -1430,6 +1430,14 @@ async function handleRequest(req, res) {
         closeStreamsFor(p1, p3); // SEC-6 (S20): the removed member's live streams on this bridge end now
         return send(res, 200, removed);
       }
+      // ── Invitations (R2a): a lead or owner invites by e-mail; the person arrives by the sign-in code. No code or link in any answer.
+      if (p2 === "invitations") {
+        const inv = await import("./invitations-store.mjs");
+        if (!p3 && req.method === "GET") return send(res, 200, await inv.listInvitations(p1));
+        if (!p3 && req.method === "POST") { const { status, ...out } = await inv.invite(p1, await readBody(req)); return send(res, status, out); }
+        if (p3 && p4 === "resend" && req.method === "POST") { const { status, ...out } = await inv.resend(p1, p3); return send(res, status, out); }
+        if (p3 && !p4 && req.method === "DELETE") return send(res, 200, await inv.revoke(p1, p3));
+      }
       if (p2 === "containers" && !p3) {
         if (req.method === "GET") return send(res, 200, await cde.listContainers(p1));
         if (req.method === "POST") {
