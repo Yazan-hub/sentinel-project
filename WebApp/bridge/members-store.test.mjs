@@ -279,6 +279,12 @@ describe("R2a — changeParty, parties on addMember, myMembership", () => {
     expect(d.audit).not.toHaveBeenCalled();
     await expect(changeParty("demo", "u-view", { party: "lead_appointed", task_team: "ARC" }, d)).resolves.toEqual({ user_id: "u-view", party: "lead_appointed", task_team: null });
   });
+  it("the database's refusal reaches the caller as its sentence alone (F-R2a-2), not the PostgREST envelope", async () => {
+    const d = withTeams({ sub: "u-owner" });
+    const inner = d.sb;
+    d.sb = vi.fn(async (p, o = {}) => { if (p.startsWith("memberships") && o.method === "PATCH") throw Object.assign(new Error('Supabase 403: {"code":"42501","details":null,"hint":null,"message":"party, team and state change only by an owner, never on your own row, and never while a review round is open"}'), { status: 403 }); return inner(p, o); });
+    await expect(changeParty("demo", "u-view", { party: "lead_appointed" }, d)).rejects.toMatchObject({ status: 403, message: "party, team and state change only by an owner, never on your own row, and never while a review round is open" });
+  });
   it("addMember: a lead cannot add the Client, before any e-mail lookup; an owner's add carries the party", async () => {
     const lead = withTeams({ sub: "u-lead", ensureProject: vi.fn(async () => ({ id: "p1", key: "demo", office_key: "hq" })) });
     lead.rows.push({ project_id: "p1", user_id: "u-lead", role: "lead" });

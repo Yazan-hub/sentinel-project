@@ -84,7 +84,14 @@ export async function changeParty(key, userId, body = {}, deps) {
   const rows = await memberRows(d, proj.id);
   if (!rows.find((m) => m.user_id === userId)) throw err(404, "not a member of this project");
   const fields = await partyFields(d, proj, body);
-  const patched = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}`, { method: "PATCH", body: fields, prefer: "return=representation" });
+  let patched;
+  try { patched = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}`, { method: "PATCH", body: fields, prefer: "return=representation" }); }
+  catch (e) {
+    // 0050's trigger refuses in words (an owner's own row, an open round): those words alone, not the PostgREST envelope (F-R2a-2).
+    const m = /"message":"((?:[^"\\]|\\.)*)"/.exec(String(e?.message || ""));
+    if (m) throw err(e?.status === 403 || /42501/.test(e.message) ? 403 : 400, m[1].replace(/\\"/g, '"'));
+    throw e;
+  }
   if (!Array.isArray(patched) || !patched.length) throw err(409, "membership changed concurrently — reload and retry");
   return { user_id: userId, ...fields };
 }
