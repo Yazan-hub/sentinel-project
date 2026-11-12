@@ -2192,6 +2192,7 @@ async function handleRequest(req, res) {
   //   POST /bimdocs/:key/:docId/section/:sectionId/draft { provider?, model? } · POST /bimdocs/:key/:docId/integrity { provider?, model? }
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
   //   GET  /bimdocs/:key/:docId/executability  (the strip test — how much of the doc controls anything)
+  //   GET  /bimdocs/:key/facts · GET /bimdocs/:key/:docId/live  (R1c: facts list; freeze preview)
   //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
   //   POST /bimdocs/:key/:docId/section { heading, guidance?, after? } · PUT .../section/:sid/heading { heading } · POST .../section/:sid/remove { confirm_bound? }
   //   PUT  /bimdocs/:key/:docId/outline { order: [sectionId] }
@@ -2304,6 +2305,9 @@ async function handleRequest(req, res) {
       }
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
+      // R1c: the facts the editor offers, and the live values of a document (the freeze preview: exactly what a publish would freeze).
+      if (p1 && p2 === "facts" && !p3 && req.method === "GET") return send(res, 200, await (await import("./live-resolve.mjs")).listFacts(p1));
+      if (p1 && p2 && p3 === "live" && !p4 && req.method === "GET") return send(res, 200, await (await import("./live-resolve.mjs")).resolveLive(p1, await bimdocs.getDoc(p1, p2)));
       if (p1 && p2 && !p3 && req.method === "GET") return send(res, 200, await bimdocs.getDoc(p1, p2));
       // AI proposals — read-only: nothing here writes; an accepted draft is saved via the normal
       // section PATCH. POST because they trigger slow/paid AI work (mirrors /ingest).

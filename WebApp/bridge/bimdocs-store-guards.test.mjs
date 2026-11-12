@@ -391,6 +391,25 @@ describe("a document's recorded names come from the sign-in (bimdocs-3, H0 D6)",
     expect(posted("bim_documents").created_by).toBe("lead@example.test");
   });
 
+  it("publishDoc (R1c): the version's snapshot carries frozen, computed before the status write", async () => {
+    doc.status = "shared";
+    doc.sections = [{ id: "sec1", heading: "H1", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "f1", kind: "facts", data: { labels: ["project.name"], layout: "text" } }] }];
+    ensureProject.mockResolvedValue({ id: "proj1", name: "Snowdon", office_key: null, metadata: {} });
+    await publishDoc("k", doc.id, {});
+    const snap = posted("bim_document_versions").snapshot;
+    expect(snap.frozen.blocks.f1).toEqual({ kind: "facts", items: [{ label: "project.name", words: "Project name", value: "Snowdon" }] });
+    expect(snap.id).toBe(doc.id);
+  });
+
+  it("publishDoc (R1c): a resolver failure refuses the publish in words and nothing is written", async () => {
+    doc.status = "shared";
+    doc.sections = [{ id: "sec1", heading: "H1", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "f1", kind: "facts", data: { labels: ["project.name"], layout: "text" } }] }];
+    ensureProject.mockResolvedValueOnce({ id: "proj1" }).mockRejectedValue(Object.assign(new Error("db down"), { status: 500 })); // getDoc reads it first, then the resolver
+    await expect(publishDoc("k", doc.id, {})).rejects.toMatchObject({ status: 500, message: expect.stringMatching(/live facts and lists could not be read, so nothing was published: db down/) });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH" || o?.method === "POST")).toBe(false);
+    expect(audit).not.toHaveBeenCalled();
+  });
+
   it("the machine credential keeps its label", async () => {
     doc.status = "shared";
     await publishDoc("k", doc.id, { actor: "Revit" });

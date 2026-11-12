@@ -105,16 +105,16 @@ export const DOC_TRANSITIONS = {
 export const validateDocTransition = (from, to) => (DOC_TRANSITIONS[from] || []).includes(to);
 
 /** The append-only bim_document_versions row for a publish. */
-export const buildSnapshot = (docRow, label, actor, version_no) => ({
+export const buildSnapshot = (docRow, label, actor, version_no, frozen) => ({
   document_id: docRow.id,
   version_no,
-  snapshot: docRow,
+  snapshot: frozen === undefined ? docRow : { ...docRow, frozen }, // R1c: what the preview showed; the 0049 trigger compares only id and sections
   label,
   published_by: actor,
 });
 /** What a viewer (the client) may read of a stored version: keep-lists, so a future column is hidden until it is listed here. */
 export const VERSION_KEEP = ["id", "document_id", "version_no", "label", "published_by", "published_at", "stage", "suitability", "revision", "sha", "snapshot"];
-export const SNAPSHOT_KEEP = ["id", "doc_type", "title", "status", "stage", "suitability", "responds_to", "responds_to_version", "template_id", "template_version", "sections"];
+export const SNAPSHOT_KEEP = ["id", "doc_type", "title", "status", "stage", "suitability", "responds_to", "responds_to_version", "template_id", "template_version", "sections", "frozen"];
 export const SECTION_KEEP = ["id", "heading", "guidance", "body", "state", "owner", "blocks", "pillar", "kind", "question", "answer", "due"];
 
 const isObj = (v) => v !== null && typeof v === "object" && !Array.isArray(v);

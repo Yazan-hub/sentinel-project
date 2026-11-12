@@ -12,7 +12,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const COLUMN_TYPES = ["text", "person", "team", "date", "choice", "number"];
 const MARKS = ["produces", "contributes", "signs_off"];
 const PRESETS = ["high_level", "detailed", "im_assignment"];
-const LIVE_SOURCES = ["midp", "tidp", "office_register", "risk_register", "mobilisation"];
+const LIVE_SOURCES = ["midp", "tidp", "office_register", "risk_register", "mobilisation", "capability"];
 
 const EMPTY = {
   text: () => ({ markdown: "" }),

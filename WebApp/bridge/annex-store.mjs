@@ -84,6 +84,12 @@ export async function listAnnex(key, name, deps) {
   return { name, words: a.words, columns: a.columns, ...(await readDoc(d, proj, name)) };
 }
 
+/** → {rev, rows} for a project row the caller already holds — NO role check: only the live resolver calls it, after the document's read check. */
+export async function readAnnexRows(proj, name, deps) {
+  annexOf(name);
+  return readDoc(await wire(deps), proj, name);
+}
+
 /** The write rule of call 3. Risks and mobilisation: a contributor or above. Capability: only an active member of an appointed Firm whose
  *  task team is the row's team (contributor or above) — nobody else, the machine credential and the Lead firm's leads included.
  *  → {team} for a capability write (the declared code), else null. */

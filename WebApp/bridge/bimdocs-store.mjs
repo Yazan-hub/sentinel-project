@@ -131,6 +131,10 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
+  // R1c: what the preview showed is frozen into the version. Resolved BEFORE the status write: a source that cannot be read refuses the publish with nothing written.
+  let frozen;
+  try { frozen = await (await import("./live-resolve.mjs")).resolveLive(key, doc); }
+  catch (e) { throw err(e?.status ?? 502, `The live facts and lists could not be read, so nothing was published: ${e?.message ?? e}`); }
   const versions = await sb(`bim_document_versions?document_id=eq.${enc(docId)}&select=version_no&order=version_no.desc&limit=1`, { service: true });
   const version_no = (one(versions)?.version_no || 0) + 1;
   // The status first, on the document as it was read: a write that landed meanwhile leaves no row (a 409) and no version
@@ -140,7 +144,7 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   // published_by is the append-only, contractual record of who issued this version: the signed-in lead's verified
   // identity, never the body's name (bimdocs-3). The machine credential keeps its label.
   try {
-    await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no), service: true });
+    await sb("bim_document_versions", { method: "POST", body: buildSnapshot(doc, label || `v${version_no}`, resolveActor(actor, "web"), version_no, frozen), service: true });
   } catch (e) {
     await writeStatus(issued, "shared").catch(() => {});
     if (/sections are not the document's current sections/.test(e?.message ?? "")) throw err(422, PUBLISH_COPY_REFUSED);
