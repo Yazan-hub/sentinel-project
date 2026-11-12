@@ -66,7 +66,7 @@ async function seedTenant(tag, user) {
   await db.query(`insert into public.bridge_events(project_id, origin, payload) values ($1, 'test', '{}')`, [t.projKey]);
   // bridge documents: stores filed under the project's id, its key, and the OFFICE's id (office_snapshot / artefact are office-scoped too)
   const docs = [["changeset", t.proj], ["doc_comments", t.proj], ["artefact", t.proj], ["office_snapshot", t.proj], ["office_scan", t.proj],
-    ["rfi", t.projKey], ["clash", t.projKey], ["tender", t.projKey], ["artefact", t.office], ["office_snapshot", t.office], ["keystore", t.office]];
+    ["rfi", t.projKey], ["clash", t.projKey], ["tender", t.projKey], ["artefact", t.office], ["office_snapshot", t.office], ["keystore", t.office], ["office_register", t.office], ["annex", t.proj]];
   for (const [store, pid] of docs) await db.query(`insert into public.bridge_docs(store, project_id, doc_id, data) values ($1, $2, $3, '{}')`, [store, pid, `doc-${tag}-${store}`]);
   t.tokens = [t.proj, t.projKey, t.office, t.officeKey]; // every spelling of "this tenant" a project/office column can hold
   return t;
@@ -124,10 +124,10 @@ describe("the seed is not vacuous: the service role sees both offices' rows in e
       });
     });
   }
-  it("service role: bridge_docs holds the stores changeset, doc_comments, artefact, office_snapshot, office_scan, rfi, clash, tender, keystore for office B", async () => {
+  it("service role: bridge_docs holds the stores changeset, doc_comments, annex, office_register, artefact, office_snapshot, office_scan, rfi, clash, tender, keystore for office B", async () => {
     await as(db, "service", async (tx) => {
       const r = await attempt(tx, `select distinct store from public.bridge_docs where project_id = any($1::text[]) order by 1`, [T.B.tokens]);
-      expect(r.rows.map((x) => x.store)).toEqual(["artefact", "changeset", "clash", "doc_comments", "keystore", "office_scan", "office_snapshot", "rfi", "tender"]);
+      expect(r.rows.map((x) => x.store)).toEqual(["annex", "artefact", "changeset", "clash", "doc_comments", "keystore", "office_register", "office_scan", "office_snapshot", "rfi", "tender"]);
     });
   });
 });
