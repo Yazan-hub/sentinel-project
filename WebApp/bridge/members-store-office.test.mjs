@@ -15,7 +15,7 @@ const deps = ({ sub, admin = false, rpc } = {}) => ({
     if (path === "rpc/is_platform_admin") return rpc ? rpc() : admin;
     if (path === "projects?key=eq.office-a&select=id") return [{ id: OFFICE_ID }];
     if (path.startsWith("projects?key=eq.")) return [];
-    if (path === `memberships?project_id=eq.${OFFICE_ID}&select=user_id,role`)
+    if (path === `memberships?project_id=eq.${OFFICE_ID}&select=user_id,role,party,task_team,state`)
       return [
         { user_id: "u-owner", role: "owner" }, { user_id: "u-lead", role: "lead" },
         { user_id: "u-con", role: "contributor" }, { user_id: "u-view", role: "viewer" },

@@ -91,8 +91,9 @@ function rulePattern(kind, path, p) {
 const IFC_SCHEMAS = ["IFC2X3", "IFC4"];                                  // what PlatformExporter can write
 const ROI_FIELDS = ["currency", "hourly_rate", "minutes", "basis"];       // the roi body (spec 2026-09-26 Decision 9)
 const ROI_KINDS = ["delivery_gate", "naming", "family_heal"];             // the ledger rows the ROI dashboard counts
-const REVIEW_STEP = ["name", "role", "approvals"];                       // a review step (spec 2026-09-27 Decision 10)
-const REVIEW_ROLES = ["contributor", "lead", "owner"];                    // the least role an approver of the step holds
+const REVIEW_STEP = ["name", "role", "approvals", "party"];              // a review step (spec 2026-09-27 Decision 10; party: R2a)
+const REVIEW_ROLES = ["viewer", "contributor", "lead", "owner"];          // the least role an approver of the step holds (viewer only with a party, R2a)
+const REVIEW_PARTIES = ["appointing", "lead_appointed", "appointed"];     // who decides the step (documents design 2026-10-24 §7; call 16)
 const IFC_ENTITY = /^IFC[A-Z0-9_]+$/;
 const LAYER_CATEGORIES = ["Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture"];
 const MAX_CATALOG_TYPES = 20000;                                         // = office-store MAX_CATALOG_TYPES (importing it would load cde-store)
@@ -403,9 +404,11 @@ export function validateArtefact(kind, body) {
     if (!Array.isArray(body.steps) || body.steps.length > 6) throw bad(kind, "steps", "must be an array of 0 to 6 steps");
     objects(kind, "steps", body.steps, (s, at) => {
       const strayStep = Object.keys(s).find((k) => !REVIEW_STEP.includes(k));
-      if (strayStep !== undefined) throw bad(kind, `${at}.${strayStep}`, "is not a step field — a step is exactly {name, role, approvals}");
+      if (strayStep !== undefined) throw bad(kind, `${at}.${strayStep}`, "is not a step field — a step is exactly {name, role, approvals} and, when a party decides it, party");
       if (!filled(s.name) || s.name.length > 80) throw bad(kind, `${at}.name`, "must be a non-empty string of at most 80 characters");
-      if (!REVIEW_ROLES.includes(s.role)) throw bad(kind, `${at}.role`, "must be contributor, lead or owner");
+      if (!REVIEW_ROLES.includes(s.role)) throw bad(kind, `${at}.role`, "must be viewer, contributor, lead or owner");
+      if (s.party !== undefined && !REVIEW_PARTIES.includes(s.party)) throw bad(kind, `${at}.party`, "must be appointing (the Client), lead_appointed (the Lead firm) or appointed (a Firm)");
+      if (s.role === "viewer" && s.party === undefined) throw bad(kind, `${at}.party`, "a viewer step must name the party that decides it (appointing, lead_appointed or appointed)");
       if (!(Number.isInteger(s.approvals) && s.approvals >= 1 && s.approvals <= 5)) throw bad(kind, `${at}.approvals`, "must be an integer 1..5");
     });
   }

@@ -669,6 +669,7 @@ describe("validateArtefact — review", () => {
     expect(KINDS).toContain("review");
     expect(validateArtefact("review", review)).toBe(true);
     expect(validateArtefact("review", { steps: [] })).toBe(true);
+    expect(validateArtefact("review", { steps: [{ name: "Client acceptance", role: "viewer", approvals: 1, party: "appointing" }] })).toBe(true); // R2a: the Client decides
     const six = Array.from({ length: 6 }, (_, i) => ({ name: "x".repeat(80), role: ["contributor", "lead", "owner"][i % 3], approvals: i % 2 ? 5 : 1 }));
     expect(validateArtefact("review", { steps: six })).toBe(true);
   });
@@ -678,13 +679,15 @@ describe("validateArtefact — review", () => {
     [{ steps: "lead" }, "review: steps must be an array of 0 to 6 steps"],
     [{ steps: Array.from({ length: 7 }, () => step) }, "review: steps must be an array of 0 to 6 steps"],
     [{ ...review, folder: "Architecture" }, "review: folder is not a review field — the body is exactly {steps: [{name, role, approvals}]}"],
+    [{ steps: [{ ...step, role: "viewer" }] }, "review: steps[0].party a viewer step must name the party that decides it (appointing, lead_appointed or appointed)"],
+    [{ steps: [{ ...step, party: "client" }] }, "review: steps[0].party must be appointing (the Client), lead_appointed (the Lead firm) or appointed (a Firm)"],
     [{ steps: ["lead"] }, "review: steps[0] must be an object"],
-    [{ steps: [{ ...step, due: "5d" }] }, "review: steps[0].due is not a step field — a step is exactly {name, role, approvals}"],
+    [{ steps: [{ ...step, due: "5d" }] }, "review: steps[0].due is not a step field — a step is exactly {name, role, approvals} and, when a party decides it, party"],
     [{ steps: [{ ...step, name: "" }] }, "review: steps[0].name must be a non-empty string of at most 80 characters"],
     [{ steps: [{ ...step, name: "   " }] }, "review: steps[0].name must be a non-empty string of at most 80 characters"],
     [{ steps: [{ ...step, name: "x".repeat(81) }] }, "review: steps[0].name must be a non-empty string of at most 80 characters"],
-    [{ steps: [step, { ...review.steps[1], role: "viewer" }] }, "review: steps[1].role must be contributor, lead or owner"],
-    [{ steps: [{ ...step, role: "Lead" }] }, "review: steps[0].role must be contributor, lead or owner"],
+    [{ steps: [step, { ...review.steps[1], role: "Viewer" }] }, "review: steps[1].role must be viewer, contributor, lead or owner"],
+    [{ steps: [{ ...step, role: "Lead" }] }, "review: steps[0].role must be viewer, contributor, lead or owner"],
     [{ steps: [{ ...step, approvals: 0 }] }, "review: steps[0].approvals must be an integer 1..5"],
     [{ steps: [{ ...step, approvals: 6 }] }, "review: steps[0].approvals must be an integer 1..5"],
     [{ steps: [{ ...step, approvals: 1.5 }] }, "review: steps[0].approvals must be an integer 1..5"],

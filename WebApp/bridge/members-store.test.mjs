@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runWithAuth } from "./bridge-auth.mjs";
-import { ROLES, ROLE_RANK, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole, requireSpend, canUseCloudAi } from "./members-store.mjs";
+import { ROLES, ROLE_RANK, PARTIES, PARTY_WORDS, changeParty, myMembership, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole, requireSpend, canUseCloudAi } from "./members-store.mjs";
 
 const jwt = (payload) =>
   "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify(payload)).toString("base64url") + ".sig";
@@ -42,8 +42,8 @@ describe("listMembers", () => {
   it("joins roles with admin-resolved emails", async () => {
     const m = await listMembers("demo", baseDeps());
     expect(m).toEqual([
-      { user_id: "u-owner", role: "owner", email: "owner@x.com" },
-      { user_id: "u-view", role: "viewer", email: "view@x.com" },
+      { user_id: "u-owner", role: "owner", email: "owner@x.com", party: null, task_team: null, state: "active" },
+      { user_id: "u-view", role: "viewer", email: "view@x.com", party: null, task_team: null, state: "active" },
     ]);
   });
 
@@ -59,7 +59,7 @@ describe("listMemberRows", () => {
     const deps = baseDeps();
     expect(await listMemberRows("demo", deps)).toEqual(deps.rows);
     expect(deps.adminFetch).not.toHaveBeenCalled();
-    expect(deps.sb).toHaveBeenCalledWith("memberships?project_id=eq.p1&select=user_id,role", { service: true });
+    expect(deps.sb).toHaveBeenCalledWith("memberships?project_id=eq.p1&select=user_id,role,party,task_team,state", { service: true });
   });
 });
 
@@ -244,5 +244,60 @@ describe("addMember — the lookup is a lead's, on an office's project (cde-10)"
     await expect(addMember("demo", { email: "known@x.com", role: "viewer" }, "w", child)).resolves.toMatchObject({ user_id: "u-new", role: "viewer" });
     const office = baseDeps({ sub: "u-owner", ensureProject: vi.fn(async () => ({ id: "p1", key: "hq", kind: "office", office_key: null })) });
     await expect(addMember("hq", { email: "known@x.com", role: "viewer" }, "w", office)).resolves.toMatchObject({ user_id: "u-new" });
+  });
+});
+
+// R2a (documents design §6, §10 Memberships): parties on memberships, the invited -> active flip.
+describe("R2a — changeParty, parties on addMember, myMembership", () => {
+
+  const withTeams = (over = {}) => {
+    const d = baseDeps(over);
+    const inner = d.sb;
+    d.sb = vi.fn(async (path, opts = {}) => path.startsWith("task_teams") ? [{ code: "ARC" }] : inner(path, opts));
+    return d;
+  };
+  it("names the three parties in plain words", () => {
+    expect(PARTIES).toEqual(["appointing", "lead_appointed", "appointed"]);
+    expect(PARTY_WORDS).toEqual({ appointing: "Client", lead_appointed: "Lead firm", appointed: "Firm" });
+  });
+  it("a lead cannot change a party; an owner cannot change their own; a non-member is a 404", async () => {
+    const rows = [{ project_id: "p1", user_id: "u-lead", role: "lead" }, { project_id: "p1", user_id: "u-owner", role: "owner" }, { project_id: "p1", user_id: "u-view", role: "viewer" }];
+    const lead = withTeams({ sub: "u-lead" }); lead.rows.splice(0, lead.rows.length, ...rows);
+    await expect(changeParty("demo", "u-view", { party: "lead_appointed" }, lead)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/only an owner changes who is in which party/) });
+    await expect(changeParty("demo", "u-owner", { party: "appointed", task_team: "ARC" }, withTeams({ sub: "u-owner" }))).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/your own party/) });
+    await expect(changeParty("demo", "u-nobody", { party: "appointing" }, withTeams({ sub: "u-owner" }))).rejects.toMatchObject({ status: 404 });
+  });
+  it("a Firm member needs a declared task team; the write is a forwarded PATCH of exactly {party, task_team}, with no audit() call (the trigger's row is the record)", async () => {
+    const d = withTeams({ sub: "u-owner" });
+    await expect(changeParty("demo", "u-view", { party: "appointed" }, d)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/belongs to a task team/) });
+    await expect(changeParty("demo", "u-view", { party: "appointed", task_team: "STR" }, d)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/not a task team of this project/) });
+    await expect(changeParty("demo", "u-view", { party: "appointed", task_team: "arc" }, d)).resolves.toEqual({ user_id: "u-view", party: "appointed", task_team: "ARC" });
+    const patch = d.sb.mock.calls.find(([p, o]) => o?.method === "PATCH");
+    expect(patch[0]).toBe("memberships?project_id=eq.p1&user_id=eq.u-view");
+    expect(patch[1]).toMatchObject({ body: { party: "appointed", task_team: "ARC" } });
+    expect(patch[1].service).toBeUndefined(); // forwarded: 0050's trigger sees the owner's JWT
+    expect(d.audit).not.toHaveBeenCalled();
+    await expect(changeParty("demo", "u-view", { party: "lead_appointed", task_team: "ARC" }, d)).resolves.toEqual({ user_id: "u-view", party: "lead_appointed", task_team: null });
+  });
+  it("addMember: a lead cannot add the Client, before any e-mail lookup; an owner's add carries the party", async () => {
+    const lead = withTeams({ sub: "u-lead", ensureProject: vi.fn(async () => ({ id: "p1", key: "demo", office_key: "hq" })) });
+    lead.rows.push({ project_id: "p1", user_id: "u-lead", role: "lead" });
+    await expect(addMember("demo", { email: "known@x.com", role: "viewer", party: "appointing" }, "w", lead)).rejects.toMatchObject({ status: 403, message: expect.stringMatching(/only an owner adds the Client/) });
+    expect(lead.adminFetch).not.toHaveBeenCalled();
+    const owner = withTeams({ sub: "u-owner", ensureProject: vi.fn(async () => ({ id: "p1", key: "demo", office_key: "hq" })) });
+    await expect(addMember("demo", { email: "known@x.com", role: "viewer", party: "appointing" }, "w", owner)).resolves.toMatchObject({ user_id: "u-new", party: "appointing", task_team: null });
+    expect(owner.sb.mock.calls.find(([, o]) => o?.method === "POST")[1].body).toMatchObject({ party: "appointing", task_team: null, role: "viewer" });
+  });
+  it("myMembership answers the party fields; an invited row is flipped once (service PATCH of the row and the invitation) and answered active", async () => {
+    const d = withTeams({ sub: "u-view" });
+    d.rows[1] = { project_id: "p1", user_id: "u-view", role: "viewer", party: "appointing", task_team: null, state: "invited" };
+    await expect(myMembership("demo", d)).resolves.toEqual({ role: "viewer", party: "appointing", task_team: null, state: "active" });
+    const patches = d.sb.mock.calls.filter(([, o]) => o?.method === "PATCH");
+    expect(patches.map(([p]) => p)).toEqual(["memberships?project_id=eq.p1&user_id=eq.u-view&state=eq.invited", "invitations?project_id=eq.p1&user_id=eq.u-view&accepted_at=is.null&revoked_at=is.null"]);
+    expect(patches.every(([, o]) => o.service === true)).toBe(true);
+    expect(patches[0][1].body).toEqual({ state: "active" });
+    expect(d.audit).not.toHaveBeenCalled(); // member_joined is the trigger's row
+    await expect(myMembership("demo", withTeams({ sub: "u-stranger" }))).resolves.toEqual({ role: null, party: null, task_team: null, state: null });
+    await expect(myMembership("demo", withTeams())).resolves.toMatchObject({ role: "service" });
   });
 });

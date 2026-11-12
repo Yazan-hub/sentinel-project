@@ -1409,7 +1409,7 @@ async function handleRequest(req, res) {
       }
       if (p2 === "members" && p3 === "me" && req.method === "GET") {
         const members = await import("./members-store.mjs");
-        return send(res, 200, { role: await members.myRole(p1) });
+        return send(res, 200, await members.myMembership(p1)); // {role, party, task_team, state}: role as before, the party fields since R2a
       }
       if (p2 === "members" && !p3 && req.method === "POST") {
         const members = await import("./members-store.mjs");
@@ -1419,6 +1419,8 @@ async function handleRequest(req, res) {
       if (p2 === "members" && p3 && p3 !== "me" && req.method === "PATCH") {
         const members = await import("./members-store.mjs");
         const b = await readBody(req);
+        // R2a: {party, task_team} changes the party (an owner's, ledgered by the database); {role} changes the role as before.
+        if (b.party !== undefined && b.role === undefined) return send(res, 200, await members.changeParty(p1, p3, b));
         return send(res, 200, await members.changeRole(p1, p3, b.role, b.actor || "web"));
       }
       if (p2 === "members" && p3 && p3 !== "me" && req.method === "DELETE") {

@@ -11,6 +11,10 @@ const SERVICE_KEY = env.SUPABASE_SERVICE_KEY || "";
 
 export const ROLES = ["owner", "lead", "contributor", "viewer"];
 export const ROLE_RANK = { owner: 4, lead: 3, contributor: 2, viewer: 1 };
+// R2a (documents design 2026-10-24 §6, §17): which party a member is in. The database (migration 0050) keeps the rules — an owner
+// changes a party, never their own, never during a review round, only an owner adds the Client — and writes the ledger row itself.
+export const PARTIES = ["appointing", "lead_appointed", "appointed"];
+export const PARTY_WORDS = { appointing: "Client", lead_appointed: "Lead firm", appointed: "Firm" };
 
 const err = (status, message) => Object.assign(new Error(message), { status });
 const enc = encodeURIComponent;
@@ -37,7 +41,7 @@ const subOf = (d) => (d.sub !== undefined ? d.sub : currentSub());
 
 /** Rows for a project — service read (the list is member-visible; write RLS is the boundary). */
 async function memberRows(d, projId) {
-  return (await d.sb(`memberships?project_id=eq.${enc(projId)}&select=user_id,role`, { service: true })) || [];
+  return (await d.sb(`memberships?project_id=eq.${enc(projId)}&select=user_id,role,party,task_team,state`, { service: true })) || [];
 }
 
 export async function listMembers(key, deps) {
@@ -50,8 +54,39 @@ export async function listMembers(key, deps) {
       const u = await d.adminFetch(`/admin/users/${enc(m.user_id)}`);
       email = u?.email || u?.users?.[0]?.email || m.user_id; // tolerate shape drift; degrade to id
     } catch { /* GoTrue down → ids still render */ }
-    return { user_id: m.user_id, role: m.role, email };
+    return { user_id: m.user_id, role: m.role, email, party: m.party ?? null, task_team: m.task_team ?? null, state: m.state ?? "active" };
   }));
+}
+
+/** The party fields of a membership as the bridge writes them: appointed needs a task-team code the project declares (task_teams,
+ *  0026); any other party carries no team. Words before the write; 0050's trigger refuses the same. */
+export async function partyFields(d, proj, { party, task_team } = {}) {
+  if (party !== null && party !== undefined && !PARTIES.includes(party)) throw err(400, `party must be one of: ${PARTIES.join(", ")} (Client, Lead firm, Firm)`);
+  if (party === "appointed") {
+    const code = typeof task_team === "string" ? task_team.trim() : "";
+    if (!code) throw err(400, "a Firm member belongs to a task team — pick one");
+    const teams = (await d.sb(`task_teams?project_id=eq.${enc(proj.id)}&select=code`, { service: true })) || [];
+    const found = teams.find((t) => String(t.code).toLowerCase() === code.toLowerCase());
+    if (!found) throw err(400, `${code} is not a task team of this project — declare it under Deliverables, Task teams, first`);
+    return { party, task_team: found.code };
+  }
+  return { party: party ?? null, task_team: null };
+}
+
+/** R2a: an owner puts a member in a party (and, for a Firm, its task team). The forwarded write reaches 0050's trigger, which
+ *  refuses a non-owner, one's own row and a change during an open review round, and writes the membership_party_changed row. */
+export async function changeParty(key, userId, body = {}, deps) {
+  const d = wire(deps);
+  const proj = await d.ensureProject(key);
+  const mine = await requireManager(key, proj, deps);
+  if (mine !== "owner" && mine !== "service") throw err(403, `only an owner changes who is in which party (you are ${mine}) — nothing was changed`);
+  if (subOf(d) && subOf(d) === userId) throw err(403, "your own party is another owner's to change — nothing was changed");
+  const rows = await memberRows(d, proj.id);
+  if (!rows.find((m) => m.user_id === userId)) throw err(404, "not a member of this project");
+  const fields = await partyFields(d, proj, body);
+  const patched = await d.sb(`memberships?project_id=eq.${enc(proj.id)}&user_id=eq.${enc(userId)}`, { method: "PATCH", body: fields, prefer: "return=representation" });
+  if (!Array.isArray(patched) || !patched.length) throw err(409, "membership changed concurrently — reload and retry");
+  return { user_id: userId, ...fields };
 }
 
 /** AI privacy (spec 2026-10-20 §3): the people of these projects — {user_id, email, name} once each — for ai-policy's
@@ -88,7 +123,7 @@ export async function findUserByEmail(email, deps) {
   return list.find((u) => (u.email || "").toLowerCase() === email.toLowerCase()) || null;
 }
 
-export async function addMember(key, { email, role } = {}, actor, deps) {
+export async function addMember(key, { email, role, party, task_team } = {}, actor, deps) {
   const d = wire(deps);
   if (typeof email !== "string" || !EMAIL_RE.test(email.trim())) throw err(400, "a valid email is required");
   if (!ROLES.includes(role)) throw err(400, `role must be one of: ${ROLES.join(", ")}`);
@@ -102,15 +137,17 @@ export async function addMember(key, { email, role } = {}, actor, deps) {
   if (mine !== "service" && proj.kind !== "office" && !proj.office_key) throw err(403, "adding people by e-mail needs a project that belongs to an office — a lead of the office attaches it in Project settings, then add them");
   // W-2 (G2, review): before the lookup — 0016's memberships_insert refuses it anyway, as a raw Supabase 403.
   ownerOnly(mine, role === "owner", `only an owner grants the owner role (you are ${mine}) — nothing was saved`);
+  ownerOnly(mine, party === "appointing", `only an owner adds the Client (appointing party) (you are ${mine}) — nothing was saved`);
+  const fields = await partyFields(d, proj, { party, task_team });
   const user = await findUserByEmail(email.trim(), d);
   if (!user) throw err(404, `No Sentinel account with this email — they need to sign up first (email + password in the web app), then you can add them.`);
   const rows = await memberRows(d, proj.id);
   if (rows.some((m) => m.user_id === user.id)) throw err(409, "already a member — change their role instead");
   // FORWARDED write: 0004's lead-gate RLS decides whether the CALLER may manage members.
-  const member = { project_id: proj.id, user_id: user.id, role };
+  const member = { project_id: proj.id, user_id: user.id, role, ...fields };
   await d.sb(`memberships`, { method: "POST", body: member, prefer: "return=minimal" });
-  await d.audit(proj.id, "membership", user.id, "member_added", actor || "web", null, { email: user.email, role });
-  return { user_id: user.id, role, email: user.email };
+  await d.audit(proj.id, "membership", user.id, "member_added", actor || "web", null, { email: user.email, role, ...fields });
+  return { user_id: user.id, role, email: user.email, ...fields };
 }
 
 // W-2 (G2): changing a role, removing or adding a member is a lead's — asked before the write, so a viewer or contributor
@@ -161,14 +198,29 @@ export async function removeMember(key, userId, actor, deps) {
 
 /** The caller's role: "service" for machine callers (BCF_TOKEN — trusted as everywhere),
  *  the membership row's role for a signed-in member, null for a signed-in non-member. */
-export async function myRole(key, deps) {
+export async function myRole(key, deps) { return (await myMembership(key, deps)).role; }
+
+const SERVICE_ME = { role: "service", party: null, task_team: null, state: "active" };
+/** R2a: the caller's membership — {role, party, task_team, state}; role "service" for machine callers, null for a non-member.
+ *  An invited person's first call flips their row to active (flipInvited): the one write the service key makes to a party row,
+ *  which 0050's trigger ledgers as member_joined. Until then the database counts them as nobody (0050 part 2). */
+export async function myMembership(key, deps) {
   const d = wire(deps);
   const sub = subOf(d);
-  if (!sub && !currentUserToken() && d.sub === undefined) return "service";
-  if (d.sub !== undefined && d.sub === null) return "service"; // test seam parity
+  if (!sub && !currentUserToken() && d.sub === undefined) return SERVICE_ME;
+  if (d.sub !== undefined && d.sub === null) return SERVICE_ME; // test seam parity
   const proj = await d.ensureProject(key);
   const rows = await memberRows(d, proj.id);
-  return rows.find((m) => m.user_id === sub)?.role ?? null;
+  const mine = rows.find((m) => m.user_id === sub);
+  if (!mine) return { role: null, party: null, task_team: null, state: null };
+  if (mine.state === "invited") await flipInvited(d, proj.id, sub);
+  return { role: mine.role, party: mine.party ?? null, task_team: mine.task_team ?? null, state: "active" };
+}
+
+/** The invited -> active flip (service write; the trigger writes member_joined) and the invitation's acceptance time. */
+export async function flipInvited(d, projId, userId) {
+  await d.sb(`memberships?project_id=eq.${enc(projId)}&user_id=eq.${enc(userId)}&state=eq.invited`, { method: "PATCH", body: { state: "active" }, prefer: "return=minimal", service: true });
+  await d.sb(`invitations?project_id=eq.${enc(projId)}&user_id=eq.${enc(userId)}&accepted_at=is.null&revoked_at=is.null`, { method: "PATCH", body: { accepted_at: new Date().toISOString() }, prefer: "return=minimal", service: true });
 }
 
 /** 403 unless the caller's role rank meets `min`; answers the role. Machine callers pass (service trust). */

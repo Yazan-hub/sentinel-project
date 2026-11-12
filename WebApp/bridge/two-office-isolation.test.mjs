@@ -34,6 +34,8 @@ async function attempt(tx, sql, params = []) {
   catch (e) { await tx.exec("rollback to savepoint s"); return { error: e.message }; }
 }
 const count = async (tx, sql, params) => { const r = await attempt(tx, sql, params); if (r.error) throw new Error(r.error + " :: " + sql); return Number(r.rows[0].n); };
+// 0050: a bridge-only table (invitations) is revoked from the API roles outright, so a signed-in read is 'permission denied' — that is isolation, counted as 0.
+const countOrDenied = async (tx, sql, params) => { const r = await attempt(tx, sql, params); if (r.error) { if (/permission denied/.test(r.error)) return 0; throw new Error(r.error + " :: " + sql); } return Number(r.rows[0].n); };
 
 async function seedTenant(tag, user) {
   const q = async (sql, p) => (await db.query(sql, p)).rows[0];
@@ -55,6 +57,7 @@ async function seedTenant(tag, user) {
   await db.query(`insert into public.transmittals(project_id, reference) values ($1, $2)`, [t.proj, `TX-${tag}`]);
   await db.query(`insert into public.deliverables(project_id, container_name, title) values ($1, $2, 'd')`, [t.proj, `PROJ-${tag}.ifc`]);
   await db.query(`insert into public.task_teams(project_id, code, name) values ($1, 'ARC', 'Architecture')`, [t.proj]);
+  await db.query(`insert into public.invitations(project_id, email, user_id, role, inviter_uid, expires_at) values ($1, $2, $3, 'viewer', $3, now() + interval '14 days')`, [t.proj, `invitee-${tag}@x.test`, user.sub]);
   t.doc = (await q(`insert into public.bim_documents(project_id, doc_type, title) values ($1, 'BEP', $2) returning id`, [t.proj, `BEP ${tag}`])).id;
   await db.query(`insert into public.bim_document_versions(document_id, version_no, snapshot) values ($1, 1, (select to_jsonb(d) from public.bim_documents d where d.id = $1))`, [t.doc]);
   await db.query(`insert into public.audit_log(project_id, entity_type, entity_id, action, actor) values ($1, 'file', $2, 'seed', 'test')`, [t.proj, t.container]);
@@ -93,7 +96,7 @@ function scopedCount(tx, table, tokens, foreign = false) {
   const cols = scoped[table];
   if (cols) {
     const pred = cols.map((c) => foreign ? `(${c}::text <> '' and ${c}::text <> all($1::text[]))` : `${c}::text = any($1::text[])`).join(" or ");
-    return count(tx, `select count(*) n from public.${table} where ${pred}`, [tokens]);
+    return countOrDenied(tx, `select count(*) n from public.${table} where ${pred}`, [tokens]);
   }
   const [col, parent] = CHILD_OF[table];
   return count(tx, `select count(*) n from public.${table} where ${col} ${foreign ? "not in" : "in"} (${parent})`, [tokens.filter((x) => /^[0-9a-f-]{36}$/.test(x))]);

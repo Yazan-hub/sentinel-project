@@ -15,11 +15,14 @@ const newest = (rows, test) => (rows || []).reduce((a, r) => (test(r) && (!a || 
  *  a new one. A chain runs on the steps its review:start recorded (a template changed mid-review does not change it);
  *  its approvals are the review:approve rows naming its start (chain_start_id); its current step is the first whose
  *  approvals are short of the step's count. can_decide: the caller (uid, the forwarded JWT's sub; rank, RANK of the
- *  caller's role) reaches the step's role, is not the submitter and has not approved on this chain; why_not says which,
+ *  caller's role) reaches the step's role, is of the step's party when it names one (R2a: party, the caller's membership
+ *  party), is not the submitter and has not approved on this chain; why_not says which,
  *  in review_decide's words, and `unsigned` when there is no uid.
  *  → [{version_id, container_name, revision, chain_start_id, ref, submitter, submitter_uid, step, of, name, role,
  *  approvals: [{step, actor, at, ledger: {id, hash}}], can_decide, why_not}] */
-export function openChains(reviewRows, backToWipRows, versions, { uid = null, rank = 0, unsigned = "not signed in" } = {}) {
+const PARTY_WORD = { appointing: "Client", lead_appointed: "Lead firm", appointed: "Firm" };
+const MY_PARTY_WORD = { appointing: "the Client", lead_appointed: "the Lead firm", appointed: "a Firm" };
+export function openChains(reviewRows, backToWipRows, versions, { uid = null, rank = 0, party = null, unsigned = "not signed in" } = {}) {
   const items = [];
   for (const v of versions || []) {
     if (v.state !== "shared") continue;
@@ -38,13 +41,15 @@ export function openChains(reviewRows, backToWipRows, versions, { uid = null, ra
     const step = steps[k - 1];
     const mine = uid ? approvals.find((a) => a.new_value?.approver_uid === uid) : null;
     const why_not = !uid ? unsigned
-      : rank < (["contributor", "lead", "owner"].includes(step.role) ? RANK[step.role] : Infinity) ? `step ${k} (${step.name}) needs ${step.role} or above`
+      : step.role === "viewer" && !step.party ? `step ${k} (${step.name}) has role viewer and names no party — a viewer step must name a party; a lead installs a corrected review@n`
+      : rank < (RANK[step.role] ?? Infinity) ? `step ${k} (${step.name}) needs ${step.role} or above`
+      : step.party && party !== step.party ? `step ${k} (${step.name}) is decided by the ${PARTY_WORD[step.party] ?? step.party} — you are ${MY_PARTY_WORD[party] ?? "in no party"}`
       : uid === s.submitter_uid ? "the submitter does not review their own share"
       : mine ? `you already approved step ${mine.new_value.step} of this chain`
       : null;
     items.push({
       version_id: v.id, container_name: v.container_name, revision: v.revision, chain_start_id: start.id, ref: s.ref ?? null,
-      submitter: start.actor ?? null, submitter_uid: s.submitter_uid ?? null, step: k, of: steps.length, name: step.name, role: step.role,
+      submitter: start.actor ?? null, submitter_uid: s.submitter_uid ?? null, step: k, of: steps.length, name: step.name, role: step.role, party: step.party ?? null,
       approvals: approvals.map((a) => ({ step: Number(a.new_value?.step), actor: a.actor ?? null, at: a.at, ledger: { id: a.id ?? null, hash: a.hash ?? null } })),
       can_decide: why_not === null, why_not,
     });

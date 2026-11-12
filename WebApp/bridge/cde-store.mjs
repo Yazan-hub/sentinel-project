@@ -1266,7 +1266,9 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // MA-8-13 (D13): recipe:approved / recipe:withdrawn (entity_type recipe) are recipe-store's own - a run counts them as the two approvals, so a note may not pass for one.
 // MA-7-11: splat:placed (entity_type splat) is evidence-store placeSplat's - the newest row is where the web desk puts the splat again, so a note may not pass for one.
 // Ledger verification (2026-10-20): anchor:timestamped (entity_type ledger_anchor) is ledger-anchor.mjs's — an external timestamp a note may not pass for.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:", "anchor:", "document_structure_changed", "document_start_picked"];
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:", "anchor:", "document_structure_changed", "document_start_picked",
+  // R2a (documents design §10 Ledger): who is in which party and who was invited are the membership trigger's and invitations-store's rows.
+  "member_invited", "member_joined", "invitation_revoked", "membership_party_changed"];
 // Issue sign-offs (2026-10-21): bcf_topic rows are topic-ledger.mjs's — written with the topic change itself, never through this route.
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic"];
 
@@ -1651,14 +1653,14 @@ const REVIEW_NO_FORWARDING = "this bridge does not forward the session (SUPABASE
  *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
 export async function readReviews(key) {
   const { openChains } = await import("./review-logic.mjs");
-  const { myRole, ROLE_RANK } = await import("./members-store.mjs");
-  let reviewRows, backRows, files, role;
+  const { myMembership, ROLE_RANK } = await import("./members-store.mjs");
+  let reviewRows, backRows, files, me;
   try {
-    [reviewRows, backRows, files, role] = await Promise.all([
+    [reviewRows, backRows, files, me] = await Promise.all([
       auditAll(key, { entity_type: "review" }),
       auditAll(key, { entity_type: "container_version", action_prefix: "state:shared->wip" }),
       listFiles(key),
-      myRole(key),
+      myMembership(key),
     ]);
   } catch (e) {
     if (e?.status) throw e;
@@ -1668,7 +1670,7 @@ export async function readReviews(key) {
   const versions = files.flatMap((f) => f.versions.map((v) => ({ id: v.id, container_name: f.iso_name, revision: v.revision, state: v.state })));
   const sub = currentSub();
   const uid = sub && forwardingConfigured() ? sub : null;
-  return { items: openChains(reviewRows, backRows, versions, { uid, rank: ROLE_RANK[role] || 0, ...(sub && !uid ? { unsigned: REVIEW_NO_FORWARDING } : {}) }) };
+  return { items: openChains(reviewRows, backRows, versions, { uid, rank: ROLE_RANK[me.role] || 0, party: me.party ?? null, ...(sub && !uid ? { unsigned: REVIEW_NO_FORWARDING } : {}) }) };
 }
 
 /** POST /cde/:key/versions/:vid/review {decision, note} (spec 2026-09-27 Decision 12): a signed-in person's decision on

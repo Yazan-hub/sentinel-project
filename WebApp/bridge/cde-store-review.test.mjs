@@ -13,7 +13,7 @@ const state = vi.hoisted(() => {
   process.env.SUPABASE_ANON_KEY ||= "fixture-anon-key";
   return { role: "contributor" };
 });
-vi.mock("./members-store.mjs", async (orig) => ({ ...(await orig()), myRole: vi.fn(async () => state.role) }));
+vi.mock("./members-store.mjs", async (orig) => ({ ...(await orig()), myRole: vi.fn(async () => state.role), myMembership: vi.fn(async () => ({ role: state.role, party: state.party ?? null, task_team: null, state: "active" })) }));
 
 import { runWithAuth } from "./bridge-auth.mjs";
 import { readReviews, reviewDecide } from "./cde-store.mjs";

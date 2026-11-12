@@ -60,6 +60,9 @@ describe("POST /cde/:key/audit (recordAudit) — Sentinel's own rows are refused
     [{ entity_type: "container_version", entity_id: V, action: "state:shared->published" }, "state: rows are written by Sentinel, not through this route"],
     [{ entity_type: "event", action: "gate:pass design" }, "gate: rows are written by Sentinel, not through this route"],
     [{ entity_type: "event", action: "roi:assumption" }, "roi: rows are written by Sentinel, not through this route"],
+    // R2a: who was invited, who joined, who is in which party — the membership trigger's and invitations-store's rows.
+    [{ entity_type: "membership", action: "member_invited" }, "member_invited rows are written by Sentinel, not through this route"],
+    [{ entity_type: "membership", action: "membership_party_changed" }, "membership_party_changed rows are written by Sentinel, not through this route"],
     [{ entity_type: "stage_gate", action: "Stage advanced to coord" }, "stage_gate rows are written by Sentinel, not through this route"],
     [{ entity_type: "file_version", entity_id: V, action: "  Verdict:accepted" }, "verdict: rows are written by Sentinel, not through this route"],
     [{ entity_type: " Stage_Gate ", action: "recorded" }, "stage_gate rows are written by Sentinel, not through this route"],

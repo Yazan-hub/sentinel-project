@@ -30,7 +30,7 @@ describe("openChains — one open chain per shared version whose newest review:s
   it("a share nothing followed is under review: step 1 of 2, no approvals yet, a contributor who is not the submitter may decide", () => {
     expect(openChains([start(501)], [], [version()], as(ANA, RANK.contributor))).toEqual([{
       version_id: V1, container_name: "Tower.ifc", revision: "v2", chain_start_id: 501, ref: "review@1",
-      submitter: "lead@example.test", submitter_uid: LEAD, step: 1, of: 2, name: "Coordination check", role: "contributor",
+      submitter: "lead@example.test", submitter_uid: LEAD, step: 1, of: 2, name: "Coordination check", role: "contributor", party: null,
       approvals: [], can_decide: true, why_not: null,
     }]);
   });
@@ -91,5 +91,25 @@ describe("rejectionTopic — the one BCF topic a rejection raises", () => {
       description: `Step 2 of 2 (Lead sign-off, lead) rejected Tower.ifc: the door schedule is missing. The version is back in wip (ledger #612 · receipt ${"ab".repeat(8)}…); sharing it again starts a new chain.`,
     });
     expect(rejectionTopic({ ...r, hash: null }, "no").description).toBe("Step 2 of 2 (Lead sign-off, lead) rejected Tower.ifc: no. The version is back in wip; sharing it again starts a new chain.");
+  });
+});
+
+// R2a (documents design §7 Decisions, call 16): a step may name the party that decides it; a viewer step must.
+describe("openChains — party-aware steps", () => {
+  const PARTY_STEPS = [{ name: "Task team", role: "contributor", approvals: 1, party: "lead_appointed" }, { name: "Client acceptance", role: "viewer", approvals: 1, party: "appointing" }];
+  const chain = (who) => openChains([start(501, V1, PARTY_STEPS), approve(502, 501, 1, "u-c", "c@x")], [], [version()], who)[0];
+  it("carries the step's party and lets the Client's viewer decide the Client's step", () => {
+    expect(chain({ uid: "u-client", rank: RANK.viewer, party: "appointing" })).toMatchObject({ step: 2, party: "appointing", can_decide: true, why_not: null });
+  });
+  it("a viewer in no party, and an owner of the Lead firm, are told whose step it is", () => {
+    expect(chain({ uid: "u-v", rank: RANK.viewer, party: null }).why_not).toBe("step 2 (Client acceptance) is decided by the Client — you are in no party");
+    expect(chain({ uid: "u-o", rank: RANK.owner, party: "lead_appointed" }).why_not).toBe("step 2 (Client acceptance) is decided by the Client — you are the Lead firm");
+  });
+  it("a viewer step without a party is never decidable, in words a lead can act on", () => {
+    const bad = [{ name: "Anyone", role: "viewer", approvals: 1 }];
+    expect(openChains([start(501, V1, bad)], [], [version()], { uid: "u-o", rank: RANK.owner, party: "lead_appointed" })[0].why_not).toMatch(/has role viewer and names no party/);
+  });
+  it("a step without a party keeps the role rule for everyone", () => {
+    expect(openChains([start(501)], [], [version()], { uid: "u-v", rank: RANK.viewer, party: "appointing" })[0].why_not).toBe("step 1 (Coordination check) needs contributor or above");
   });
 });
