@@ -37,7 +37,8 @@ const wire = async (deps = {}) => {
   };
 };
 
-const inDelivery = (me) => me.role !== "service" && me.state === "active" && DELIVERY.includes(me.party);
+/** An active member of a delivery party (the Lead firm or a Firm): the only readers of the Delivery-team bag. */
+export const inDelivery = (me) => me.role !== "service" && me.state === "active" && DELIVERY.includes(me.party);
 
 /** The folded threads of one bag, in the order they were started. Pure. A legacy comment folds as a thread root anchored on its section. */
 export function foldThreads(bag, audience) {

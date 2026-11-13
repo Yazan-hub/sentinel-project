@@ -2193,7 +2193,8 @@ async function handleRequest(req, res) {
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
   //   GET  /bimdocs/:key/:docId/executability  (the strip test — how much of the doc controls anything)
   //   GET  /bimdocs/:key/facts · GET /bimdocs/:key/:docId/live  (R1c: facts list; freeze preview)
-  //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n
+  //   GET  /bimdocs/:key/:docId/versions · GET /bimdocs/:key/:docId/versions/:n (records the first read) · GET .../versions/:n/reads → {read: [{email, at}], of}
+  //   GET  /bimdocs/:key/mine → {sections, reviews, mentions, assigned} (the caller's My lists)
   //   POST /bimdocs/:key/:docId/section { heading, guidance?, after? } · PUT .../section/:sid/heading { heading } · POST .../section/:sid/remove { confirm_bound? }
   //   PUT  /bimdocs/:key/:docId/outline { order: [sectionId] }
   //   POST /bimdocs/:key/:docId/start { start: "eir_received" | "no_eir", eir_id?, updated_at? }  (a lead's; the only writer of responds_to)
@@ -2320,6 +2321,7 @@ async function handleRequest(req, res) {
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       // R1c: the facts the editor offers, and the live values of a document (the freeze preview: exactly what a publish would freeze).
+      if (p1 && p2 === "mine" && !p3 && req.method === "GET") return send(res, 200, await bimdocs.myWork(p1)); // R2c: the My lists
       if (p1 && p2 === "facts" && !p3 && req.method === "GET") return send(res, 200, await (await import("./live-resolve.mjs")).listFacts(p1));
       if (p1 && p2 && p3 === "live" && !p4 && req.method === "GET") return send(res, 200, await (await import("./live-resolve.mjs")).resolveLive(p1, await bimdocs.getDoc(p1, p2)));
       if (p1 && p2 && !p3 && req.method === "GET") return send(res, 200, await bimdocs.getDoc(p1, p2));
@@ -2340,7 +2342,8 @@ async function handleRequest(req, res) {
       if (p3 === "publish" && req.method === "POST")
         return send(res, 200, await bimdocs.publishDoc(p1, p2, { ...body, actor }));
       if (p3 === "versions" && !p4 && req.method === "GET") return send(res, 200, await bimdocs.listVersions(p1, p2));
-      if (p3 === "versions" && p4 && req.method === "GET") return send(res, 200, await bimdocs.getVersion(p1, p2, p4));
+      if (p3 === "versions" && p4 && seg[5] === "reads" && !seg[6] && req.method === "GET") return send(res, 200, await bimdocs.versionReads(p1, p2, p4));
+      if (p3 === "versions" && p4 && !seg[5] && req.method === "GET") return send(res, 200, await bimdocs.getVersion(p1, p2, p4));
       return send(res, 404, { message: "bimdocs route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[bimdocs] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);

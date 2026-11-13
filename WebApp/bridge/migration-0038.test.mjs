@@ -100,9 +100,11 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     expect(DOCS).toContain("  return writeDoc(doc, { sections }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);\n}");
     expect(DOCS).not.toContain("patchSections(doc, sections, updated_at)");
     expect(DOCS).toContain('prefer: "return=representation", service: true });\n  if (!Array.isArray(rows) || !rows.length) throw err(409, "the document changed or was issued meanwhile — nothing was saved");');
-    expect(DOCS).toContain('await requireDocAccess(key, doc, "comment"); // 0038');
-    expect(DOCS).toContain("{ comments: [comment], rev: 1 }, { service: true });");
-    expect(DOCS).toContain("bag.rev === undefined ? null : String(bag.rev), { service: true });");
+    // R2c: the comment bags are written in comments-store.mjs, with the service key, after requireDocAccess(comment)
+    const COMMENTS = read("./comments-store.mjs");
+    expect(COMMENTS).toContain("d.requireDocAccess(key, doc, level)");
+    expect(COMMENTS).toContain("cde.docInsert(s, p, id, data, { service: true })");
+    expect(COMMENTS).toContain('cde.docReplaceIfField(s, p, id, data, "rev", rev, { service: true })');
     expect(OFFICE).toContain("await docUpsert(SNAPSHOT_STORE, proj.id, LATEST, stored, { service: true });");
     expect(OFFICE).toContain("await docUpsert(SCAN_STORE, proj.id, LATEST, stored, { service: true });");
     expect(count(ROUTES, 'cde.docUpsert("rfi", rpid, rfi.guid, rfi, { service: true })')).toBe(2);

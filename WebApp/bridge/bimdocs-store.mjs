@@ -2,11 +2,12 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit, isUuid } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid, readReviews } from "./cde-store.mjs";
 import { loadTemplates, pickTemplate, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
-import { addThread, listFlat } from "./comments-store.mjs";
-import { requireDocAccess, effectiveLevel, validateAccess, DELIVERY } from "./doc-access.mjs";
+import { recordRead } from "./doc-reads.mjs";
+import { addThread, listFlat, foldThreads, inDelivery, STORES } from "./comments-store.mjs";
+import { requireDocAccess, effectiveLevel, validateAccess } from "./doc-access.mjs";
 import { ROLE_RANK, listMembers, myMembership } from "./members-store.mjs";
 import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS, ASSUMPTIONS } from "./doc-blocks.mjs";
 import { resolveActor, currentSub } from "./bridge-auth.mjs";
@@ -149,7 +150,7 @@ export async function myDocAccess(key, docId) {
   const me = await myMembership(key);
   const service = me.role === "service";
   const level = service ? "govern" : effectiveLevel(me.role, doc.access, currentSub(), me.task_team);
-  const can_team = !service && me.state === "active" && DELIVERY.includes(me.party);
+  const can_team = inDelivery(me);
   return { level, party: me.party ?? null, can_team, default_audience: can_team ? "team" : "everyone" };
 }
 
@@ -198,11 +199,66 @@ export async function listVersions(key, docId) {
 }
 
 export async function getVersion(key, docId, n) {
-  const role = await requireDocAccess(key, await getDoc(key, docId), "read");
+  const doc = await getDoc(key, docId);
+  const role = await requireDocAccess(key, doc, "read");
   const row = one(await sb(`bim_document_versions?document_id=eq.${enc(docId)}&version_no=eq.${enc(n)}`, { service: true }));
   if (!row) throw err(404, "version not found");
+  await recordRead(doc, row.version_no);
   // Masked unless the caller ranks contributor or above, or is the service: a role Sentinel does not know never sees the whole row.
   return role === "service" || (ROLE_RANK[role] || 0) >= ROLE_RANK.contributor ? row : maskVersion(row);
+}
+
+/** R2c: who has read this version → { read: [{email, at}], of } — `of` is the active members of the project; a reader who has since left is not counted. */
+export async function versionReads(key, docId, n) {
+  const doc = await getDoc(key, docId);
+  await requireDocAccess(key, doc, "read");
+  const no = Number(n);
+  if (!Number.isInteger(no) || no < 1) throw err(404, "version not found");
+  const [rows, members] = await Promise.all([
+    sb(`doc_reads?document_id=eq.${enc(docId)}&version_no=eq.${no}&select=user_id,read_at&order=read_at.asc`, { service: true }),
+    listMembers(key),
+  ]);
+  const active = members.filter((m) => m.state === "active");
+  const read = (rows || []).flatMap((r) => { const m = active.find((x) => x.user_id === r.user_id); return m ? [{ email: m.email, at: r.read_at }] : []; });
+  return { read, of: active.length };
+}
+
+const excerpt = (text) => (String(text).length > 140 ? `${String(text).slice(0, 140)}…` : String(text));
+const EMPTY_WORK = { sections: [], reviews: [], mentions: [], assigned: [] };
+
+/** R2c: the caller's My lists on one project → { sections, reviews, mentions, assigned }.
+ *  sections: documents (not archived) whose section lead is my e-mail; reviews: the open chains I may decide; mentions and assigned: open threads
+ *  from the bags I may read (the Delivery-team bag only for a delivery party; the database's read policy is the second wall). */
+export async function myWork(key) {
+  const proj = await ensureProject(key); // a non-member is refused here
+  const uid = currentSub();
+  if (!uid) return EMPTY_WORK; // the machine credential has no person to list for
+  const me = await myMembership(key);
+  const [members, docs, reviews] = await Promise.all([
+    listMembers(key),
+    sb(`bim_documents?project_id=eq.${enc(proj.id)}&status=neq.archived&select=id,title,sections`, { service: true }),
+    readReviews(key),
+  ]);
+  const mail = String(members.find((m) => m.user_id === uid)?.email ?? "").toLowerCase();
+  const title = new Map((docs || []).map((d) => [d.id, d.title]));
+  const sections = mail ? (docs || []).flatMap((d) => (d.sections || []).filter((s) => String(s.owner ?? "").toLowerCase() === mail)
+    .map((s) => ({ doc_id: d.id, title: d.title, section_id: s.id, heading: s.heading }))) : [];
+  const out = { sections, reviews: (reviews?.items || []).filter((i) => i.can_decide).map((i) => ({ version_id: i.version_id, container_name: i.container_name, step: i.step, name: i.name })), mentions: [], assigned: [] };
+  const audiences = inDelivery(me) ? ["everyone", "team"] : ["everyone"];
+  for (const aud of audiences) {
+    const bags = (await sb(`bridge_docs?store=eq.${STORES[aud]}&project_id=eq.${enc(proj.id)}&select=doc_id,data`)) || []; // the caller's own session: RLS applies
+    for (const b of bags) {
+      if (!title.has(b.doc_id)) continue;
+      for (const t of foldThreads(b.data, aud)) {
+        if (t.resolved) continue;
+        const base = { doc_id: b.doc_id, title: title.get(b.doc_id), thread_id: t.id };
+        if (t.assignee?.uid === uid) out.assigned.push({ ...base, excerpt: excerpt(t.text) });
+        for (const c of [{ by: t.author, by_uid: t.author_uid, at: t.created_at, text: t.text, mentions: t.mentions }, ...t.replies.map((r) => ({ by: r.author, by_uid: null, at: r.created_at, text: r.text, mentions: r.mentions }))])
+          if (c.mentions.some((m) => m.uid === uid) && c.by_uid !== uid) out.mentions.push({ ...base, by: c.by, at: c.at, excerpt: excerpt(c.text) });
+      }
+    }
+  }
+  return out;
 }
 
 /**
