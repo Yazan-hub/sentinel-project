@@ -127,6 +127,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     work = w; workKey = key; workRead = true; drawWork();
   }
   workBtn.addEventListener("click", () => { workShown = !workShown; drawWork(); if (workShown) void loadWork(); });
+  // F-R2c-1: a sign-in change (main.ts → refreshActiveProject) or another project — read the list again for whoever is signed in now,
+  // so the header never shows the previous person's count.
+  onActiveProjectChange(() => { work = null; workRead = false; drawWork(); if (activePid()) void loadWork(); });
 
   let view: View = "read";
   let tab: keyof typeof SIDE_TABS = "quality";
