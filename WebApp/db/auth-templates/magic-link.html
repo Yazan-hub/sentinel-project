@@ -1,0 +1,13 @@
+<!--
+  Supabase ▸ Authentication ▸ Emails ▸ Templates ▸ "Magic Link" (R2a, spec 2026-10-24 §6 Invitations).
+  Subject: Your Sentinel sign-in code
+  Every code e-mail uses this template: the invitation (bridge POST /otp for the account the invitation made) and any later
+  "Sign in with a code". It must render {{ .Token }} (auth.ts sendEmailCode) and carries no link: the app never reads a
+  session from its URL (SEC-5). Paste the body below into the template; keep the subject above.
+-->
+<h2>Your Sentinel sign-in code</h2>
+<p>Your code is:</p>
+<p style="font-size:26px;font-weight:700;letter-spacing:6px;margin:12px 0">{{ .Token }}</p>
+<p>To sign in, open Sentinel and choose <b>Sign in with a code</b>. Enter this e-mail address, {{ .Email }}, choose <b>I already have a code</b>, then type the code. The code works for one hour.</p>
+<p>If a project lead invited you, this is your first sign-in. Sentinel then offers to set a password, so next time you can sign in without waiting for an e-mail.</p>
+<p>If you did not expect this e-mail, you can ignore it. Nobody can sign in without the code.</p>

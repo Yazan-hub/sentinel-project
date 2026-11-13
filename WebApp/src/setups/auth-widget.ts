@@ -140,7 +140,9 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     (codeSent ? '<label class="sx-field"><span>The 6-digit code from the e-mail</span><input id="sx-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>' : "") +
     (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
     `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? (codeSent ? "Signing in…" : "Sending…") : (codeSent ? "Sign in" : "Send me a code")}</button>` +
-    (codeSent ? '<button type="button" class="sx-item" id="sx-again">Send another code</button>' : "") +
+    (codeSent ? '<button type="button" class="sx-item" id="sx-again">Send another code</button>'
+      // The invitation e-mail already holds a code: typing it must not cost a second e-mail (the mail service sends two an hour).
+      : '<button type="button" class="sx-item" id="sx-have">I already have a code</button>') +
     "</form></div>";
 
   const signinCard = () =>
@@ -273,6 +275,11 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     q("sx-usecode")?.addEventListener("click", () => { formEmail = (q<HTMLInputElement>("sx-email")?.value ?? formEmail).trim(); view = "code"; codeSent = false; msg = ""; render(); q("sx-email")?.focus(); });
     q("sx-back-signin")?.addEventListener("click", () => { view = "signin"; codeSent = false; msg = ""; render(); q("sx-email")?.focus(); });
     q("sx-again")?.addEventListener("click", () => { codeSent = false; msg = ""; render(); void codeSubmit(); });
+    q("sx-have")?.addEventListener("click", () => {
+      formEmail = (q<HTMLInputElement>("sx-email")?.value ?? "").trim();
+      if (!formEmail) { msg = "Enter your email."; render(); q("sx-email")?.focus(); return; }
+      codeSent = true; msg = ""; render(); q("sx-code")?.focus();
+    });
     q("sx-codeform")?.addEventListener("submit", (e) => { e.preventDefault(); void codeSubmit(); });
     q("sx-setpwform")?.addEventListener("submit", (e) => { e.preventDefault(); void setpwSubmit(); });
     q("sx-out")?.addEventListener("click", () => { view = "closed"; render(); void signOut(); });
