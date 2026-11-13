@@ -98,6 +98,37 @@ const IFC_ENTITY = /^IFC[A-Z0-9_]+$/;
 const LAYER_CATEGORIES = ["Walls", "Floors", "Ceilings", "Doors", "Windows", "Columns", "Furniture"];
 const MAX_CATALOG_TYPES = 20000;                                         // = office-store MAX_CATALOG_TYPES (importing it would load cde-store)
 const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+// R2d Task 2: review@n's `documents` — the BEP and EIR chains. Shapes are fixed (the round functions read them); only names differ.
+// BEP: task teams confirm, the Lead firm signs, the Client accepts. EIR: two steps, each naming a party. readiness and tidp have none.
+const BEP_CHAIN = [{ role: "contributor", kind: "task_teams" }, { role: "lead", party: "lead_appointed" }, { role: "viewer", party: "appointing" }];
+function validateDocumentChains(kind, docs) {
+  if (!isObj(docs)) throw bad(kind, "documents", "must be an object {bep?: {steps}, eir?: {steps}}");
+  for (const [type, chain] of Object.entries(docs)) {
+    const at = `documents.${type}`;
+    if (type === "readiness" || type === "tidp") throw bad(kind, at, "has no review chain — a READINESS or a TIDP is not published through a round; only bep and eir are");
+    if (type !== "bep" && type !== "eir") throw bad(kind, at, "is not a document type with a review chain — only bep and eir are");
+    if (!isObj(chain) || Object.keys(chain).some((k) => k !== "steps")) throw bad(kind, at, "must be exactly {steps: [...]}");
+    if (!Array.isArray(chain.steps) || chain.steps.length === 0) throw bad(kind, `${at}.steps`, "must list the steps — a document chain is never empty (leave the type out for no chain)");
+    const want = type === "bep" ? 3 : 2;
+    if (chain.steps.length !== want) throw bad(kind, `${at}.steps`, type === "bep"
+      ? "must be exactly three steps: task teams confirm, the Lead firm signs off, the Client accepts"
+      : "must be exactly two steps, each naming a party: the issuer, then the acceptor");
+    chain.steps.forEach((s, i) => {
+      const p = `${at}.steps[${i}]`;
+      if (!isObj(s)) throw bad(kind, p, "must be an object");
+      if (!filled(s.name) || s.name.length > 80) throw bad(kind, `${p}.name`, "must be a non-empty string of at most 80 characters");
+      if (type === "bep") {
+        const w = BEP_CHAIN[i];
+        const exact = Object.keys(s).length === Object.keys(w).length + 1 && Object.entries(w).every(([k, v]) => s[k] === v);
+        if (!exact) throw bad(kind, p, `must be {name, ${Object.entries(w).map(([k, v]) => `${k}: "${v}"`).join(", ")}} — only the name may differ`);
+      } else {
+        if (Object.keys(s).some((k) => !["name", "role", "party"].includes(k))) throw bad(kind, p, "must be exactly {name, role, party}");
+        if (!REVIEW_ROLES.includes(s.role)) throw bad(kind, `${p}.role`, "must be viewer, contributor, lead or owner");
+        if (!REVIEW_PARTIES.includes(s.party)) throw bad(kind, `${p}.party`, "must name the party that decides it: appointing (the Client), lead_appointed (the Lead firm) or appointed (a Firm)");
+      }
+    });
+  }
+}
 const intCount = (v) => Number.isInteger(v) && v >= 0 && v <= 2147483647; // a C# int: a larger count would not load in Revit
 const texts = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
 const names = (v) => Array.isArray(v) && v.every(filled);
@@ -399,8 +430,8 @@ export function validateArtefact(kind, body) {
     // role, approvals}. The database reads it (review_template, migration 0032) and a chain snapshots it at the share, so
     // a key it would not read is refused, not kept. steps [] is no chain: a project's own review@n with no steps turns
     // its office's off. approvals: the distinct people the step needs, which is how a step runs in parallel.
-    const stray = Object.keys(body).find((k) => k !== "steps");
-    if (stray !== undefined) throw bad(kind, stray, "is not a review field — the body is exactly {steps: [{name, role, approvals}]}");
+    const stray = Object.keys(body).find((k) => k !== "steps" && k !== "documents");
+    if (stray !== undefined) throw bad(kind, stray, "is not a review field — the body is exactly {steps: [{name, role, approvals}]} and, when documents go through review, documents");
     if (!Array.isArray(body.steps) || body.steps.length > 6) throw bad(kind, "steps", "must be an array of 0 to 6 steps");
     objects(kind, "steps", body.steps, (s, at) => {
       const strayStep = Object.keys(s).find((k) => !REVIEW_STEP.includes(k));
@@ -411,6 +442,7 @@ export function validateArtefact(kind, body) {
       if (s.role === "viewer" && s.party === undefined) throw bad(kind, `${at}.party`, "a viewer step must name the party that decides it (appointing, lead_appointed or appointed)");
       if (!(Number.isInteger(s.approvals) && s.approvals >= 1 && s.approvals <= 5)) throw bad(kind, `${at}.approvals`, "must be an integer 1..5");
     });
+    if (body.documents !== undefined) validateDocumentChains(kind, body.documents);
   }
   if (kind === "lod_matrix") {
     // The office's LOD matrix (Promote v1, MA-2b): per class, what DD means, the stage map (D18) and the snap (D16). One reader,

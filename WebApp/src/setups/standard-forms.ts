@@ -107,6 +107,9 @@ const aiPolicy: StandardForm = {
 // the party that decides it (documents design 2026-10-24 §7, call 16): that is how the Client accepts.
 const REVIEW_ROLES: [string, string][] = [["viewer", "A viewer or above (only with a party named)"], ["contributor", "A contributor, lead or owner (not viewers)"], ["lead", "A lead or the owner"], ["owner", "The owner"]];
 const REVIEW_PARTIES: [string, string][] = [["", "Anyone with the role"], ["appointing", "The Client"], ["lead_appointed", "The Lead firm"], ["appointed", "A Firm (task team)"]];
+// R2d: the parties an EIR step names (spec §17 words) and the least role each decides with.
+const DOC_PARTIES: [string, string][] = [["appointing", "Client"], ["lead_appointed", "Lead firm"], ["appointed", "Firm"]];
+const docRole = (party: string) => ({ role: party === "appointing" ? "viewer" : party === "lead_appointed" ? "lead" : "contributor", party });
 const review: StandardForm = {
   kind: "review", title: "Review chain",
   intro: "The sign-offs a shared container needs before it is published, in order. No steps: no review chain. \"Who decides\" names the party whose members decide the step; a viewer step must name one.",
@@ -118,12 +121,52 @@ const review: StandardForm = {
       { key: "party", label: "Who decides", type: "select", options: REVIEW_PARTIES },
       { key: "approvals", label: "Approvals needed", type: "number", width: "5rem" },
     ],
-  }],
-  fromBody: (b) => ({ steps: (Array.isArray(b?.steps) ? b.steps : []).map((s: Body) => row(s, { name: text(s.name), role: text(s.role || "lead"), party: text(s.party || ""), approvals: text(s.approvals ?? 1) })) }),
+  }, { key: "docs_on", label: "Documents go through review", type: "check", hint: "Off: a BEP or EIR is published directly. On: it is issued or published only through a review round, in the steps below." },
+  { key: "bep_1", label: "BEP step 1: the task teams confirm", type: "text" },
+  { key: "bep_2", label: "BEP step 2: the Lead firm signs off", type: "text" },
+  { key: "bep_3", label: "BEP step 3: the Client decides", type: "text" },
+  { key: "eir_issuer", label: "EIR: issued by", type: "select", options: DOC_PARTIES },
+  { key: "eir_issuer_name", label: "EIR step 1 name", type: "text" },
+  { key: "eir_acceptor", label: "EIR: accepted by", type: "select", options: DOC_PARTIES },
+  { key: "eir_acceptor_name", label: "EIR step 2 name", type: "text" }],
+  fromBody: (b) => {
+    const docs = (b?.documents ?? {}) as Record<string, { steps?: Body[] } | undefined>;
+    const bs = docs.bep?.steps ?? [], es = docs.eir?.steps ?? [];
+    return {
+      steps: (Array.isArray(b?.steps) ? b.steps : []).map((s: Body) => row(s, { name: text(s.name), role: text(s.role || "lead"), party: text(s.party || ""), approvals: text(s.approvals ?? 1) })),
+      docs_on: !!(docs.bep || docs.eir),
+      bep_1: text(bs[0]?.name) || "Task teams confirm", bep_2: text(bs[1]?.name) || "Lead sign-off", bep_3: text(bs[2]?.name) || "Client",
+      eir_issuer: text(es[0]?.party) || "lead_appointed", eir_issuer_name: text(es[0]?.name) || "Issue",
+      eir_acceptor: text(es[1]?.party) || "appointing", eir_acceptor_name: text(es[1]?.name) || "Accept",
+    };
+  },
   toBody: (m) => {
     const steps = rows(m, "steps");
     if (steps.length > 6) throw new Error("A review chain has at most 6 steps");
+    const docName = (k: string, what: string) => {
+      const n = str(m, k);
+      if (!n) throw new Error(`${what} needs a name`);
+      if (n.length > 80) throw new Error(`${what}'s name is longer than 80 characters`);
+      return n;
+    };
+    const party = (k: string, what: string) => {
+      const p = str(m, k);
+      if (!DOC_PARTIES.some(([v]) => v === p)) throw new Error(`${what}: choose the Client, the Lead firm or a Firm`);
+      return p;
+    };
+    const documents = m.docs_on === true ? {
+      bep: { steps: [
+        { name: docName("bep_1", "BEP step 1"), role: "contributor", kind: "task_teams" },
+        { name: docName("bep_2", "BEP step 2"), role: "lead", party: "lead_appointed" },
+        { name: docName("bep_3", "BEP step 3"), role: "viewer", party: "appointing" },
+      ] },
+      eir: { steps: [
+        { name: docName("eir_issuer_name", "EIR step 1"), ...docRole(party("eir_issuer", "EIR issuer")) },
+        { name: docName("eir_acceptor_name", "EIR step 2"), ...docRole(party("eir_acceptor", "EIR acceptor")) },
+      ] },
+    } : null;
     return {
+      ...(documents ? { documents } : {}),
       steps: steps.map((r, i) => {
         const name = str(r.v, "name");
         if (!name) throw new Error(`Step ${i + 1} needs a name`);

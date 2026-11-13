@@ -49,6 +49,36 @@ describe("standard forms — a body in force, read and written back, still insta
   });
 });
 
+describe("standard forms — the review form's document chains (R2d)", () => {
+  const f = STANDARD_FORMS.review;
+  it("is off by default and writes no documents key", () => {
+    const m = f.fromBody({ steps: [] });
+    expect(f.fields.some((x) => x.key === "docs_on" && x.label === "Documents go through review")).toBe(true);
+    expect(m.docs_on).toBe(false);
+    expect(f.toBody(m, null, ctx)).toEqual({ steps: [] });
+  });
+  it("on, it writes the BEP and EIR chains with the defaults, and they install", () => {
+    const m = f.fromBody({ steps: [] });
+    m.docs_on = true;
+    const out = f.toBody(m, null, ctx);
+    expect(validateArtefact("review", out)).toBe(true);
+    expect(out.documents).toEqual({
+      bep: { steps: [{ name: "Task teams confirm", role: "contributor", kind: "task_teams" }, { name: "Lead sign-off", role: "lead", party: "lead_appointed" }, { name: "Client", role: "viewer", party: "appointing" }] },
+      eir: { steps: [{ name: "Issue", role: "lead", party: "lead_appointed" }, { name: "Accept", role: "viewer", party: "appointing" }] },
+    });
+  });
+  it("round-trips a body with documents, and says a blank name or party in words", () => {
+    const m = f.fromBody({ steps: [] }); m.docs_on = true; m.eir_issuer = "appointed"; m.eir_acceptor_name = "Client accepts";
+    const body = f.toBody(m, null, ctx);
+    expect(roundTrip("review", body)).toEqual(body);
+    expect(validateArtefact("review", body)).toBe(true);
+    m.bep_2 = " ";
+    expect(() => f.toBody(m, null, ctx)).toThrow(/BEP step 2 needs a name/);
+    m.bep_2 = "x"; m.eir_issuer = "";
+    expect(() => f.toBody(m, null, ctx)).toThrow(/choose the Client, the Lead firm or a Firm/);
+  });
+});
+
 describe("standard forms — a new standard, filled in by hand, installs", () => {
   it("naming from nothing: key from the label, values as an enum, a pattern kept as typed", () => {
     const f = STANDARD_FORMS.naming;

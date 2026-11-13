@@ -678,7 +678,7 @@ describe("validateArtefact — review", () => {
     [{ steps: null }, "review: steps must be an array of 0 to 6 steps"],
     [{ steps: "lead" }, "review: steps must be an array of 0 to 6 steps"],
     [{ steps: Array.from({ length: 7 }, () => step) }, "review: steps must be an array of 0 to 6 steps"],
-    [{ ...review, folder: "Architecture" }, "review: folder is not a review field — the body is exactly {steps: [{name, role, approvals}]}"],
+    [{ ...review, folder: "Architecture" }, "review: folder is not a review field — the body is exactly {steps: [{name, role, approvals}]} and, when documents go through review, documents"],
     [{ steps: [{ ...step, role: "viewer" }] }, "review: steps[0].party a viewer step must name the party that decides it (appointing, lead_appointed or appointed)"],
     [{ steps: [{ ...step, party: "client" }] }, "review: steps[0].party must be appointing (the Client), lead_appointed (the Lead firm) or appointed (a Firm)"],
     [{ steps: ["lead"] }, "review: steps[0] must be an object"],
@@ -695,6 +695,33 @@ describe("validateArtefact — review", () => {
     [{ steps: [{ name: "Check", role: "lead" }] }, "review: steps[0].approvals must be an integer 1..5"],
   ])("%j is a 400: %s", (body, message) => {
     expect(fails("review", body)).toMatchObject({ status: 400, message });
+  });
+  // R2d Task 2: document chains.
+  const bep = { steps: [{ name: "Task teams confirm", role: "contributor", kind: "task_teams" }, { name: "Lead sign-off", role: "lead", party: "lead_appointed" }, { name: "Client", role: "viewer", party: "appointing" }] };
+  const eir = { steps: [{ name: "Issue", role: "lead", party: "lead_appointed" }, { name: "Accept", role: "viewer", party: "appointing" }] };
+  it("accepts a BEP chain, an EIR chain, both, and no documents key", () => {
+    expect(validateArtefact("review", { ...review, documents: { bep } })).toBe(true);
+    expect(validateArtefact("review", { steps: [], documents: { eir } })).toBe(true);
+    expect(validateArtefact("review", { steps: [], documents: { bep, eir } })).toBe(true);
+    expect(validateArtefact("review", { steps: [], documents: {} })).toBe(true);
+  });
+  it.each([
+    [{ documents: { sop: bep } }, /documents\.sop is not a document type/],
+    [{ documents: { readiness: bep } }, /documents\.readiness has no review chain/],
+    [{ documents: { tidp: eir } }, /documents\.tidp has no review chain/],
+    [{ documents: { bep: { steps: [] } } }, /documents\.bep\.steps must list the steps/],
+    [{ documents: { bep: { steps: bep.steps.slice(0, 2) } } }, /exactly three steps/],
+    [{ documents: { bep: { steps: [bep.steps[0], { ...bep.steps[1], party: "appointing" }, bep.steps[2]] } } }, /only the name may differ/],
+    [{ documents: { bep: { steps: [{ ...bep.steps[0], approvals: 1 }, bep.steps[1], bep.steps[2]] } } }, /only the name may differ/],
+    [{ documents: { bep: { steps: [bep.steps[0], bep.steps[1], { ...bep.steps[2], name: "" }] } } }, /bep\.steps\[2\]\.name must be a non-empty/],
+    [{ documents: { eir: { steps: [eir.steps[0]] } } }, /exactly two steps/],
+    [{ documents: { eir: { steps: [eir.steps[0], { name: "Accept", role: "viewer" }] } } }, /eir\.steps\[1\]\.party must name the party/],
+    [{ documents: { eir: { steps: [eir.steps[0], { ...eir.steps[1], party: "client" }] } } }, /eir\.steps\[1\]\.party must name the party/],
+    [{ documents: [] }, /documents must be an object/],
+  ])("%j is a 400", (extra, re) => {
+    const e = fails("review", { steps: [], ...extra });
+    expect(e).toMatchObject({ status: 400 });
+    expect(e.message).toMatch(re);
   });
   it("installs review@1 lead-only and audited; an office's template reaches a project with none; the project's own steps [] outranks it", async () => {
     const d = memDeps({ parentKey: "aster-office" });
