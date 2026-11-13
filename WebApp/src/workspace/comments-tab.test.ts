@@ -11,11 +11,11 @@ const members = [
   { user_id: "u2", email: "arch@x", role: "lead", party: "lead_appointed", task_team: null, state: "active" },
   { user_id: "u3", email: "new@x", role: "contributor", party: "appointed", task_team: "STR", state: "invited" },
 ] as never;
-function ctx(o: { focused?: string | null; threads?: Thread[]; canTeam?: boolean; level?: string; post?: unknown } = {}) {
+function ctx(o: { focused?: string | null; threads?: Thread[]; canTeam?: boolean; level?: string; post?: unknown; me?: string } = {}) {
   const post = vi.fn((o.post as never) ?? (async () => ({ id: "n" })));
   const reload = vi.fn(async () => {});
   const st = { ...emptyState("snowdon"), doc: { id: "d1", sections: [{ id: "s1", heading: "Scope" }] }, threads: o.threads ?? [], members, canTeam: !!o.canTeam, defaultAudience: o.canTeam ? "team" : "everyone",
-    access: { level: o.level ?? "comment", party: null, can_team: !!o.canTeam, default_audience: "everyone" }, message: "Only a lead can do that." };
+    access: { level: o.level ?? "comment", party: null, can_team: !!o.canTeam, default_audience: "everyone" }, me: o.me ?? "", message: "Only a lead can do that." };
   return { ws: { post, reload, state: () => st }, st, doc: fakeDocument(), focused: o.focused === undefined ? "s1" : o.focused } as any;
 }
 const tick = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0)); };
@@ -67,8 +67,22 @@ describe("commentsTab", () => {
     const area = all(el, "textarea")[0]; area.value = "please see"; sel.value = "arch@x"; fire(sel, "change");
     expect(area.value).toBe("please see @arch@x ");
   });
+  it("review R2c-3: Resolve shows only to the author, the assignee or a lead; nothing but reading at can read", () => {
+    const threads = [th("t1"), th("t2", { assignee: { uid: "u9", email: "me@x" } }), th("t3", { author: "ME@x" })];
+    const item = (el: HTMLElement, id: string) => all(el, "div").find((n) => (n as any).dataset.thread === id)!;
+    const other = commentsTab(ctx({ threads, me: "me@x" }));
+    expect(by(item(other, "t1"), "Resolve")).toHaveLength(0); // someone else's thread, not assigned to me
+    expect(by(item(other, "t2"), "Resolve")).toHaveLength(1); // assigned to me
+    expect(by(item(other, "t3"), "Resolve")).toHaveLength(1); // mine (any case)
+    expect(all(item(other, "t1"), "select").some((s) => textOf(s).startsWith("Assign"))).toBe(true);
+    const reader = commentsTab(ctx({ threads, level: "read", me: "me@x" }));
+    for (const id of ["t1", "t2", "t3"]) {
+      expect(by(item(reader, id), "Resolve")).toHaveLength(0);
+      expect(all(item(reader, id), "select").some((s) => textOf(s).startsWith("Assign"))).toBe(false);
+    }
+  });
   it("Reply, Resolve, Reopen and Assign call the routes and re-read", async () => {
-    const c = ctx({ threads: [th("t1"), th("t2", { resolved: true, assignee: { uid: "u2", email: "arch@x" } })] }); const el = commentsTab(c);
+    const c = ctx({ level: "govern", threads: [th("t1"), th("t2", { resolved: true, assignee: { uid: "u2", email: "arch@x" } })] }); const el = commentsTab(c);
     const item = (id: string) => all(el, "div").find((n) => (n as any).dataset.thread === id)!;
     all(item("t1"), "textarea")[0].value = "ok"; click(by(item("t1"), "Reply")[0]); await tick();
     expect(c.ws.post).toHaveBeenLastCalledWith("/bimdocs/snowdon/d1/comments/threads/t1/reply", { text: "ok" });

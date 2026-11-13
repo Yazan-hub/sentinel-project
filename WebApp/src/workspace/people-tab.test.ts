@@ -71,6 +71,12 @@ describe("a lead's People tab", () => {
     expect(c.ws.write).toHaveBeenCalledWith("PUT", "/access", { members: { "5": "read" }, teams: { ARC: "comment" } });
     expect(c.refresh).toHaveBeenCalledWith("all");
   });
+  it("review R2c-2: an override the editor does not show (an invited member's) survives a Save", async () => {
+    const c = ctx(MEMBERS, { govern: true, access: { members: { "5": "read", "invited-9": "edit" }, teams: {} } });
+    const root = peopleTab(c); await flush();
+    click(labelled(root, "Save access")); await flush();
+    expect(c.ws.write).toHaveBeenCalledWith("PUT", "/access", { members: { "5": "read", "invited-9": "edit" }, teams: {} });
+  });
   it("Save with every choice back on Project role sends empty lists (clears the overrides)", async () => {
     const c = ctx(MEMBERS, { govern: true, access: { members: { "5": "read" }, teams: {} } });
     const root = peopleTab(c); await flush();

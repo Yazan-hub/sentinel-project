@@ -11,6 +11,15 @@ describe("every document writer calls requireDocAccess (design §6)", () => {
   const all = fns(src("bimdocs-store.mjs"));
   it("the list names exactly the store functions that write", () =>
     expect(Object.keys(all).filter((n) => WRITE.test(all[n])).sort()).toEqual([...WRITERS].sort()));
+  // Review R2c-6: the level each writer asks, pinned — a writer moved from "edit" to "read" fails here, not in a drill.
+  // patchSection asks govern too when the section lead changes; pickStart reads the EIR it starts from.
+  const LEVELS = { createDoc: ["edit"], patchSection: ["edit", "govern"], transitionDoc: ["govern"], publishDoc: ["govern"], createDocFromIngest: ["edit"],
+    setSectionBindings: ["govern"], setSectionAnswer: ["edit"], setSectionPlan: ["govern"], setDocAccess: ["govern"], addSection: ["govern"], removeSection: ["govern"],
+    renameSection: ["govern"], reorderSections: ["govern"], addBlock: ["edit"], editBlock: ["edit"], removeBlock: ["edit"], reorderBlocks: ["edit"], pickStart: ["govern", "read"] };
+  it("each writer asks the level it should", () => {
+    expect(Object.keys(LEVELS).sort()).toEqual([...WRITERS].sort());
+    for (const n of WRITERS) expect([...all[n].matchAll(/(?:requireDocAccess\([^,]+,[^,]+,|openForWrite\([^,]+,[^,]+,) *"(\w+)"/g)].map((m) => m[1]), n).toEqual(LEVELS[n]);
+  });
   it("each writer asks requireDocAccess; the store never asks only the project role", () => {
     for (const n of WRITERS) expect(all[n], n).toMatch(ACCESS);
     expect(src("bimdocs-store.mjs")).not.toMatch(/requireMinRole\(/);

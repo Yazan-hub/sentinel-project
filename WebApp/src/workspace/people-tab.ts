@@ -97,8 +97,9 @@ export function peopleTab(ctx: PaneCtx): HTMLElement {
     }
     const save = btn(d, "Save access", true);
     save.addEventListener("click", () => {
-      const body: { members: Record<string, string>; teams: Record<string, string> } = { members: {}, teams: {} };
-      for (const [r, sel] of picks) if (sel.value) body[r.kind === "team" ? "teams" : "members"][r.key] = sel.value;
+      // Review R2c-2: start from what is stored, so an override this editor does not show (an invited member's) survives a Save.
+      const body: { members: Record<string, string>; teams: Record<string, string> } = { members: { ...(doc?.access?.members ?? {}) }, teams: { ...(doc?.access?.teams ?? {}) } };
+      for (const [r, sel] of picks) { const bag = body[r.kind === "team" ? "teams" : "members"]; if (sel.value) bag[r.key] = sel.value; else delete bag[r.key]; }
       note.textContent = ""; void saved(ctx.ws.write("PUT", "/access", body));
     });
     box.append(save);

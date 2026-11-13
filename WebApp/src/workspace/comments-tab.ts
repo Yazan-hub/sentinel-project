@@ -29,6 +29,9 @@ export function commentsTab(ctx: PaneCtx): HTMLElement {
   const note = h(d, "div", `color:${C.warn};font:11px system-ui;margin:.4rem 0;line-height:1.4`);
   const level = st.access?.level;
   const canComment = !level || level !== "read";
+  // Review R2c-3: resolve is the author's, the assignee's or a lead's (the bridge refuses anyone else), and nothing but reading at "can read".
+  const me = String(st.me ?? "").toLowerCase(), isLead = level === "govern" || st.role === "lead" || st.role === "owner";
+  const mayResolve = (t: Thread): boolean => canComment && (isLead || String(t.author).toLowerCase() === me || String(t.assignee?.email ?? "").toLowerCase() === me);
 
   // Every action: send through the controller, then re-read the threads (which redraws this tab); a refusal says the bridge's words here.
   const act = async <T,>(sent: Promise<T | null>): Promise<void> => {
@@ -89,7 +92,8 @@ export function commentsTab(ctx: PaneCtx): HTMLElement {
       if (!assign.value) return;
       note.textContent = ""; void act(ctx.ws.post(`${base}/${pathSegment(t.id)}/assign`, { assignee_uid: assign.value === "-" ? null : assign.value }));
     });
-    bar.append(resolve, assign);
+    if (mayResolve(t)) bar.append(resolve);
+    if (canComment) bar.append(assign);
     item.append(bar);
     return item;
   };
