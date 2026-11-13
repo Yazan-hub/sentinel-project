@@ -58,6 +58,13 @@ export async function sendEmailCode(email: string): Promise<{ ok: boolean; messa
   }
 }
 
+/** GoTrue's "Token has expired or is invalid" in plain words, naming the address (R2a row 7: a code typed for the wrong address). */
+export function codeRefusal(email: string, raw: string): string {
+  return /expired|invalid/i.test(raw)
+    ? `That code does not work for ${email.trim()}. Check that this is the address the code was sent to (the back arrow lets you change it) and that you typed the newest code, or send another code.`
+    : raw;
+}
+
 /** Verify the code the user typed → establishes the session in-place (no redirect). */
 export async function verifyEmailCode(email: string, code: string): Promise<{ ok: boolean; message: string }> {
   try {
@@ -66,7 +73,7 @@ export async function verifyEmailCode(email: string, code: string): Promise<{ ok
       token: code.trim(),
       type: "email",
     });
-    return error ? { ok: false, message: error.message } : { ok: true, message: "Signed in." };
+    return error ? { ok: false, message: codeRefusal(email, error.message) } : { ok: true, message: "Signed in." };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   }
