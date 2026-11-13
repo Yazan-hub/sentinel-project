@@ -261,6 +261,10 @@ export function reviewLines(doc: DocRow, versions: VersionListRow[]): string[] {
   ];
 }
 
+/** "Read by 3 of 4" for the latest version: how many active members have opened it. "" when the count was not read. */
+export const readsLine = (r: { read?: unknown[]; of?: number } | null): string =>
+  r && Array.isArray(r.read) && typeof r.of === "number" ? `Read by ${r.read.length} of ${r.of}` : "";
+
 export function moveId(order: string[], id: string, dir: -1 | 1): string[] {
   const i = order.indexOf(id), j = i + dir;
   if (i < 0 || j < 0 || j >= order.length) return order;

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  createWorkspace, emptyState, docProblems, reopenTarget, becameVisible, pickBep, resolveSection, rightsOf, reviewLines, moveId,
+  createWorkspace, emptyState, docProblems, reopenTarget, becameVisible, pickBep, resolveSection, rightsOf, reviewLines, readsLine, moveId,
   CONFLICT_QUESTION, STATUS_CHANGED, REFRESHED, type WorkspaceState,
 } from "./workspace-state";
 import type { DocRow } from "../sentinel-core/doc-blocks";
@@ -222,6 +222,10 @@ describe("rights, reopen, review lines, moves", () => {
   it("resolveSection: an id first, then a template key", () => {
     const d = doc({ sections: [S1, { ...S1, id: "s9", template_key: "delivery-plans" }] });
     expect([resolveSection(d, "s1"), resolveSection(d, "delivery-plans"), resolveSection(d, "nope"), resolveSection(d, undefined)]).toEqual(["s1", "s9", null, null]);
+  });
+  it("readsLine: Read by N of M, or nothing when the count was not read", () => {
+    expect(readsLine({ read: [{}, {}, {}], of: 4 })).toBe("Read by 3 of 4");
+    expect(readsLine(null)).toBe(""); expect(readsLine({} as never)).toBe("");
   });
   it("reviewLines", () => {
     const tail = "Review rounds (send for review, who must decide, what is frozen) come in a later release. Share and publish from the Documents tab.";

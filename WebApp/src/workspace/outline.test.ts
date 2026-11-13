@@ -72,7 +72,7 @@ function ctx(canGovern: boolean, o: { focused?: string | null; versions?: Versio
   const refresh = vi.fn();
   const ws = { write, pending: () => 0, get: vi.fn((o.get as any) ?? (async () => ({ checks: [], planned: [] }))), state: () => st };
   return { ws, st, doc: fakeDocument(), base: "", canEdit: canGovern, canGovern, focused: o.focused === undefined ? "s1" : o.focused,
-    focus: vi.fn(), show: vi.fn(), refresh, openDoc: vi.fn() } as any;
+    focus: vi.fn(), show: vi.fn(), showTab: vi.fn(), refresh, openDoc: vi.fn() } as any;
 }
 const live = (focused: string | null) => ctx(true, { focused });
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -107,8 +107,6 @@ describe("outlinePane", () => {
   it("Add with a section focused goes after it; Rename and Section lead use the section's path", async () => {
     expect(await press(live("s1"), "Add section")).toHaveBeenCalledWith("POST", "/section", { heading: "New heading", after: "s1" });
     expect(await press(live("s1"), "Rename")).toHaveBeenCalledWith("PUT", "/section/s1/heading", { heading: "New heading" });
-    vi.mocked(askText).mockResolvedValueOnce("");
-    expect(await press(live("s1"), "Section lead…")).toHaveBeenCalledWith("PATCH", "/section/s1", { owner: null });
   });
   it("a stored null section does not stop Move; the order leaves it out", async () => {
     const c = ctx(true, { focused: "s2", d: doc({ sections: [null as never, sec("s1"), sec("s2")] }) });
@@ -124,8 +122,6 @@ describe("outlinePane", () => {
     expect(await press(live(null), "Add section")).not.toHaveBeenCalled();
     vi.mocked(askText).mockResolvedValueOnce("");
     expect(await press(live("s1"), "Rename")).not.toHaveBeenCalled();
-    vi.mocked(askText).mockResolvedValueOnce(null);
-    expect(await press(live("s1"), "Section lead…")).not.toHaveBeenCalled();
     vi.mocked(askYesNo).mockResolvedValueOnce(false);
     expect(await press(live("s1"), "Remove")).not.toHaveBeenCalled();
     expect(await press(live("s1"), "Move up")).not.toHaveBeenCalled();
@@ -196,6 +192,19 @@ describe("outlinePane", () => {
   it("the document with no sections matching a filter says so", () => {
     const el = outlinePane(ctx(true, { d: doc({ sections: [sec("s1", { bindings: bound })] }) })); click(labelled(el, "Unbound"));
     expect(textOf(el)).toContain("No section matches.");
+  });
+});
+
+describe("R2c: section leads are picked in the People tab", () => {
+  it("Section lead… opens the People tab and writes nothing", async () => {
+    const c = live("s1"); click(labelled(outlinePane(c), "Section lead…")); await tick();
+    expect(c.showTab).toHaveBeenCalledWith("people"); expect(c.ws.write).not.toHaveBeenCalled();
+  });
+  it("a lead who is invited or not a member says so in the chip's title", () => {
+    const title = (members: unknown) => { const c = live("s1"); c.st.members = members; return (findAll(outlinePane(c), "span").find((s) => (s as any).attrs?.get("title")?.startsWith("Lead@X.com")) as any).attrs.get("title"); };
+    expect(title([{ email: "lead@x.com", state: "invited" }])).toBe("Lead@X.com · Invited");
+    expect(title([{ email: "other@x.com", state: "active" }])).toBe("Lead@X.com · Not a member");
+    expect(title([{ email: "lead@x.com", state: "active" }])).toBe("Lead@X.com");
   });
 });
 

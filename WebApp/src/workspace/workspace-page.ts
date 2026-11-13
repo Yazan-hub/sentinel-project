@@ -8,7 +8,8 @@ import { currentUser } from "../setups/auth";
 import { askYesNo } from "../setups/ask";
 import { aiPicker } from "../setups/ai-picker";
 import { statusLine, type DocRow } from "../sentinel-core/doc-blocks";
-import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
+import { pathSegment } from "../setups/escape-html";
+import { becameVisible, createWorkspace, readsLine, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
 import { editPane, type Carried, type EditorHandle, type EditPaneEl } from "./block-editors";
 import { ingestView, type IngestProposal } from "./ingest-view";
@@ -23,7 +24,7 @@ import { compareView, versionsView } from "./versions-view";
 
 export type View = "edit" | "read" | "compare" | "versions";
 export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; base: string; canEdit: boolean; canGovern: boolean;
-  focused: string | null; focus(sectionId: string): void; show(view: View): void; refresh(part: "outline" | "side" | "all"): void;
+  focused: string | null; focus(sectionId: string): void; show(view: View): void; refresh(part: "outline" | "side" | "all"): void; showTab(tab: keyof typeof SIDE_TABS): void;
   openDoc(docId: string): Promise<void> /* the page's own open: view reset, remembered as this project's last document */;
   /** Set by the edit view for the editors it opens: show this fresh row's version of one section without closing its open editors. */
   sectionApplied?(sectionId: string, fresh: DocRow): Promise<void>;
@@ -43,6 +44,12 @@ export const SIDE_TABS: Record<"quality" | "review" | "comments" | "people", (ct
   review: (ctx) => {
     const box = h(ctx.doc, "div");
     if (ctx.st.doc) box.append(...reviewLines(ctx.st.doc, ctx.st.versions).map((line) => h(ctx.doc, "p", SIDE_TEXT, line)));
+    const latest = ctx.st.versions.reduce<number | null>((a, v) => (a === null || v.version_no > a ? v.version_no : a), null);
+    if (ctx.st.doc && latest !== null) { // R2c: who has opened the latest version (the bridge writes a receipt on a first read)
+      const line = h(ctx.doc, "p", SIDE_TEXT);
+      box.append(line);
+      void ctx.ws.get<{ read: unknown[]; of: number }>(`/bimdocs/${pathSegment(ctx.st.key)}/${pathSegment(ctx.st.doc.id)}/versions/${latest}/reads`).then((r) => { line.textContent = readsLine(r); });
+    }
     return box;
   },
   comments: commentsTab,
@@ -114,7 +121,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
 
   const ctx = (): PaneCtx => {
     const st = ws.state();
-    return { ws, st, doc: d, base, ...rightsOf(st), focused, focus, show, refresh, openDoc: (id) => root.open(id), editorOf: (id) => pane?.el.editor(id) };
+    return { ws, st, doc: d, base, ...rightsOf(st), focused, focus, show, refresh, showTab, openDoc: (id) => root.open(id), editorOf: (id) => pane?.el.editor(id) };
   };
 
   function renderHeader(c: PaneCtx): void {
@@ -183,6 +190,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     renderMessage(c); // a write that landed may have changed the top message
     (part === "outline" ? renderOutline : renderSide)(c);
   }
+  function showTab(t: keyof typeof SIDE_TABS): void { tab = t; renderSide(ctx()); }
   function focus(sectionId: string): void {
     focused = sectionId;
     const c = ctx();

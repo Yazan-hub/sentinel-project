@@ -58,6 +58,20 @@ describe("workspace page: ingest", () => {
   });
 });
 
+describe("R2c: the Review tab says how many have read the latest version", () => {
+  it("Read by 3 of 4 when the reads route answers 3 rows of 4", async () => {
+    answers["/bimdocs/k/d1"] = row("BEP", []);
+    answers["/bimdocs/k/d1/versions"] = [{ id: "v1", version_no: 1, label: "L1", published_by: "a", published_at: "2026-11-01T00:00:00Z" }, { id: "v2", version_no: 2, label: "L2", published_by: "a", published_at: "2026-11-02T00:00:00Z" }];
+    answers["/bimdocs/k/d1/versions/2/reads"] = { read: [{ email: "a@x", at: "t" }, { email: "b@x", at: "t" }, { email: "c@x", at: "t" }], of: 4 };
+    const p = page();
+    await p.el.open("d1"); await tick();
+    const review = findAll(p.side, "button").find((b) => textOf(b) === "Review")!;
+    click(review); await tick();
+    expect(textOf(p.side)).toContain("Read by 3 of 4");
+    expect(calls.some((c) => c.path === "/bimdocs/k/d1/versions/2/reads")).toBe(true);
+  });
+});
+
 describe("workspace page: READINESS and TIDP", () => {
   it("a TIDP document opens in Read with the read-only note above it", async () => {
     answers["/bimdocs/k/d1"] = row("TIDP", []);

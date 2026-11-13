@@ -3,6 +3,7 @@
 import type { CommentRow, DocRow, Executability, SectionRow, Snapshot } from "../sentinel-core/doc-blocks";
 import { STAGE_WORDS, statusLine } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "../setups/ask";
+import { leadStatus } from "./people-tab";
 import { pathSegment } from "../setups/escape-html";
 import { C, btn, h } from "./dom";
 import { hasStart, isComprehensive } from "./bep-start";
@@ -128,7 +129,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
       row.setAttribute("type", "button");
       const top = h(d, "div", "display:flex;gap:.4rem;align-items:baseline");
       const lead = h(d, "span", `color:${C.muted};font:600 10px system-ui;flex:0 0 auto`, initials(s.owner));
-      if (s.owner) lead.setAttribute("title", s.owner);
+      if (s.owner) lead.setAttribute("title", [s.owner, leadStatus(s.owner, st.members)].filter(Boolean).join(" · ")); // "Invited" or "Not a member" when the lead is no active member
       top.append(h(d, "span", `color:${C.muted};font:11px system-ui;flex:0 0 auto`, String(doc.sections.indexOf(s) + 1)), h(d, "span", "flex:1;min-width:0;overflow-wrap:anywhere", String(s.heading ?? "")), lead);
       row.append(top);
       const chips = sectionChips(s, st.ex, st.comments);
@@ -190,10 +191,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
       if (await askYesNo(removeQuestion(s, await labels()), { ok: "Remove", doc: d }))
         await done(ctx.ws.write("POST", `/section/${seg}/remove`, { confirm_bound: true }));
     }));
-    add("Section lead…", onSection(async (s, seg) => {
-      const owner = await askText("Section lead's e-mail. Leave it empty to clear.", { placeholder: s.owner ?? "", doc: d });
-      if (owner !== null) await done(ctx.ws.write("PATCH", `/section/${seg}`, { owner: owner || null }));
-    }));
+    add("Section lead…", () => { say(""); ctx.showTab("people"); }); // the People tab picks a lead from the members
     return bar;
   };
 
