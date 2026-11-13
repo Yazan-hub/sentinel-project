@@ -39,4 +39,11 @@ describe("a code that cannot be sent is explained in words (F-R2a-6)", () => {
     expect(sendRefusal("For security purposes, you can only request this after 52 seconds.")).toMatch(/^Too many codes/);
   });
 });
+describe("F-R2a-7: Code sent is good news", () => {
+  it("the code card shows a sent code in the good-news colour and a refusal in red", () => {
+    expect(src).toContain('.sx-ok{font-size:12px;color:#4ade80}');
+    expect(src).toContain('(msg ? `<div class="${msgOk ? "sx-ok" : "sx-err"}" role="${msgOk ? "status" : "alert"}">${esc(msg)}</div>` : "") +');
+    expect(src).toContain('if (r.ok) { codeSent = true; msg = r.message; msgOk = true;');
+  });
+});
 

@@ -66,6 +66,7 @@ const STYLE = `
 .sx-primary:focus-visible{outline:2px solid #a78bfa;outline-offset:2px}
 .sx-primary[aria-busy="true"]{opacity:.7;cursor:progress}
 .sx-err{font-size:12px;color:#f87171}
+.sx-ok{font-size:12px;color:#4ade80}
 .sx-toast{position:absolute;top:40px;right:0;width:max-content;max-width:300px;display:flex;gap:8px;align-items:flex-start;padding:9px 12px;border-radius:10px;background:#16161a;border:1px solid #2c2c34;box-shadow:0 12px 30px rgba(0,0,0,.45);font-size:12.5px;color:#e5e7eb;transition:opacity .4s}
 .sx-toast svg{color:#34d399;flex:none;margin-top:1px}
 `;
@@ -84,6 +85,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
   let session: Session | null = null;
   let view: View = "closed";
   let msg = "";          // the open form's refusal, in words
+  let msgOk = false;     // F-R2a-7: the code card's "Code sent" is good news, not a refusal
   let busy = false;
   let dismissed = false; // the sign-in card was closed: a signed-out 401 (the Issues feed's, every 3 s) must not reopen it
   let formEmail = "";    // kept across a failed sign-in's re-render
@@ -138,7 +140,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     `<div class="sx-title"><button type="button" class="sx-iconbtn" id="sx-back-signin" aria-label="Back to the password sign-in">${icon("back")}</button><span class="sx-grow">Sign in with a code</span><button type="button" class="sx-iconbtn" id="sx-close" aria-label="Close">${icon("close")}</button></div>` +
     `<label class="sx-field"><span>Email</span><input id="sx-email" type="email" autocomplete="username" placeholder="you@firm.com" value="${esc(formEmail)}" ${codeSent ? "readonly" : ""}></label>` +
     (codeSent ? '<label class="sx-field"><span>The code from the e-mail</span><input id="sx-code" inputmode="numeric" autocomplete="one-time-code" placeholder="12345678"></label>' : "") +
-    (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
+    (msg ? `<div class="${msgOk ? "sx-ok" : "sx-err"}" role="${msgOk ? "status" : "alert"}">${esc(msg)}</div>` : "") +
     `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? (codeSent ? "Signing in…" : "Sending…") : (codeSent ? "Sign in" : "Send me a code")}</button>` +
     (codeSent ? '<button type="button" class="sx-item" id="sx-again">Send another code</button>'
       // The invitation e-mail already holds a code: typing it must not cost a second e-mail (the mail service sends a limited number an hour).
@@ -210,11 +212,12 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
       busy = true; msg = ""; render();
       const r = await sendEmailCode(email);
       busy = false;
-      if (r.ok) { codeSent = true; msg = r.message; render(); q("sx-code")?.focus(); }
-      else { msg = r.message; if (view === "code") { render(); q("sx-email")?.focus(); } }
+      if (r.ok) { codeSent = true; msg = r.message; msgOk = true; render(); q("sx-code")?.focus(); }
+      else { msgOk = false; msg = r.message; if (view === "code") { render(); q("sx-email")?.focus(); } }
       return;
     }
     const code = (q<HTMLInputElement>("sx-code")?.value ?? "").trim();
+    msgOk = false;
     if (!code) { msg = "Enter the code from the e-mail."; render(); q("sx-code")?.focus(); return; }
     busy = true; msg = ""; render();
     const r = await verifyEmailCode(email, code);
