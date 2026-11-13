@@ -1270,9 +1270,11 @@ const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "revie
   // R2a (documents design §10 Ledger): who is in which party and who was invited are the membership trigger's and invitations-store's rows.
   "member_invited", "member_joined", "invitation_revoked", "membership_party_changed",
   // R1c: the office register's install is office-register.mjs's row (the verified lead), never a note.
-  "office_register_installed"];
+  "office_register_installed",
+  // R2c: per-document access and the comment rows are the bridge's own (verified actor and uid), never a note.
+  "document_access_changed", "comment_added", "comment_resolved", "comment_assigned", "team_thread_changed"];
 // Issue sign-offs (2026-10-21): bcf_topic rows are topic-ledger.mjs's — written with the topic change itself, never through this route.
-const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic", "annex"];
+const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic", "annex", "doc_team_thread"];
 
 /** Record an audit event by project KEY (golden thread) — the DB trigger hash-chains it (tamper-evident). A reserved
  *  row (an action starting with one of RESERVED_ACTIONS, or an entity_type in RESERVED_TYPES; case and surrounding

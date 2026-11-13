@@ -2,13 +2,14 @@
 // Thin PostgREST wrapper in the exact idiom of cde-store.mjs: state machine + append-only versions
 // enforced here + in the DB (0020); every write audited into the project's hash-chained trail.
 import { createHash, randomUUID } from "node:crypto";
-import { sb, ensureProject, audit, isUuid, docGet, docInsert, docReplaceIfField } from "./cde-store.mjs";
+import { sb, ensureProject, audit, isUuid } from "./cde-store.mjs";
 import { loadTemplates, pickTemplate, instantiateTemplate, validateTransition, validateDocTransition, buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
 import { CHECKS, getCheck, runCheck, PLANNED_CHECKS } from "./check-registry.mjs";
-import { requireDocAccess } from "./doc-access.mjs";
-import { ROLE_RANK } from "./members-store.mjs";
+import { addThread, listFlat } from "./comments-store.mjs";
+import { requireDocAccess, effectiveLevel, validateAccess, DELIVERY } from "./doc-access.mjs";
+import { ROLE_RANK, listMembers, myMembership } from "./members-store.mjs";
 import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS, ASSUMPTIONS } from "./doc-blocks.mjs";
-import { resolveActor } from "./bridge-auth.mjs";
+import { resolveActor, currentSub } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
 import { getSnapshot, getScan } from "./office-store.mjs";
@@ -96,6 +97,15 @@ export async function getDoc(key, docId) {
   return row;
 }
 
+/** R2c: a changed section lead is the e-mail of a member of the project (active or invited), or empty. */
+async function requireLeadMember(key, owner) {
+  if (owner == null || owner === "") return;
+  const email = typeof owner === "string" ? owner.trim().toLowerCase() : "";
+  const members = await listMembers(key);
+  if (!members.some((m) => (m.state === "active" || m.state === "invited") && String(m.email).toLowerCase() === email))
+    throw err(400, `${owner} is not a member of this project. Invite them in Project Settings, Members, then pick them as section lead.`);
+}
+
 export async function patchSection(key, docId, sectionId, { body, owner, state, updated_at, actor } = {}) {
   const doc = await openForWrite(key, docId, "edit", updated_at); // H0 (D4, ledger-1): editing a section is a contributor's
   const i = doc.sections.findIndex((s) => s.id === sectionId);
@@ -103,7 +113,7 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   const old = doc.sections[i];
   if (state !== undefined && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
   // A section lead change is a lead's; an unchanged owner (the old panel sends it on every save) asks nothing more.
-  if (owner !== undefined && owner !== (old.owner ?? null)) await requireDocAccess(key, doc, "govern");
+  if (owner !== undefined && owner !== (old.owner ?? null)) { await requireDocAccess(key, doc, "govern"); await requireLeadMember(key, owner); }
   // The old panel only saves text-only sections: the body goes into the one text block, else a 422 and nothing is written.
   const text = body !== undefined && body !== old.body ? applyOldPanelBody({ ...old, blocks: blocksOf(old) }, body) : {};
   const next = { ...old, ...text, ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
@@ -113,6 +123,34 @@ export async function patchSection(key, docId, sectionId, { body, owner, state, 
   const row = await patchSections(doc, sections);
   await audit(doc.project_id, "bim_document", docId, "section_updated", actor || "web", ...facts);
   return row;
+}
+
+/** The people of an access list with their e-mails, for the ledger row: { members: {uid: {email, level}}, teams }. */
+const accessFacts = (access, members) => ({
+  members: Object.fromEntries(Object.entries(access?.members ?? {}).map(([uid, level]) => [uid, { email: members.find((m) => m.user_id === uid)?.email ?? null, level }])),
+  teams: access?.teams ?? {},
+});
+
+/** R2c: a lead sets who can read, comment or edit this document (people and task teams); an empty body clears every override. */
+export async function setDocAccess(key, docId, access, actor) {
+  const doc = await getDoc(key, docId);
+  await requireDocAccess(key, doc, "govern");
+  const members = await listMembers(key);
+  const teams = ((await sb(`task_teams?project_id=eq.${enc(doc.project_id)}&select=code`, { service: true })) || []).map((t) => t.code);
+  const next = validateAccess(access, members, teams);
+  const row = await writeDoc(doc, { access: next }, `&updated_at=eq.${enc(doc.updated_at)}`);
+  await audit(doc.project_id, "bim_document", docId, "document_access_changed", actor || "web", accessFacts(doc.access, members), accessFacts(next, members));
+  return row;
+}
+
+/** R2c: what the caller may do on this document → { level, party, can_team, default_audience }. level is read|comment|edit|govern. */
+export async function myDocAccess(key, docId) {
+  const doc = await getDoc(key, docId);
+  const me = await myMembership(key);
+  const service = me.role === "service";
+  const level = service ? "govern" : effectiveLevel(me.role, doc.access, currentSub(), me.task_team);
+  const can_team = !service && me.state === "active" && DELIVERY.includes(me.party);
+  return { level, party: me.party ?? null, can_team, default_audience: can_team ? "team" : "everyone" };
 }
 
 export async function transitionDoc(key, docId, { to, actor } = {}) {
@@ -531,59 +569,15 @@ export async function reorderBlocks(key, docId, sectionId, { order, updated_at, 
   return row;
 }
 
-// ── Section comments — OUTSIDE the document (store "doc_comments"): commenting on a PUBLISHED
-// document must not touch its frozen bytes. Append-only; author is ALWAYS the verified identity.
-const COMMENTS_STORE = "doc_comments";
-export const MAX_COMMENT_CHARS = 4000;
+// ── Section comments — OUTSIDE the document (comments-store.mjs, R2c): commenting on a PUBLISHED document must not touch its frozen bytes.
+// The old panel's two calls stay: a flat list of the Everyone comments, and a comment on a section (a thread with the caller's default audience).
+export { MAX_COMMENT_CHARS } from "./comments-store.mjs";
 
-export async function listComments(key, docId) {
-  const doc = await getDoc(key, docId); // membership + isUuid + 404 in one place
-  const bag = await docGet(COMMENTS_STORE, doc.project_id, docId);
-  return bag?.comments || [];
-}
+export const listComments = (key, docId) => listFlat(key, docId);
 
 export async function addComment(key, docId, sectionId, text, actor) {
-  const doc = await getDoc(key, docId); // published/archived are FINE — we never write the doc row
-  await requireDocAccess(key, doc, "comment"); // 0038: doc_comments is the bridge's alone — any member comments, checked here
-  const section = doc.sections.find((s) => s.id === sectionId);
-  if (!section) throw err(404, `section not found — available: ${doc.sections.map((s) => s.id).join(", ")}`);
-  const body = typeof text === "string" ? text.trim() : "";
-  if (!body) throw err(400, "comment text is required");
-  if (body.length > MAX_COMMENT_CHARS) throw err(400, `comment too long (${body.length}; limit ${MAX_COMMENT_CHARS})`);
-  const comment = {
-    id: randomUUID(), section_id: sectionId,
-    author: resolveActor(actor, "web"),   // verified identity outranks any claim, as everywhere
-    text: body, created_at: new Date().toISOString(),
-  };
-  // Optimistic concurrency: two reviewers commenting simultaneously is THE use case, and a plain
-  // read-modify-write would let the last write silently swallow the other's comment. The bag
-  // carries a rev counter; the write is conditional on the rev we read (legacy bags: rev absent →
-  // is.null condition). A lost race just re-reads and retries.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const bag = await docGet(COMMENTS_STORE, doc.project_id, docId);
-    if (!bag) {
-      try {
-        await docInsert(COMMENTS_STORE, doc.project_id, docId, { comments: [comment], rev: 1 }, { service: true });
-      } catch (e) {
-        // A permission denial is not a lost race — retrying it four times and calling the store "busy"
-        // hid an RLS mismatch for a whole walkthrough. Say what it is.
-        if (e?.status === 401 || e?.status === 403) throw err(403, "you are not allowed to comment on this project");
-        continue; // concurrent first-insert won — re-read and CAS onto it
-      }
-      await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
-        { section: section.heading, chars: body.length });
-      return comment;
-    }
-    const next = { comments: [...(bag.comments || []), comment], rev: (bag.rev || 0) + 1 };
-    const won = await docReplaceIfField(COMMENTS_STORE, doc.project_id, docId, next, "rev",
-      bag.rev === undefined ? null : String(bag.rev), { service: true });
-    if (won) {
-      await audit(doc.project_id, "bim_document", docId, "comment_added", actor || "web", null,
-        { section: section.heading, chars: body.length });
-      return comment;
-    }
-  }
-  throw err(409, "comment store is busy — please retry");
+  const t = await addThread(key, docId, { anchor: { section_id: sectionId }, text }, actor);
+  return { id: t.id, section_id: sectionId, author: t.author, text: t.text, created_at: t.created_at };
 }
 
 /** Cap on bound checks evaluated per compliance run — bounds a doc's latency to O(cap), not O(bindings). */

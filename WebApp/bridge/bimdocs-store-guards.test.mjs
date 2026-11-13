@@ -47,7 +47,8 @@ vi.mock("./members-store.mjs", () => ({
         throw Object.assign(new Error(`this action requires the ${min} role`), { status: 403 });
     }
   }),
-  listMembers: vi.fn(async () => []),
+  listMembers: vi.fn(async () => [{ user_id: "u1", email: "a@b", role: "viewer", party: null, state: "active" }]),
+  myMembership: vi.fn(async () => ({ role: globalThis.__testRole || "service", party: null, task_team: null, state: "active" })),
 }));
 vi.mock("./office-store.mjs", () => ({
   getSnapshot: vi.fn(async () => ({ source: { kind: "template", title: "T.rte" }, at: "2026-09-10T08:00:00Z", received_at: "2026-09-10T08:00:01Z", pack: { worksets: [] }, catalog: { count: 0, types: [] }, ruleset: null })),

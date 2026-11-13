@@ -45,7 +45,8 @@ vi.mock("./members-store.mjs", () => ({
     }
     return globalThis.__testRole || "service";
   }),
-  listMembers: vi.fn(async () => []),
+  listMembers: vi.fn(async () => [{ user_id: "u1", email: "lead@x", role: "viewer", party: null, state: "active" }]),
+  myMembership: vi.fn(async () => ({ role: globalThis.__testRole || "service", party: null, task_team: null, state: "active" })),
   ROLE_RANK: { owner: 4, lead: 3, contributor: 2, viewer: 1 },
 }));
 vi.mock("./office-store.mjs", () => ({
@@ -692,5 +693,50 @@ describe("R1b: shipped templates instantiate cleanly, and the list says which to
     sb.mockImplementation(async () => [doc]);
     expect((await executabilityReport("k", doc.id)).variant).toBeNull();
     await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 422 });
+  });
+});
+
+// R2c: section leads are members; a lead sets per-document access; the caller's level.
+const { listMembers, myMembership } = vi.mocked(await import("./members-store.mjs"));
+const { setDocAccess, myDocAccess } = await import("./bimdocs-store.mjs");
+describe("R2c section lead and document access", () => {
+  const people = [{ user_id: "u1", email: "Lead@X", role: "lead", party: "lead_appointed", state: "active" },
+    { user_id: "u2", email: "inv@x", role: "viewer", party: null, state: "invited" }, { user_id: "u3", email: "vw@x", role: "viewer", party: null, state: "active" }];
+  beforeEach(() => { listMembers.mockResolvedValue(people); });
+  it("a non-member e-mail is refused in words; nothing is written", async () => {
+    await expect(patchSection("k", doc.id, "sec1", { owner: "ghost@x" })).rejects.toMatchObject({ status: 400, message: "ghost@x is not a member of this project. Invite them in Project Settings, Members, then pick them as section lead." });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+  });
+  it("an active or an invited member's e-mail is accepted (any case); an empty lead clears; an unchanged legacy lead passes", async () => {
+    await patchSection("k", doc.id, "sec1", { owner: "lead@x" });
+    await patchSection("k", doc.id, "sec1", { owner: "inv@x" });
+    doc.sections[0].owner = "legacy@gone.com";
+    await patchSection("k", doc.id, "sec1", { owner: "legacy@gone.com", body: "x" });
+    await patchSection("k", doc.id, "sec1", { owner: null });
+    expect(sb.mock.calls.filter(([, o]) => o?.method === "PATCH")).toHaveLength(4);
+  });
+  it("setDocAccess stores the normalised list and writes one ledger row with e-mails beside the uids", async () => {
+    sb.mockImplementation(async (p, o) => (p.startsWith("task_teams") ? [{ code: "ARC" }] : [doc]));
+    await setDocAccess("k", doc.id, { members: { u3: "edit" }, teams: { arc: "read" } }, "lead@x");
+    const patch = sb.mock.calls.find(([p, o]) => p.startsWith("bim_documents") && o?.method === "PATCH");
+    expect(patch[1].body.access).toEqual({ members: { u3: "edit" }, teams: { ARC: "read" } });
+    expect(patch[0]).toContain(`&updated_at=eq.${encodeURIComponent(doc.updated_at)}`);
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", doc.id, "document_access_changed", "lead@x", { members: {}, teams: {} }, { members: { u3: { email: "vw@x", level: "edit" } }, teams: { ARC: "read" } });
+  });
+  it("setDocAccess is a lead's and refuses a bad list in words before any write", async () => {
+    globalThis.__testRole = "contributor";
+    try { await expect(setDocAccess("k", doc.id, { members: {} }, "a")).rejects.toMatchObject({ status: 403 }); } finally { globalThis.__testRole = undefined; }
+    sb.mockImplementation(async (p) => (p.startsWith("task_teams") ? [] : [doc]));
+    await expect(setDocAccess("k", doc.id, { members: { u1: "read" } }, "a")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("Leads and owners") });
+    expect(sb.mock.calls.some(([p, o]) => p.startsWith("bim_documents") && o?.method === "PATCH")).toBe(false);
+  });
+  it("myDocAccess answers the level, party and the default audience", async () => {
+    myMembership.mockResolvedValueOnce({ role: "viewer", party: "appointed", task_team: "ARC", state: "active" });
+    doc.access = { teams: { ARC: "edit" } };
+    expect(await myDocAccess("k", doc.id)).toEqual({ level: "edit", party: "appointed", can_team: true, default_audience: "team" });
+    myMembership.mockResolvedValueOnce({ role: "viewer", party: "appointing", task_team: null, state: "active" });
+    expect(await myDocAccess("k", doc.id)).toEqual({ level: "comment", party: "appointing", can_team: false, default_audience: "everyone" });
+    myMembership.mockResolvedValueOnce({ role: "service", party: null, task_team: null, state: "active" });
+    expect(await myDocAccess("k", doc.id)).toMatchObject({ level: "govern", can_team: false, default_audience: "everyone" });
   });
 });

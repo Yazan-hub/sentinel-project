@@ -2197,6 +2197,9 @@ async function handleRequest(req, res) {
   //   POST /bimdocs/:key/:docId/section { heading, guidance?, after? } · PUT .../section/:sid/heading { heading } · POST .../section/:sid/remove { confirm_bound? }
   //   PUT  /bimdocs/:key/:docId/outline { order: [sectionId] }
   //   POST /bimdocs/:key/:docId/start { start: "eir_received" | "no_eir", eir_id?, updated_at? }  (a lead's; the only writer of responds_to)
+  //   GET  /bimdocs/:key/:docId/me → {level, party, can_team, default_audience} · PUT /bimdocs/:key/:docId/access {members, teams} (a lead's)
+  //   GET  /bimdocs/:key/:docId/comments/threads → {threads, can_team, default_audience} · POST .../comments/threads {anchor, text, audience}
+  //   POST /bimdocs/:key/:docId/comments/threads/:tid/reply {text} | resolve {resolved} | assign {assignee_uid}   (GET .../comments stays flat, Everyone only)
   //   POST /bimdocs/:key/:docId/section/:sid/blocks { kind, title?, data?, after? } · PUT .../blocks { order: [blockId] }
   //   PUT  /bimdocs/:key/:docId/section/:sid/blocks/:bid { title?, data? } · POST .../blocks/:bid/remove   (all take updated_at?)
   if (top === "bimdocs") {
@@ -2296,8 +2299,19 @@ async function handleRequest(req, res) {
         }
         return send(res, 200, rep);
       }
-      if (p1 && p2 && p3 === "comments" && req.method === "GET")
+      // R2c: threads with an audience (comments-store.mjs); the old flat list below stays for the old panel.
+      if (p1 && p2 && p3 === "comments" && p4 === "threads" && !seg[5] && req.method === "GET") return send(res, 200, await (await import("./comments-store.mjs")).listThreads(p1, p2));
+      if (p1 && p2 && p3 === "comments" && p4 === "threads" && !seg[5] && req.method === "POST")
+        return send(res, 201, await (await import("./comments-store.mjs")).addThread(p1, p2, { anchor: body.anchor, text: body.text, audience: body.audience }, actor));
+      if (p1 && p2 && p3 === "comments" && p4 === "threads" && seg[5] && ["reply", "resolve", "assign"].includes(seg[6]) && !seg[7] && req.method === "POST") {
+        const cs = await import("./comments-store.mjs");
+        return send(res, seg[6] === "reply" ? 201 : 200, await cs[seg[6] === "reply" ? "reply" : seg[6] === "resolve" ? "resolveThread" : "assignThread"](p1, p2, seg[5], body, actor));
+      }
+      if (p1 && p2 && p3 === "comments" && !p4 && req.method === "GET")
         return send(res, 200, await bimdocs.listComments(p1, p2));
+      // R2c: what the caller may do on this document, and a lead's per-document access.
+      if (p1 && p2 && p3 === "me" && !p4 && req.method === "GET") return send(res, 200, await bimdocs.myDocAccess(p1, p2));
+      if (p1 && p2 && p3 === "access" && !p4 && req.method === "PUT") return send(res, 200, await bimdocs.setDocAccess(p1, p2, { members: body.members, teams: body.teams }, actor));
       if (p1 && p2 && p3 === "section" && p4 && seg[5] === "comments" && req.method === "POST") {
         // Any MEMBER may comment (that's the viewer's whole affordance) — membership is enforced
         // by getDoc's ensureProject under a forwarded session; machine callers trusted as ever.
