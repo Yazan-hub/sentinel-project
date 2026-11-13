@@ -1268,7 +1268,7 @@ export async function audit(project_id, entity_type, entity_id, action, actor, o
 // MA-8-13 (D13): recipe:approved / recipe:withdrawn (entity_type recipe) are recipe-store's own - a run counts them as the two approvals, so a note may not pass for one.
 // MA-7-11: splat:placed (entity_type splat) is evidence-store placeSplat's - the newest row is where the web desk puts the splat again, so a note may not pass for one.
 // Ledger verification (2026-10-20): anchor:timestamped (entity_type ledger_anchor) is ledger-anchor.mjs's — an external timestamp a note may not pass for.
-const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:", "anchor:", "document_structure_changed", "document_start_picked",
+const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "review:", "changeset_reviewed", "changeset_reopened", "changeset_", "geometry linked", "evidence:", "attestation:", "verify:", "edit_cost:", "recipe:", "splat:", "anchor:", "document_structure_changed", "document_start_picked", "document_stage_changed",
   // R2a (documents design §10 Ledger): who is in which party and who was invited are the membership trigger's and invitations-store's rows.
   "member_invited", "member_joined", "invitation_revoked", "membership_party_changed",
   // R1c: the office register's install is office-register.mjs's row (the verified lead), never a note.

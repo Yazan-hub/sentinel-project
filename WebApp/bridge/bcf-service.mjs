@@ -2318,6 +2318,22 @@ async function handleRequest(req, res) {
         // by getDoc's ensureProject under a forwarded session; machine callers trusted as ever.
         return send(res, 201, await bimdocs.addComment(p1, p2, p4, body.text, actor));
       }
+      // R2d document rounds (rounds-store.mjs; a signed-in person's, the machine credential is a 403 before any call; the database's refusals keep their words):
+      //   POST /bimdocs/:key/:docId/rounds {deadline?: "YYYY-MM-DD", codes?: {shared?, issue?, accept?}, updated_at?} → 201 {round_id, render_sha, ledger_id}
+      //   GET  /bimdocs/:key/:docId/rounds/current → {round: roundView | null, words, stage, doc_status, suitability, chain, can_send, appointment: {can, needs_note}}
+      //   POST /bimdocs/:key/rounds/:roundId/decide {decision, note?} → {step, decision, closed, issued_version, published_version, status, doc_status, ledger_id, bcf}
+      //     (bcf: a rejection's one issue {guid} | {error}, else null; broadcast as a created topic)
+      //   POST /bimdocs/:key/rounds/:roundId/withdraw {note?} → {round_id, status: "voided", issued_version, ledger_id}
+      //   POST /bimdocs/:key/:docId/appointment-indicated {note?} → {document_id, stage: "confirmed", ledger_id}
+      if (p1 && p2 && p3 === "rounds" && !p4 && req.method === "POST") return send(res, 201, await (await import("./rounds-store.mjs")).sendForReview(p1, p2, body, actor));
+      if (p1 && p2 && p3 === "rounds" && p4 === "current" && !seg[5] && req.method === "GET") return send(res, 200, await (await import("./rounds-store.mjs")).currentRound(p1, p2));
+      if (p1 && p2 === "rounds" && p3 && p4 === "decide" && !seg[5] && req.method === "POST") {
+        const r = await (await import("./rounds-store.mjs")).decide(p1, p3, body);
+        if (r.bcf?.guid) broadcast(p1, { type: "topic", action: "created", guid: r.bcf.guid, title: "Review rejected" });
+        return send(res, 200, r);
+      }
+      if (p1 && p2 === "rounds" && p3 && p4 === "withdraw" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).withdraw(p1, p3, body));
+      if (p1 && p2 && p3 === "appointment-indicated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).appointmentIndicated(p1, p2, body));
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       // R1c: the facts the editor offers, and the live values of a document (the freeze preview: exactly what a publish would freeze).

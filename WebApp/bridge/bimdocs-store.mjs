@@ -14,6 +14,7 @@ import { resolveActor, currentSub } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
 import { getSnapshot, getScan } from "./office-store.mjs";
+import { roundView, ROUND_COLS, DECISION_COLS } from "./rounds-logic.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -54,11 +55,28 @@ const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc
 export const listTemplates = () =>
   loadTemplates().map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: t.default }));
 
+export const LOCKED = "This document is out for review: it changes only through the round. Withdraw it first.";
+/** R2d: refuse a write while a review round is open on the document (0053's trigger refuses the same write even with the service key).
+ *  An arrow const, not a function declaration: it is a read, and doc-access-writers.test.mjs lists the declarations that write. */
+export const requireUnlocked = async (doc) => {
+  const rows = await sb(`doc_rounds?document_id=eq.${enc(doc.id)}&status=eq.open&select=id,document_id,status`, { service: true });
+  if (Array.isArray(rows) && rows.some((r) => r?.document_id === doc.id && r?.status === "open")) throw err(409, LOCKED);
+};
+/** R2d: the review chain (review@n documents.<type>.steps) that applies to this document's type on its project, or null (publish as before). */
+export const chainFor = async (doc) => {
+  const type = String(doc?.doc_type ?? "").toLowerCase();
+  if (type !== "bep" && type !== "eir") return null;
+  const c = await sb(`rpc/doc_review_chain?p_project=${enc(doc.project_id)}&p_doc_type=${type}`, { service: true }); // a stable function: a GET, so a read never looks like a write
+  return Array.isArray(c) && c.length && c.every((s) => s && typeof s.name === "string") ? c : null;
+};
+export const THROUGH_ROUND = "This document type is published through a review round on this project.";
+
 /** The start of every section write: read the document (a non-member gets the 404 here), ask for `level` on it, refuse a
  *  published or archived one, and refuse a write based on a stale copy (when the caller sent the updated_at it loaded). */
 async function openForWrite(key, docId, level, updated_at) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, level);
+  await requireUnlocked(doc); // R2d: a document out for review changes only through its round
   if (doc.status === "published" || doc.status === "archived") throw err(409, `document is ${doc.status}; revert to wip to edit`);
   if (updated_at && doc.updated_at !== updated_at) throw err(409, "stale write: document changed since you loaded it");
   return doc;
@@ -157,7 +175,11 @@ export async function myDocAccess(key, docId) {
 export async function transitionDoc(key, docId, { to, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
+  await requireUnlocked(doc);
   if (!validateDocTransition(doc.status, to)) throw err(400, `invalid transition ${doc.status} → ${to}`);
+  // R2d: where a review chain applies, Draft, Shared and Published are reached through the round only.
+  if ((to === "published" || (doc.status === "wip" && to === "shared") || (doc.status === "shared" && to === "wip")) && await chainFor(doc))
+    throw err(409, "Send it for review from the workspace: on this project this document moves between Draft, Shared and Published only through a review round.");
   const row = await writeStatus(doc, to);
   await audit(doc.project_id, "bim_document", docId, "transitioned", actor || "web", { status: doc.status }, { status: to });
   return row;
@@ -169,6 +191,9 @@ export const PUBLISH_COPY_REFUSED = "This document holds a value that cannot be 
 export async function publishDoc(key, docId, { label, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
+  await requireUnlocked(doc);
+  if (String(doc.doc_type).toLowerCase() === "tidp") throw err(409, "A TIDP is never published; its rows live in Deliverables.");
+  if (await chainFor(doc)) throw err(409, THROUGH_ROUND);
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   // R1c: what the preview showed is frozen into the version. Resolved BEFORE the status write: a source that cannot be read refuses the publish with nothing written.
   let frozen;
@@ -244,6 +269,15 @@ export async function myWork(key) {
   const sections = mail ? (docs || []).flatMap((d) => (d.sections || []).filter((s) => String(s.owner ?? "").toLowerCase() === mail)
     .map((s) => ({ doc_id: d.id, title: d.title, section_id: s.id, heading: s.heading }))) : [];
   const out = { sections, reviews: (reviews?.items || []).filter((i) => i.can_decide).map((i) => ({ version_id: i.version_id, container_name: i.container_name, step: i.step, name: i.name })), mentions: [], assigned: [] };
+  // R2d: the document rounds whose current step this caller may decide (read through the caller's own session: RLS applies; no render column).
+  const rounds = (await sb(`doc_rounds?project_id=eq.${enc(proj.id)}&status=eq.open&select=${ROUND_COLS}`)) || [];
+  if (rounds.length) {
+    const ds = (await sb(`doc_round_decisions?round_id=in.(${rounds.map((r) => enc(r.id)).join(",")})&select=${DECISION_COLS}`)) || [];
+    for (const r of rounds) {
+      const v = roundView(r, ds.filter((d) => d.round_id === r.id), { uid, rank: ROLE_RANK[me.role] || 0 });
+      if (v.can_decide) out.reviews.push({ doc_id: r.document_id, round_id: r.id, container_name: title.get(r.document_id) ?? null, step: v.current, name: v.steps[v.current - 1]?.name ?? null });
+    }
+  }
   const audiences = inDelivery(me) ? ["everyone", "team"] : ["everyone"];
   for (const aud of audiences) {
     const bags = (await sb(`bridge_docs?store=eq.${STORES[aud]}&project_id=eq.${enc(proj.id)}&select=doc_id,data`)) || []; // the caller's own session: RLS applies

@@ -20,6 +20,14 @@ describe("every document writer calls requireDocAccess (design §6)", () => {
     expect(Object.keys(LEVELS).sort()).toEqual([...WRITERS].sort());
     for (const n of WRITERS) expect([...all[n].matchAll(/(?:requireDocAccess\([^,]+,[^,]+,|openForWrite\([^,]+,[^,]+,) *"(\w+)"/g)].map((m) => m[1]), n).toEqual(LEVELS[n]);
   });
+  // R2d: a document out for review changes only through its round. Every writer of an existing document reaches requireUnlocked
+  // (openForWrite calls it; the two that do not open through it call it themselves); a new document and an access list have no round to lock.
+  it("every writer of an existing document reaches the lock helper", () => {
+    expect(all.openForWrite ?? src("bimdocs-store.mjs")).toMatch(/requireUnlocked\(doc\)/);
+    expect(src("bimdocs-store.mjs").match(/async function openForWrite[\s\S]*?\n}/)[0]).toMatch(/requireUnlocked\(doc\)/);
+    const NO_ROUND = ["createDoc", "createDocFromIngest", "setDocAccess"];
+    for (const n of WRITERS.filter((w) => !NO_ROUND.includes(w))) expect(all[n], n).toMatch(/openForWrite\(|requireUnlocked\(/);
+  });
   it("each writer asks requireDocAccess; the store never asks only the project role", () => {
     for (const n of WRITERS) expect(all[n], n).toMatch(ACCESS);
     expect(src("bimdocs-store.mjs")).not.toMatch(/requireMinRole\(/);
