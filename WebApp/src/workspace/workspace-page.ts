@@ -18,6 +18,7 @@ import { commentsTab } from "./comments-tab";
 import { outlinePane } from "./outline";
 import { qualityTab } from "./quality-tab";
 import { peopleTab } from "./people-tab";
+import { reviewTab } from "./review-tab";
 import { readinessView, READ_ONLY_NOTE } from "./readiness-view";
 import { readView } from "./read-view";
 import { startStrip } from "./start-strip";
@@ -33,7 +34,7 @@ export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; bas
   drafts?: Map<string, Carried>;
   /** The open editor of this block in the Edit view on screen now (after a redraw, not the one that started a call); undefined when none. */
   editorOf?(blockId: string): EditorHandle | undefined }
-export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View }): Promise<void>; openIngest(p: IngestProposal): void };
+export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View; tab?: keyof typeof SIDE_TABS }): Promise<void>; openIngest(p: IngestProposal): void };
 
 // Every view marks each section node with dataset.section = its id (PaneCtx.focus scrolls to it).
 export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPane, read: readView, compare: compareView, versions: versionsView };
@@ -44,7 +45,11 @@ export const SIDE_TABS: Record<"quality" | "review" | "comments" | "people", (ct
   people: peopleTab, // R2a: who is in which party
   review: (ctx) => {
     const box = h(ctx.doc, "div");
-    if (ctx.st.doc) box.append(...reviewLines(ctx.st.doc, ctx.st.versions).map((line) => h(ctx.doc, "p", SIDE_TEXT, line)));
+    if (ctx.st.doc) {
+      const lines = reviewLines(ctx.st.doc, ctx.st.versions);
+      if (ctx.st.round?.words) lines[0] = `Status: ${ctx.st.round.words}.`; // R2d: the plain words of the round
+      box.append(...lines.map((line) => h(ctx.doc, "p", SIDE_TEXT, line)), reviewTab(ctx));
+    }
     const latest = ctx.st.versions.reduce<number | null>((a, v) => (a === null || v.version_no > a ? v.version_no : a), null);
     if (ctx.st.doc && latest !== null) { // R2c: who has opened the latest version (the bridge writes a receipt on a first read)
       const line = h(ctx.doc, "p", SIDE_TEXT);
@@ -153,7 +158,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
   function renderHeader(c: PaneCtx): void {
     keyEl.textContent = c.st.key;
     titleEl.textContent = ingest ? "Review ingestion" : c.st.doc?.title ?? ""; // the review is not the open document: no title, status or views of it
-    statusEl.textContent = !ingest && c.st.doc ? statusLine(c.st.doc) : "";
+    statusEl.textContent = !ingest && c.st.doc ? c.st.round?.words || statusLine(c.st.doc) : "";
     viewBar.replaceChildren();
     if (ingest || !c.st.doc) return;
     if (view === "edit" && c.canEdit) viewBar.append(aiPicker(c.base, () => c.st.key)); // the one AI picker; Draft with AI reads its selection
@@ -236,6 +241,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
       ingest = null;
       view = at.view ?? (rightsOf(st).canEdit ? "edit" : "read");
       focused = null;
+      if (at.tab) tab = at.tab;
       renderAll();
       const sid = resolveSection(st.doc, at.section);
       if (sid) focus(sid);

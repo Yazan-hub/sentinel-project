@@ -115,6 +115,8 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     if (!r.ok) throw Object.assign(new Error((await r.json().catch(() => ({}))).message || `HTTP ${r.status}`), { status: r.status });
     return r.json();
   };
+  const SEND_FROM_WORKSPACE = "Send it for review from the workspace";
+  const hasChain = async (docId: string): Promise<boolean> => { try { return !!(await api(`/${encodeURIComponent(pid())}/${docId}/rounds/current`)).chain; } catch { return false; } };
   const actor = async () => { try { return (await currentUser())?.email || "web"; } catch { return "web"; } };
 
   let myRole: string | null = "service";
@@ -343,7 +345,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     // document-level transitions (governance)
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
-      for (const to of next[doc.status] || []) {
+      const chain = await hasChain(doc.id); // R2d: a document with a review chain is shared and published through a round, in the workspace
+      if (mine !== seq) return;
+      if (chain && (next[doc.status] || []).some((to) => to === "shared" || to === "published")) bar.append(Object.assign(document.createElement("span"), { textContent: SEND_FROM_WORKSPACE, style: "color:#9ca3af;font:11px system-ui" }));
+      for (const to of (next[doc.status] || []).filter((t) => !chain || (t !== "shared" && t !== "published"))) {
         const b = btn(to === "published" ? "Publish…" : doc.status === "published" && to === "wip" ? "→ wip (next revision)" : `→ ${to}`, to === "published");
         b.onclick = async () => {
           try {
@@ -486,7 +491,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     if (opts.onOpenWorkspace) { const ow = btn("Open workspace"); ow.onclick = () => opts.onOpenWorkspace!(doc.id); bar.append(ow); }
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
-      for (const to of next[doc.status] || []) {
+      const chain = await hasChain(doc.id); // R2d: a document with a review chain is shared and published through a round, in the workspace
+      if (mine !== seq) return;
+      if (chain && (next[doc.status] || []).some((to) => to === "shared" || to === "published")) bar.append(Object.assign(document.createElement("span"), { textContent: SEND_FROM_WORKSPACE, style: "color:#9ca3af;font:11px system-ui" }));
+      for (const to of (next[doc.status] || []).filter((t) => !chain || (t !== "shared" && t !== "published"))) {
         const b = btn(to === "published" ? "Publish…" : doc.status === "published" && to === "wip" ? "→ wip (next revision)" : `→ ${to}`, to === "published");
         b.onclick = async () => {
           try {

@@ -23,7 +23,15 @@ export interface WorkspaceDeps {
 export interface WorkspaceState { key: string; doc: DocRow | null; versions: VersionListRow[]; comments: CommentRow[] /* derived: one row per OPEN thread, for the outline */; ex: Executability | null;
   threads: Thread[]; canTeam: boolean; defaultAudience: Audience; members: MemberRow[] | null /* null: the list is for members */; access: MyAccess | null;
   live: LiveSet | null /* the freeze preview: GET …/live, null when refused */; role: string; me: string; problems: string[]; message: string; viewing: VersionRow | null;
-  respondsTo: { title: string; version_no: number | null } | null /* the EIR this document answers, loaded by open */ }
+  respondsTo: { title: string; version_no: number | null } | null /* the EIR this document answers, loaded by open */;
+  round: RoundCurrent | null /* R2d: GET …/rounds/current, null when not read */ }
+/** R2d: the document round on screen (the bridge's roundView) and what the caller may do about it. */
+export interface RoundStep { n: number; name: string; party_words: string; owed?: { team: string; decided_by: string | null }[];
+  decisions: { who: string; party_words: string; decision: string; note?: string | null; at: string; ledger_id: number | string }[]; complete: boolean }
+export interface RoundView { round_id: string; stage: string; status: string; status_words: string; codes: { shared?: string; issue?: string; accept?: string } | null; deadline: string | null;
+  sent_by_email: string | null; sent_at: string | null; steps: RoundStep[]; current: number; can_decide: boolean; why_not: string | null; choices: string[]; can_withdraw: boolean;
+  issued_version: number | null; outcome: string | null }
+export interface RoundCurrent { round: RoundView | null; words: string; stage: string; doc_status: string; suitability: string | null; chain: boolean; can_send: boolean; appointment: { can: boolean; needs_note: boolean } }
 export interface Workspace {
   open(docId: string): Promise<void>; reload(): Promise<void>; viewVersion(n: number | null): Promise<void>;
   write(method: "POST" | "PUT" | "PATCH", rest: string, body?: object): Promise<DocRow | null>; // rest after /bimdocs/:key/:docId
@@ -46,7 +54,7 @@ export const isStaleConflict = (message: unknown): boolean =>
   typeof message === "string" && /^stale write|changed or was issued meanwhile/.test(message);
 
 export const emptyState = (key: string): WorkspaceState => ({
-  key, doc: null, versions: [], comments: [], threads: [], canTeam: false, defaultAudience: "everyone", members: null, access: null, ex: null, live: null, role: "viewer", me: "", problems: [], message: "", viewing: null, respondsTo: null,
+  key, doc: null, versions: [], comments: [], threads: [], canTeam: false, defaultAudience: "everyone", members: null, access: null, ex: null, live: null, role: "viewer", me: "", problems: [], message: "", viewing: null, respondsTo: null, round: null,
 });
 
 type Reply = { status: number; body: any };
@@ -102,7 +110,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       const x = await call("GET", `/bimdocs/${pathSegment(key)}/${pathSegment(doc.responds_to)}`);
       return { title: (x && is2xx(x) && typeof x.body?.title === "string" && x.body.title) || "the linked EIR", version_no: doc.responds_to_version };
     };
-    const [versions, tr, ex, live, respondsTo, role, me, access, members] = await Promise.all([
+    const [versions, tr, ex, live, respondsTo, role, me, access, members, round] = await Promise.all([
       list<VersionListRow>(`${base}/versions`),
       call("GET", `${base}/comments/threads`).then((x) => (x && is2xx(x) && x.body && Array.isArray(x.body.threads) ? (x.body as { threads: Thread[]; can_team?: boolean; default_audience?: Audience }) : null)),
       call("GET", `${base}/executability`).then((x) => (x && is2xx(x) && x.body && typeof x.body === "object" ? (x.body as Executability) : null)),
@@ -112,13 +120,14 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       deps.me().catch(() => ""),
       call("GET", `${base}/me`).then((x) => (x && is2xx(x) && x.body && typeof x.body.level === "string" ? (x.body as MyAccess) : null)),
       call("GET", `/cde/${pathSegment(key)}/members`).then((x) => (x && is2xx(x) && Array.isArray(x.body) ? (x.body as MemberRow[]) : null)),
+      call("GET", `${base}/rounds/current`).then((x) => (x && is2xx(x) && x.body && typeof x.body === "object" && "words" in x.body ? (x.body as RoundCurrent) : null)),
     ]);
     const threads = tr?.threads ?? [];
     if (stale()) return false;
     // A write may have landed while this read ran: its newer row of the same document is kept over this older answer.
     const held = state.doc, newer = !!held && held.id === doc.id && state.key === key && typeof held.updated_at === "string" && typeof doc.updated_at === "string" && doc.updated_at < held.updated_at;
     const row = newer && held ? held : doc;
-    state = { key, doc: row, versions, comments: openComments(threads), threads, canTeam: !!(tr?.can_team ?? access?.can_team), defaultAudience: tr?.default_audience ?? access?.default_audience ?? "everyone", members, access, ex, live, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
+    state = { key, doc: row, versions, comments: openComments(threads), threads, canTeam: !!(tr?.can_team ?? access?.can_team), defaultAudience: tr?.default_audience ?? access?.default_audience ?? "everyone", members, access, ex, live, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo, round };
     render(state);
     return true;
   }
@@ -249,7 +258,7 @@ export function rightsOf(st: WorkspaceState): { canEdit: boolean; canGovern: boo
   const d = st.doc;
   const open = !!d && st.problems.length === 0 && (d.status === "wip" || d.status === "shared") && d.doc_type !== "READINESS" && d.doc_type !== "TIDP";
   const level = st.access?.level; // R2c: a document-level "can read" or "can comment" takes edit away from a contributor
-  return { canEdit: open && !st.viewing && canEditRole(st.role) && (!level || level === "edit" || level === "govern"), canGovern: open && canGovernRole(st.role) };
+  return { canEdit: open && st.round?.round?.status !== "open" /* R2d: the document is locked while a round is open */ && !st.viewing && canEditRole(st.role) && (!level || level === "edit" || level === "govern"), canGovern: open && canGovernRole(st.role) };
 }
 
 export function reviewLines(doc: DocRow, versions: VersionListRow[]): string[] {
@@ -257,7 +266,6 @@ export function reviewLines(doc: DocRow, versions: VersionListRow[]): string[] {
   return [
     `Status: ${statusLine(doc)}.`,
     latest ? `Latest version: v${latest.version_no}, ${latest.label}, ${String(latest.published_at ?? "").slice(0, 10)}.` : "No version yet.",
-    "Review rounds (send for review, who must decide, what is frozen) come in a later release. Share and publish from the Documents tab.",
   ];
 }
 

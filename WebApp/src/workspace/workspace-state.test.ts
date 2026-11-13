@@ -44,7 +44,7 @@ describe("the workspace controller", () => {
   it("open reads the document, then its versions, comments and score, the role and the caller", async () => {
     const t = setup(); await t.ws.open("d1");
     expect(t.json.mock.calls[0].slice(0, 2)).toEqual(["GET", "/bimdocs/a/d1"]);
-    expect(t.json.mock.calls.map((c) => c[1]).sort()).toEqual(["/bimdocs/a/d1", "/bimdocs/a/d1/comments/threads", "/bimdocs/a/d1/executability", "/bimdocs/a/d1/live", "/bimdocs/a/d1/me", "/bimdocs/a/d1/versions", "/cde/a/members"]);
+    expect(t.json.mock.calls.map((c) => c[1]).sort()).toEqual(["/bimdocs/a/d1", "/bimdocs/a/d1/comments/threads", "/bimdocs/a/d1/executability", "/bimdocs/a/d1/live", "/bimdocs/a/d1/me", "/bimdocs/a/d1/rounds/current", "/bimdocs/a/d1/versions", "/cde/a/members"]);
     expect(t.ws.state()).toMatchObject({ key: "a", doc: { id: "d1" }, role: "lead", me: "lead@x", problems: [], respondsTo: null, viewing: null });
   });
   it("R2c: threads, the caller's level and the members load with the document; the outline's comments are the open threads", async () => {
@@ -56,11 +56,22 @@ describe("the workspace controller", () => {
     expect(st.threads.length).toBe(3); expect(st.comments.map((c) => c.id)).toEqual(["t1"]);
     expect(st).toMatchObject({ canTeam: true, defaultAudience: "team", access: { level: "comment" }, members: [{ email: "m@x" }] });
   });
+  it("R2d: the current round loads with the document and again on reload", async () => {
+    const cur = { round: null, words: "Draft", stage: "pre_appointment", doc_status: "wip", suitability: "S0", chain: true, can_send: true, appointment: { can: false, needs_note: false } };
+    const t = setup((m, p) => p.endsWith("/rounds/current") ? ok(cur) : docRoute()(m, p));
+    await t.ws.open("d1");
+    expect(t.ws.state().round).toMatchObject({ words: "Draft", can_send: true });
+    cur.words = "Out for review"; await t.ws.reload();
+    expect(t.ws.state().round?.words).toBe("Out for review");
+  });
   it("R2c: a contributor whose level on this document is read or comment cannot edit; leads and an unset level keep today's rule", () => {
     const st = (role: string, level?: string) => ({ ...emptyState("a"), doc: doc(), role, access: level ? { level } : null }) as never;
     expect(rightsOf(st("contributor", "read")).canEdit).toBe(false); expect(rightsOf(st("contributor", "comment")).canEdit).toBe(false);
     expect(rightsOf(st("contributor", "edit")).canEdit).toBe(true); expect(rightsOf(st("contributor")).canEdit).toBe(true);
     expect(rightsOf(st("lead", "govern"))).toMatchObject({ canEdit: true, canGovern: true });
+    const locked = { ...(st("lead", "govern") as object), round: { round: { status: "open" } } } as never;
+    expect(rightsOf(locked).canEdit).toBe(false); // R2d: no edit while a round is open
+    expect(rightsOf({ ...(st("lead", "govern") as object), round: { round: null } } as never).canEdit).toBe(true);
   });
   it("a linked EIR's title is read for the page", async () => {
     const t = setup((m, p) => (p === "/bimdocs/a/e1" ? ok(doc({ id: "e1", doc_type: "EIR", title: "SNW EIR" })) : docRoute(doc({ responds_to: "e1", responds_to_version: 2 }))(m, p)));
@@ -228,8 +239,7 @@ describe("rights, reopen, review lines, moves", () => {
     expect(readsLine(null)).toBe(""); expect(readsLine({} as never)).toBe("");
   });
   it("reviewLines", () => {
-    const tail = "Review rounds (send for review, who must decide, what is frozen) come in a later release. Share and publish from the Documents tab.";
-    expect(reviewLines(doc(), [])).toEqual(["Status: Draft, S0.", "No version yet.", tail]);
+    expect(reviewLines(doc(), [])).toEqual(["Status: Draft, S0.", "No version yet."]);
     const v = (n: number, label: string, at: string) => ({ id: `v${n}`, version_no: n, label, published_by: "lead@x", published_at: at, revision: null, stage: "pre_appointment", suitability: "S0", sha: "ab" });
     expect(reviewLines(doc({ status: "published" }), [v(1, "v1", "2026-10-20T09:00:00Z"), v(2, "Pre-appointment (tender)", "2026-10-22T10:00:00Z")])[1]).toBe("Latest version: v2, Pre-appointment (tender), 2026-10-22.");
   });

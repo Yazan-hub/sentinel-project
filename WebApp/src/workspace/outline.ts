@@ -87,7 +87,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
     const stage = STAGE_WORDS[doc.stage] ?? doc.stage;
     box.append(
       h(d, "div", "font:600 13px system-ui;color:#fff;overflow-wrap:anywhere", doc.title),
-      h(d, "div", `color:${C.soft};font:11px system-ui;margin-top:.15rem`, `${statusLine(doc)} · ${stage}`),
+      h(d, "div", `color:${C.soft};font:11px system-ui;margin-top:.15rem`, `${st.round?.words || statusLine(doc)} · ${stage}`),
       h(d, "div", `color:${C.muted};font:11px system-ui`, latest ? `v${latest.version_no}, ${latest.label}` : "No version yet"),
     );
     const answers = answersLine(doc, st.respondsTo);
