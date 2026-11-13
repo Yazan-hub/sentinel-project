@@ -4100,3 +4100,18 @@ Run log: docs/testing/snowdon-lifecycle/R1c/R1c-RUN_2026-11-13.md. Plan: docs/su
 
 Findings: F-R1c-1 the Deliverables header did not wrap (fixed 17151f6f); F-R1c-2 a project tab clipped its right edge (fixed 459deba2).
 
+## Session R2c — access and comments: per-document access, section leads from members, Everyone / Delivery-team threads, read receipts, My work (2026-11-13 local, ~01:55–03:35; branch claude/recursing-moser-a8fde0; migration 0052 applied on the founder's "Yes, apply 0052"; the R2a row 7 invitee signed in with a real code first; Chrome signed in by the founder as the Firm viewer, gmail, user3, hotmail and the Firm viewer again; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R2c/R2c-RUN_2026-11-13.md. Plan: docs/superpowers/plans/2026-11-13-bim-documents-workspace-r2c.md.
+
+| Row | What | Result |
+|---|---|---|
+| 0 | 0052 applied; probe 3 of 3 and "5 of 5 as expected" on the real seats (the Client reads 0 Delivery-team rows) | ✅ |
+| 1, 3, 4, 5 | Read receipts: "Read by 1 of 5" → 2 → 3 → 4 | ✅ |
+| 2 | Access (user3 can read), a section lead from members, a Delivery-team thread with a mention, an Everyone thread assigned to the Client — ledger rows #3630–#3635, the team row neutral | ✅ |
+| 4 | user3 lowered to can read: no Edit, the old panel's save refused in words, both threads visible, the section in My work | ✅ after F-R2c-1 |
+| 5 | The Client sees Everyone only (and through the database: 0 team rows, a neutral ledger row), finds the assignment in My work, replies and resolves | ✅ |
+| 6 | A viewer of a Firm reads and writes Delivery team; the mention in My work | ✅ |
+
+Findings: F-R2c-1 stale My work after a sign-in change (fixed d434f08f); on the R2a side F-R2a-3 to F-R2a-7 (mail, invitee activation, plain-words code errors), all fixed.
+
