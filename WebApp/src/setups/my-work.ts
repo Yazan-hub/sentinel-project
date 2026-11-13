@@ -7,11 +7,11 @@ import { C, btn, h } from "../workspace/dom";
 
 export interface MyWork {
   sections: { doc_id: string; title: string; section_id: string; heading: string }[];
-  reviews: { version_id: string; container_name: string; step: number | string; name: string }[];
+  reviews: { version_id?: string; doc_id?: string; round_id?: string; container_name: string; step: number | string; name: string }[];
   mentions: { doc_id: string; title: string; thread_id: string; section_id?: string | null; by: string; at: string; excerpt: string }[];
   assigned: { doc_id: string; title: string; thread_id: string; section_id?: string | null; excerpt: string }[];
 }
-export type OpenAt = { section?: string };
+export type OpenAt = { section?: string; tab?: "review" };
 
 export const myWorkTotal = (w: MyWork | null): number => (w ? w.sections.length + w.reviews.length + w.mentions.length + w.assigned.length : 0);
 
@@ -25,7 +25,7 @@ export async function loadMyWork(base: string, key: string): Promise<MyWork | nu
   } catch { return null; }
 }
 
-/** Four headed lists; each line is a button that opens the document at its section (a review line opens the Review desk). */
+/** Four headed lists; each line is a button that opens the document at its section (a container review line opens the Review desk; a document round line opens that document at its Review tab). */
 export function myWorkList(d: Document, w: MyWork, open: (docId: string, at?: OpenAt) => void, openReview?: () => void): HTMLElement {
   const root = h(d, "div", `color:${C.soft};font:12px system-ui;line-height:1.5`);
   const group = (title: string, lines: { text: string; go: () => void }[]): void => {
@@ -39,7 +39,7 @@ export function myWorkList(d: Document, w: MyWork, open: (docId: string, at?: Op
     }
   };
   group("My sections", w.sections.map((s) => ({ text: `${s.title} · ${s.heading}`, go: () => open(s.doc_id, { section: s.section_id }) })));
-  group("My reviews", w.reviews.map((r) => ({ text: `${r.container_name} · ${r.name}`, go: () => openReview?.() })));
+  group("My reviews", w.reviews.map((r) => ({ text: `${r.container_name} · ${r.name}`, go: () => (r.doc_id ? open(r.doc_id, { tab: "review" }) : openReview?.()) })));
   group("Mentions", w.mentions.map((m) => ({ text: `${m.by} mentioned you in ${m.title}: ${m.excerpt}`, go: () => open(m.doc_id, m.section_id ? { section: m.section_id } : undefined) })));
   group("Assigned to me", w.assigned.map((a) => ({ text: `${a.title}: ${a.excerpt}`, go: () => open(a.doc_id, a.section_id ? { section: a.section_id } : undefined) })));
   return root;

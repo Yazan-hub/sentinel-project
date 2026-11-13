@@ -28,6 +28,12 @@ describe("myWorkList", () => {
     click(line("SNW TIDP")); expect(open).toHaveBeenLastCalledWith("d3", undefined); // a whole-document thread
     click(line("SNW-ARC-01")); expect(review).toHaveBeenCalledTimes(1);
   });
+  it("R2d: a document round line opens that document at its Review tab, not the Review desk", () => {
+    const open = vi.fn(), review = vi.fn();
+    const el = myWorkList(fakeDocument(), { ...EMPTY, reviews: [{ doc_id: "d9", round_id: "r1", container_name: "SNW BEP", step: 2, name: "Lead firm" }] }, open, review);
+    click(findAll(el, "button").find((b) => textOf(b).startsWith("SNW BEP"))!);
+    expect(open).toHaveBeenCalledWith("d9", { tab: "review" }); expect(review).not.toHaveBeenCalled();
+  });
   it("empty lists say Nothing here., once each", () => {
     const t = textOf(myWorkList(fakeDocument(), EMPTY, vi.fn()));
     expect(t.split("Nothing here.").length - 1).toBe(4); expect(t).toContain("Mentions (0)");
