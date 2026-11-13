@@ -96,6 +96,19 @@ describe("My work", () => {
     expect(w.mentions).toEqual([{ doc_id: DOC, title: "BEP", thread_id: "m1", section_id: "s1", by: "o@x", at: "t", excerpt: "text m1" }]);
     expect(w.assigned).toEqual([{ doc_id: DOC, title: "BEP", thread_id: "a1", section_id: "s1", excerpt: "text a1" }]);
   });
+  it("R2d: lists a document round whose step I may decide (with doc_id and round_id), and not one I may not", async () => {
+    const steps = [{ name: "Task teams", role: "contributor", kind: "task_teams" }, { name: "Lead firm", role: "lead", party: "lead_appointed" }];
+    const roster = [{ uid: "me", email: "me@x.com", party: "appointed", task_team: "ARC", role: "contributor" }, { uid: "o1", email: "other@x.com", party: "lead_appointed", role: "owner" }];
+    const rows = [{ id: "r1", document_id: DOC, doc_type: "BEP", stage: "confirmed", steps, teams_owed: ["ARC"], roster, sent_by: "o1", status: "open" },
+      { id: "r2", document_id: DOC2, doc_type: "BEP", stage: "confirmed", steps, teams_owed: ["ARC"], roster, sent_by: "o1", status: "open" }];
+    const base = sb.getMockImplementation();
+    sb.mockImplementation(async (p, o) => p.startsWith("doc_rounds?") ? rows : p.startsWith("doc_round_decisions?")
+      ? [{ round_id: "r2", step: 1, uid: "me", task_team: "ARC", decision: "accept" }] : base(p, o)); // I already decided r2
+    const w = await runWithAuth(jwt("me"), () => myWork("k"));
+    expect(w.reviews).toEqual([{ doc_id: DOC, round_id: "r1", container_name: "BEP", step: 1, name: "Task teams" }]);
+    expect(calls(/^doc_rounds/)[0][0]).not.toContain("select=*");
+    expect((await runWithAuth(jwt("o1"), () => myWork("k"))).reviews).toEqual([]); // the sender never decides
+  });
   it("never a team thread for the Client: the Delivery-team bag is not even asked for", async () => {
     stores.doc_comments_team = [{ doc_id: DOC, data: { events: [root("t1", { mentions: [{ uid: "c1", email: "client@x.com" }] })] } }];
     who = { role: "viewer", party: "appointing", task_team: null, state: "active" };
