@@ -117,6 +117,14 @@ describe("R2d-2: the client outside Sentinel and the skip rule", () => {
     expect(roundView(round({ roster: noClient, stage: "confirmed" }), [arc, str, lead2dec], { uid: "lead2", rank: 3 }).skip.can).toBe(false);
     expect(roundView(r1, [arc], { uid: "arc", rank: 2 }).skip.can).toBe(false);
   });
+  it("skip.can: a team only the sender could confirm, or whose members are no longer active, is skippable (the database's rule)", () => {
+    const withSender = round({ teams_owed: ["ARC", "SND"], roster: [...roster, { uid: "sender", email: "s@x", party: "lead_appointed", task_team: "SND", role: "owner" }] });
+    expect(roundView(withSender, [arc], { uid: "lead2", rank: 3 }).skip).toMatchObject({ can: true, teams: ["SND"] });
+    const gone = round({ teams_owed: ["ARC", "STR"] });
+    expect(roundView(gone, [arc], { uid: "lead2", rank: 3, activeUids: ["sender", "lead2", "arc"] }).skip).toMatchObject({ can: true, teams: ["STR"] });
+    expect(roundView(gone, [arc], { uid: "lead2", rank: 3, activeUids: ["sender", "lead2", "arc", "str"] }).skip.can).toBe(false);
+    expect(roundView(gone, [arc], { uid: "lead2", rank: 3 }).skip.can).toBe(false); // activeUids unknown: the roster stands
+  });
   it("a skipped team completes step 1 and shows as skipped; a skipped step 3 ends in 'Submitted, evaluation not recorded'", () => {
     const sk = { ...dec(2, 1, "lead2", "l2@x", "appointed", "STR", "skipped", "no engineer yet") };
     const v = roundView(round(), [arc, sk], { uid: "lead2", rank: 3 });
@@ -152,6 +160,7 @@ describe("R2d-2: Needs a review (revisionReasons)", () => {
       "a member's party or task team changed", "Firm · Team MEP gained a member", "a member's role changed", "the project moved to the coordination stage",
       "the naming standard was reinstalled", "the risk register list changed (strategy)", "the EIR this document answers was republished"]);
     expect(revisionReasons(doc, last, [row("member_joined", "2026-11-06T00:00:00Z")])).toEqual(["a member joined the project"]);
+    expect(revisionReasons(doc, last, [row("created", "2026-11-06T00:00:00Z", { entity_type: "task_team", new_value: { code: "MEP" } })])).toEqual(["A task team joined: MEP"]);
   });
   it("without a round the clock starts at the document's creation; a dismissal clears what came before it; an old EIR version is not a reason", () => {
     expect(revisionReasons(doc, null, [row("member_joined", "2026-10-30T00:00:00Z")])).toEqual([]);

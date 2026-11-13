@@ -68,6 +68,12 @@ begin
   if v_old is not distinct from p_on then
     return jsonb_build_object('client_outside_sentinel', p_on, 'changed', false);
   end if;
+  -- switching off under a BEP round sent without a Client would leave its Client step with nobody to take it
+  if not p_on and exists (select 1 from public.doc_rounds r
+                           where r.project_id = p_project and r.status = 'open' and lower(r.doc_type) = 'bep' and r.stage <> 'pre_appointment'
+                             and not exists (select 1 from jsonb_array_elements(r.roster) e where e->>'party' = 'appointing')) then
+    raise exception 'A round sent without a Client is open — record its Client step or withdraw it first.';
+  end if;
   perform set_config('sentinel.client_outside', p_project::text, true);
   update public.projects set client_outside_sentinel = p_on where id = p_project;
   perform set_config('sentinel.client_outside', '', true);
@@ -278,12 +284,16 @@ begin
   if exists (select 1 from jsonb_array_elements(r.roster) e where e->>'party' = 'appointing') then
     raise exception 'The Client was a member when this round was sent: they decide in Sentinel.';
   end if;
+  if exists (select 1 from public.memberships m where m.project_id = r.project_id and m.state = 'active' and m.party = 'appointing') then
+    raise exception 'The Client is a member of Sentinel now, so the Client decides this step in Sentinel: withdraw the round and send it again.';
+  end if;
   v_allowed := case when r.stage = 'pre_appointment' then array['received', 'clarification', 'selected', 'not_selected'] else array['accept', 'reject'] end;
   if p_outcome is null or not (p_outcome = any (v_allowed)) then
     raise exception 'At this step the choices are: %', array_to_string(v_allowed, ', ');
   end if;
   if v_name is null or length(v_name) > 200 then raise exception 'Say who at the client gave it: a name of at most 200 characters.'; end if;
   if p_date is null or p_date > current_date then raise exception 'Say on which day it was given: today or earlier.'; end if;
+  if p_date < r.sent_at::date then raise exception 'It cannot have been given before the round was sent (%): say the day it was given.', r.sent_at::date; end if;
   if v_ref is not null and length(v_ref) > 500 then raise exception 'The evidence reference is at most 500 characters.'; end if;
   if p_outcome in ('reject', 'clarification') and v_ref is null then
     raise exception 'Say why: a rejection or a clarification request carries its reason in the evidence reference.';
@@ -325,6 +335,7 @@ begin
     raise exception 'only a lead or owner skips a step' using errcode = 'insufficient_privilege';
   end if;
   if r.status <> 'open' then raise exception 'This review round is no longer open.'; end if;
+  -- the sender may skip (a skip is not a decision); record_outside stays refused for the sender
   if r.stage <> 'pre_appointment' then raise exception 'A step is skipped at the tender stage only: after the appointment every step is decided.'; end if;
   if v_reason is null or length(v_reason) > 2000 then raise exception 'A skipped step carries its reason (at most 2000 characters).'; end if;
   n := jsonb_array_length(r.steps);
@@ -338,7 +349,9 @@ begin
     select coalesce(array_agg(t.code order by lower(t.code)), '{}') into v_teams from unnest(r.teams_owed) t(code)
      where not exists (select 1 from public.doc_round_decisions d where d.round_id = r.id and d.step = k and lower(coalesce(d.task_team, '')) = lower(t.code))
        and not exists (select 1 from jsonb_array_elements(r.roster) e
-                        where lower(coalesce(e->>'task_team', '')) = lower(t.code) and public.role_rank(e->>'role') >= public.role_rank(v_role));
+                        where lower(coalesce(e->>'task_team', '')) = lower(t.code) and public.role_rank(e->>'role') >= public.role_rank(v_role)
+                          and e->>'uid' <> v_uid::text -- the sender never confirms, so a team only the sender could confirm has no one
+                          and exists (select 1 from public.memberships m where m.project_id = r.project_id and m.user_id = (e->>'uid')::uuid and m.state = 'active'));
     if cardinality(v_teams) = 0 then
       raise exception 'Every team owed has a member who can confirm: only a team with no active member is skipped.';
     end if;
@@ -511,8 +524,12 @@ begin
   if not public.has_min_role(d.project_id, 'lead') then
     raise exception 'only a lead or owner records that a version is incorporated in an appointment' using errcode = 'insufficient_privilege';
   end if;
-  select v.sha into v_sha from public.bim_document_versions v where v.document_id = p_doc and v.version_no = p_version;
+  if lower(d.doc_type) not in ('bep', 'eir') then
+    raise exception 'Only a BEP or an EIR is incorporated in an appointment.';
+  end if;
+  select v.sha into v_sha from public.bim_document_versions v where v.document_id = p_doc and v.version_no = p_version and v.revision like 'C%';
   if v_sha is null then raise exception 'That version is not a published version of this document.'; end if;
+  -- no once-only refusal: the design (§7 Stage changes) records "after each appointment is signed", so a version is recorded again as more appointments include it
   select array_agg(btrim(x) order by ord) into v_parties from unnest(coalesce(p_parties, '{}'::text[])) with ordinality u(x, ord) where btrim(x) <> '';
   if v_parties is null or cardinality(v_parties) > 20 or exists (select 1 from unnest(v_parties) x where length(x) > 200) then
     raise exception 'Name the parties whose appointments include it: one to twenty names of at most 200 characters.';

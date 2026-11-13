@@ -239,7 +239,7 @@ describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () =
     await expect(runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: "J" }))).rejects.toMatchObject({ status: 409, message: /is off on this project/ });
     sb.mockClear();
     for (const f of [() => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: "J" }), () => skipStep("k", RND, { step: 1, reason: "x" }), () => setClientOutside("k", { on: true }),
-      () => incorporated("k", DOC, { version_no: 1, parties: ["A"] }), () => dismissReview("k", DOC, { note: "n" })])
+      () => incorporated("k", DOC, { version_no: 1, parties: ["A"] }), () => dismissReview("k", DOC, { note: "n", reasons: [] })])
       await expect(f()).rejects.toMatchObject({ status: 403 });
     expect(sb).not.toHaveBeenCalled();
   });
@@ -278,16 +278,19 @@ describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () =
     doc.created_at = "2026-11-01T00:00:00Z";
     auditAll.mockImplementation(async () => [stage]);
     audit.mockResolvedValue({ id: 55 });
-    const r = await runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "reviewed, no change needed" }, "web"));
+    const r = await runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "reviewed, no change needed", reasons: ["the project moved to the coordination stage"] }, "web"));
     expect(r).toEqual({ dismissed: ["the project moved to the coordination stage"], ledger_id: 55 });
     expect(audit).toHaveBeenCalledWith("proj1", "bim_document", DOC, "revision_trigger_dismissed", expect.any(String), { reasons: r.dismissed }, { note: "reviewed, no change needed", by_uid: "lead2" });
     audit.mockClear();
-    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "  " }))).rejects.toMatchObject({ status: 400 });
+    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "  ", reasons: [] }))).rejects.toMatchObject({ status: 400 });
+    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "n", reasons: [] }))).rejects.toMatchObject({ status: 409, message: /New reasons arrived since you looked/ });
+    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "n" }))).rejects.toMatchObject({ status: 400 });
+    expect(audit).not.toHaveBeenCalled();
     me = { role: "contributor" };
     await expect(runWithAuth(jwt("c"), () => dismissReview("k", DOC, { note: "n" }))).rejects.toMatchObject({ status: 403 });
     me = { role: "lead" };
     auditAll.mockImplementation(async () => []);
-    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "n" }))).rejects.toMatchObject({ status: 409 });
+    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "n", reasons: [] }))).rejects.toMatchObject({ status: 409 });
     expect(audit).not.toHaveBeenCalled();
   });
 });

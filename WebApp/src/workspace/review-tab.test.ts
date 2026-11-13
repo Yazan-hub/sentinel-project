@@ -214,7 +214,7 @@ describe("R2d-2: the client outside Sentinel, skipped steps, Needs a review, Inc
     expect(c.ws.post).not.toHaveBeenCalled(); expect(textOf(el)).toContain("A note is required");
     all(el, "textarea")[0].value = "  checked  ";
     click(by(el, "No review needed")[0]); await tick();
-    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/d1/review-needed/dismiss", { note: "checked" });
+    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/d1/review-needed/dismiss", { note: "checked", reasons: ["a member joined the project", "the naming standard was reinstalled"] });
     expect(by(run(ctx(cur({ needs_review: ["x"], can_dismiss: false }))), "No review needed")).toEqual([]);
     expect(textOf(run(ctx(cur({ needs_review: ["x"], round: view() }))))).not.toContain("Needs a review");
   });

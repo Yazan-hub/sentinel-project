@@ -2342,7 +2342,7 @@ async function handleRequest(req, res) {
       //   POST /bimdocs/:key/rounds/:roundId/record-outside {outcome, date: "YYYY-MM-DD", name, evidence_ref?} → the decide answer (a lead; the setting on; the Client's step)
       //   POST /bimdocs/:key/rounds/:roundId/skip {step, reason} → {step, decision: "skipped", closed, status, ...} (a lead; tender only)
       //   POST /bimdocs/:key/:docId/incorporated {version_no, parties: [text]} → {document_id, version_no, sha, parties, ledger_id} (a lead)
-      //   POST /bimdocs/:key/:docId/review-needed/dismiss {note} → {dismissed: [reasons], ledger_id} (a lead; the note is required)
+      //   POST /bimdocs/:key/:docId/review-needed/dismiss {note, reasons} → {dismissed: [reasons], ledger_id} (a lead; the note is required; reasons = what the lead saw, 409 if new ones arrived)
       if (p1 && p2 === "rounds" && p3 && p4 === "record-outside" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).recordOutside(p1, p3, body));
       if (p1 && p2 === "rounds" && p3 && p4 === "skip" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).skipStep(p1, p3, body));
       if (p1 && p2 && p3 === "incorporated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).incorporated(p1, p2, body));

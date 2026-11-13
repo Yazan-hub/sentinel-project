@@ -5,6 +5,7 @@ import { randomUUID as uuid } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { buildDb, as } from "./pglite-harness.mjs";
 
+const TODAY = new Date().toISOString().slice(0, 10);
 let db, PA, PB, PC, PD;
 const u = (tag) => ({ sub: uuid(), email: `${tag}@0054.test` });
 const owner = u("owner"), lead2 = u("lead2"), arc = u("arc"), client = u("client");
@@ -17,7 +18,7 @@ const mkDoc = async (project, type = "BEP", stage = "pre_appointment") =>
 const render = (id) => ({ id, title: "Doc", sections, live: { risks: 3 } });
 const start = async (tx, w, doc) => { await who(tx, w); return (await q(tx, "select public.doc_round_start($1, $2, null, '{}') r", [doc, JSON.stringify(render(doc))]))[0].r; };
 const decide = async (tx, w, round, decision, note = null) => { await who(tx, w); return (await q(tx, "select public.doc_round_decide($1, $2, $3) r", [round, decision, note]))[0].r; };
-const outside = async (tx, w, round, outcome, date = "2026-11-03", name = "Jane Client", ref = null) => { await who(tx, w); return (await q(tx, "select public.doc_round_record_outside($1, $2, $3, $4, $5) r", [round, outcome, date, name, ref]))[0].r; };
+const outside = async (tx, w, round, outcome, date = TODAY, name = "Jane Client", ref = null) => { await who(tx, w); return (await q(tx, "select public.doc_round_record_outside($1, $2, $3, $4, $5) r", [round, outcome, date, name, ref]))[0].r; };
 const skip = async (tx, w, round, step, reason = "no one at the client") => { await who(tx, w); return (await q(tx, "select public.doc_round_skip($1, $2, $3) r", [round, step, reason]))[0].r; };
 const setting = async (tx, w, project, on) => { await who(tx, w); return (await q(tx, "select public.set_client_outside_sentinel($1, $2) r", [project, on]))[0].r; };
 const docRow = async (tx, id) => (await q(tx, "select status, suitability, stage from public.bim_documents where id = $1", [id]))[0];
@@ -71,14 +72,14 @@ describe("0054 the client outside Sentinel", () => {
     await expect(refusal(tx, () => outside(tx, owner, R, "selected"))).rejects.toThrow(/sender does not decide/);
     await expect(refusal(tx, () => outside(tx, lead2, R, "accept"))).rejects.toThrow(/choices are: received, clarification, selected, not_selected/);
     await expect(refusal(tx, () => outside(tx, lead2, R, "selected", "2999-01-01"))).rejects.toThrow(/today or earlier/);
-    await expect(refusal(tx, () => outside(tx, lead2, R, "selected", "2026-11-03", "  "))).rejects.toThrow(/Say who at the client/);
+    await expect(refusal(tx, () => outside(tx, lead2, R, "selected", TODAY, "  "))).rejects.toThrow(/Say who at the client/);
     await expect(refusal(tx, () => outside(tx, lead2, R, "clarification"))).rejects.toThrow(/Say why/);
     await who(tx, null);
-    expect(await outside(tx, lead2, R, "selected", "2026-11-03", "Jane Client", "mail 3 Nov")).toMatchObject({ step: 3, closed: true, status: "closed", issued_version: 1 });
+    expect(await outside(tx, lead2, R, "selected", TODAY, "Jane Client", "mail 3 Nov")).toMatchObject({ step: 3, closed: true, status: "closed", issued_version: 1 });
     expect(await docRow(tx, doc)).toMatchObject({ status: "wip", suitability: "S0" });
     expect((await q(tx, "select status, outcome from public.doc_rounds where id = $1", [R]))[0]).toEqual({ status: "closed", outcome: "selected" });
     const dec = (await q(tx, "select outside, outside_name, outside_date::text d, evidence_ref, party, decision, email from public.doc_round_decisions where round_id = $1 and step = 3", [R]))[0];
-    expect(dec).toEqual({ outside: true, outside_name: "Jane Client", d: "2026-11-03", evidence_ref: "mail 3 Nov", party: "appointing", decision: "selected", email: lead2.email });
+    expect(dec).toEqual({ outside: true, outside_name: "Jane Client", d: TODAY, evidence_ref: "mail 3 Nov", party: "appointing", decision: "selected", email: lead2.email });
     const row = (await ledger(tx, PB, "review_step_recorded_outside")).pop();
     expect(row).toMatchObject({ entity_type: "review", actor: lead2.email });
     expect(row.new_value).toMatchObject({ round_id: R, step: 3, outcome: "selected", given_by: "Jane Client", recorded_by_uid: lead2.sub, evidence_ref: "mail 3 Nov" });
@@ -93,7 +94,7 @@ describe("0054 the client outside Sentinel", () => {
     await decide(tx, lead2, R, "accept");
     expect(await docRow(tx, doc)).toMatchObject({ status: "shared", suitability: "S5" });
     await expect(refusal(tx, () => outside(tx, lead2, R, "selected"))).rejects.toThrow(/choices are: accept, reject/);
-    const fin = await outside(tx, lead2, R, "accept", "2026-11-04", "Jane Client");
+    const fin = await outside(tx, lead2, R, "accept", TODAY, "Jane Client");
     expect(fin).toMatchObject({ step: 3, closed: true, published_version: 1, doc_status: "published" });
     expect(await docRow(tx, doc)).toMatchObject({ status: "published", suitability: "A1" });
     const v = (await q(tx, "select revision, sha, snapshot from public.bim_document_versions where document_id = $1", [doc]))[0];
@@ -107,7 +108,7 @@ describe("0054 the client outside Sentinel", () => {
     const doc = await mkDoc(PB, "BEP", "confirmed");
     const R = (await start(tx, owner, doc)).round_id;
     await decide(tx, arc, R, "accept"); await decide(tx, lead2, R, "accept");
-    expect(await outside(tx, lead2, R, "reject", "2026-11-04", "Jane Client", "wants the programme changed")).toMatchObject({ status: "voided", closed: true });
+    expect(await outside(tx, lead2, R, "reject", TODAY, "Jane Client", "wants the programme changed")).toMatchObject({ status: "voided", closed: true });
     expect(await docRow(tx, doc)).toMatchObject({ status: "wip", suitability: "S0" });
     // setting off
     const d2 = await mkDoc(PC);
@@ -223,6 +224,57 @@ describe("0054 review fixes", () => {
     const doc = await mkDoc(PA);
     await who(tx, null);
     await expect(refusal(tx, () => tx.query("update public.bim_documents set status = 'published' where id = $1", [doc]))).rejects.toThrow(/published through a review round/);
+  }));
+});
+
+describe("0054 review 2 fixes", () => {
+  it("no outside record once a Client is a member now (joined after the send); a date before the round was sent is refused", () => as(db, "service", async (tx) => {
+    const doc = await mkDoc(PB, "BEP", "confirmed");
+    const R = (await start(tx, owner, doc)).round_id;
+    await decide(tx, arc, R, "accept"); await decide(tx, lead2, R, "accept");
+    await expect(refusal(tx, () => outside(tx, lead2, R, "accept", "2020-01-01"))).rejects.toThrow(/before the round was sent/);
+    await who(tx, null);
+    await tx.query("insert into public.memberships(project_id, user_id, role, party, state) values ($1, $2, 'viewer', 'appointing', 'active')", [PB, client.sub]);
+    await expect(refusal(tx, () => outside(tx, lead2, R, "accept"))).rejects.toThrow(/Client is a member of Sentinel now.*withdraw the round and send it again/);
+  }));
+
+  it("skip: the sender and a member removed since the send cannot confirm, so their team is skipped; the sender's own skip is allowed", () => as(db, "service", async (tx) => {
+    await who(tx, null);
+    await tx.query("update public.memberships set task_team = 'SND' where project_id = $1 and user_id = $2", [PC, owner.sub]);
+    await tx.query("insert into public.task_teams(project_id, code, name) values ($1, 'SND', 'Sender team'), ($1, 'RMV', 'Removed team')", [PC]);
+    await tx.query("insert into public.memberships(project_id, user_id, role, party, task_team, state) values ($1, $2, 'contributor', 'appointed', 'RMV', 'active')", [PC, client.sub]);
+    const doc = await mkDoc(PC);
+    const R = (await start(tx, owner, doc)).round_id;
+    await decide(tx, arc, R, "accept");
+    await who(tx, null);
+    await tx.query("delete from public.memberships where project_id = $1 and user_id = $2", [PC, client.sub]);
+    expect(await skip(tx, owner, R, 1, "no one else can confirm")).toMatchObject({ step: 1, decision: "skipped" });
+    expect((await ledger(tx, PC, "review_step_skipped"))[0].new_value.teams).toEqual(["RMV", "SND", "STR"]);
+  }));
+
+  it("incorporated: a tender version (P01) is refused; a published one is recorded, and again for more appointments", () => as(db, "service", async (tx) => {
+    const doc = await mkDoc(PB);
+    const R = (await start(tx, owner, doc)).round_id;
+    await decide(tx, arc, R, "accept"); await decide(tx, lead2, R, "accept"); await outside(tx, lead2, R, "selected");
+    await who(tx, lead2);
+    await expect(refusal(tx, () => q(tx, "select public.doc_incorporated($1, 1, array['Firm A'])", [doc]))).rejects.toThrow(/not a published version/);
+    const d2 = await mkDoc(PB, "BEP", "confirmed");
+    const R2 = (await start(tx, owner, d2)).round_id;
+    await decide(tx, arc, R2, "accept"); await decide(tx, lead2, R2, "accept"); await outside(tx, lead2, R2, "accept");
+    await who(tx, lead2);
+    await q(tx, "select public.doc_incorporated($1, 1, array['Firm A'])", [d2]);
+    await q(tx, "select public.doc_incorporated($1, 1, array['Firm A', 'Firm B'])", [d2]);
+    expect(await ledger(tx, PB, "document_incorporated")).toHaveLength(2);
+  }));
+
+  it("the setting is not switched off under an open confirmed round sent without a Client; a tender round does not hold it", () => as(db, "service", async (tx) => {
+    const tender = await mkDoc(PB);
+    await start(tx, owner, tender);
+    expect(await setting(tx, owner, PB, false)).toMatchObject({ changed: true }); // a tender round only
+    await setting(tx, owner, PB, true);
+    const doc = await mkDoc(PB, "BEP", "confirmed");
+    await start(tx, owner, doc);
+    await expect(refusal(tx, () => setting(tx, owner, PB, false))).rejects.toThrow(/round sent without a Client is open — record its Client step or withdraw it first/);
   }));
 });
 

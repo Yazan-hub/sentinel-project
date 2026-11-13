@@ -165,7 +165,7 @@ async function reasonsFor(key, doc, lastRound) {
 }
 
 /** A lead dismisses the standing reasons with a note (a ledger row; the next change starts the list again). */
-export async function dismissReview(key, docId, { note } = {}, actor) {
+export async function dismissReview(key, docId, { note, reasons: seen } = {}, actor) {
   requireSignedIn();
   if (typeof note !== "string" || !note.trim() || note.length > 2000) throw err(400, "Say why no review is needed: a note of at most 2000 characters.");
   const doc = await getDoc(key, docId);
@@ -174,6 +174,8 @@ export async function dismissReview(key, docId, { note } = {}, actor) {
   const last = (await sb(`doc_rounds?document_id=eq.${enc(docId)}&order=sent_at.desc&limit=1&select=id,sent_at`))?.[0] ?? null;
   const reasons = await reasonsFor(key, doc, last);
   if (!reasons.length) throw err(409, "Nothing needs a review.");
+  if (!Array.isArray(seen) || seen.some((x) => typeof x !== "string")) throw err(400, "reasons is the list you were shown.");
+  if ([...seen].sort().join("|") !== [...reasons].sort().join("|")) throw err(409, "New reasons arrived since you looked — read them and dismiss again.");
   const row = await audit(doc.project_id, "bim_document", doc.id, "revision_trigger_dismissed", resolveActor(actor, "web"), { reasons }, { note: note.trim(), by_uid: currentSub() });
   return { dismissed: reasons, ledger_id: row?.id ?? null };
 }
@@ -195,13 +197,16 @@ export async function currentRound(key, docId) {
   const lead = rank >= ROLE_RANK.lead;
   const eirIssuer = String(doc.doc_type).toLowerCase() === "eir" && !!chain && me.party === chain[0]?.party && rank >= ROLE_RANK.contributor;
   const tender = list.find((r) => r.stage === "pre_appointment" && r.status === "closed");
-  const setting = !!(await ensureProject(key))?.client_outside_sentinel;
+  const proj = await ensureProject(key);
+  const setting = !!proj?.client_outside_sentinel;
+  let activeUids; // who is an active member now: the skip offer counts only them (0054)
+  try { const m = await sb(`memberships?project_id=eq.${enc(proj.id)}&state=eq.active&select=user_id`); if (Array.isArray(m)) activeUids = m.map((x) => x.user_id); } catch { /* the offer then trusts the roster, the database decides */ }
   let reasons = [];
   try { reasons = await reasonsFor(key, doc, list[0] ?? null); } catch { /* the ledger could not be read: no reason is shown, none is invented */ }
   let inc = {};
   try { inc = incorporatedByVersion(await auditAll(key, { entity_id: docId, action_prefix: "document_incorporated" })); } catch { /* shown on the next read */ }
   return {
-    round: row ? roundView(row, decisions, { uid: currentSub(), rank, outside: setting }) : null,
+    round: row ? roundView(row, decisions, { uid: currentSub(), rank, outside: setting, activeUids }) : null,
     words: docWords(doc, row, []),
     stage: doc.stage, doc_status: doc.status, suitability: doc.suitability ?? null,
     chain: !!chain,

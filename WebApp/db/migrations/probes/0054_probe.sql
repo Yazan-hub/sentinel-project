@@ -109,8 +109,8 @@ begin
    where r.id = rid and r.status = 'closed' and r.outcome = 'skipped' and r.issued_version = 1 and d.status = 'wip' and d.suitability = 'S0';
   if n = 1 then ok := ok + 1; else raise notice 'FAIL 6: skipped tender'; end if;
 
-  -- 7 Incorporated in appointment
-  perform public.doc_incorporated(doc2, 1, array['Firm A', 'Firm B']);
+  -- 7 Incorporated in appointment (the published C01 of the first BEP; a tender version is refused)
+  perform public.doc_incorporated(doc, 1, array['Firm A', 'Firm B']);
   select count(*) into n from public.audit_log where project_id = pid and action = 'document_incorporated' and new_value->>'version_no' = '1'
      and new_value->'parties' = '["Firm A","Firm B"]'::jsonb and new_value->>'by_uid' = l2::text;
   if n = 1 then ok := ok + 1; else raise notice 'FAIL 7: incorporated row'; end if;

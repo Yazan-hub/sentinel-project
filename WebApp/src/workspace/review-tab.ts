@@ -60,7 +60,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
       b.addEventListener("click", () => {
         const text = nb.value.trim();
         if (!text) { note.textContent = "A note is required to dismiss this: say why no review is needed."; return; }
-        void act(ctx.ws.post(`${base}/review-needed/dismiss`, { note: text }));
+        void act(ctx.ws.post(`${base}/review-needed/dismiss`, { note: text, reasons: cur.needs_review }));
       });
       box.append(nb, b);
     }

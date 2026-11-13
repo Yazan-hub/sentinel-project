@@ -101,7 +101,9 @@ export function roundView(round, decisions = [], me = {}) {
   const clientIn = (round.roster || []).some((r) => r.party === "appointing");
   const teamsLeft = at?.kind === "task_teams"
     ? (round.teams_owed || []).filter((t) => !ds.some((d) => Number(d.step) === current && low(d.task_team) === low(t))
-        && !(round.roster || []).some((r) => low(r.task_team) === low(t) && (RANK[r.role] || 0) >= (RANK[at.role ?? "contributor"] || 0)))
+        // 0054: the sender never confirms, and a member must be active now (me.activeUids, when the caller knows them)
+        && !(round.roster || []).some((r) => low(r.task_team) === low(t) && (RANK[r.role] || 0) >= (RANK[at.role ?? "contributor"] || 0)
+             && r.uid !== round.sent_by && (!me?.activeUids || me.activeUids.includes(r.uid))))
     : [];
   const clientStep = open && !!at && low(round.doc_type) === "bep" && current === nSteps && at.party === "appointing" && !clientIn;
   const canOutside = clientStep && lead && !!me?.outside && me.uid !== round.sent_by;
@@ -150,6 +152,7 @@ export function revisionReasons(doc, lastRound, rows = []) {
     if (r.entity_type === "stage_gate" && a.startsWith("gate:pass ")) out.add(`the project moved to the ${nv.next_stage ?? "next"} stage`);
     else if (a === "membership_party_changed") out.add(r.old_value ? "a member's party or task team changed" : `${PARTY_WORD[nv.party] ?? "a party"}${nv.task_team ? ` · Team ${nv.task_team}` : ""} gained a member`);
     else if (a === "member_role_changed") out.add("a member's role changed");
+    else if (r.entity_type === "task_team" && a === "created") out.add(`A task team joined: ${nv.code ?? "a new one"}`);
     else if (a === "member_joined") out.add("a member joined the project");
     else if (a.startsWith("artefact_installed ")) { const kind = a.slice(19).split("@")[0]; if (BOUND_KINDS.includes(kind)) out.add(`the ${kind.replace(/_/g, " ")} standard was reinstalled`); }
     else if (/^annex_row_(added|changed|removed)$/.test(a) && nv.touches && nv.touches !== "none") out.add(`the ${String(nv.annex ?? "").replace(/_/g, " ")} list changed (${nv.touches})`);
