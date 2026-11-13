@@ -4082,3 +4082,21 @@ Run log: docs/testing/snowdon-lifecycle/R2a/R2a-RUN_2026-11-12.md. Plan: docs/su
 | 13 | Same screens on the published app | after the web publish |
 
 Findings: F-R2a-1 the Review chain form had no "Who decides" (fixed 8a5027d7); F-R2a-2 the database's refusal shown wrapped in JSON (fixed 4aed8dcb).
+
+## Session R1c — the office register, living annexes, facts and live lists, freeze at publish (2026-11-12/13 local, ~23:30–01:50; branch claude/recursing-moser-a8fde0; migration 0051 applied on the founder's "Apply, gmail is in"; bridge 4100 and the :4000 bundle server from the worktree; Chrome signed in by the founder as hotmail, gmail, user3, user4 and hotmail; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R1c/R1c-RUN_2026-11-13.md. Plan: docs/superpowers/plans/2026-11-12-bim-documents-workspace-r1c.md.
+
+| Row | What | Result |
+|---|---|---|
+| 1 | 0051 applied; live probe: an office viewer reads 0 register rows, a lead reads them | ✅ |
+| 2 | R2a row 13: Members on the published app; user3 → Firm · Team ARC | ✅ |
+| 3, 4 | Office register form (one line published, one not); the project never lists the register | ✅ |
+| 5, 6 | Facts + four live lists in a scratch BEP; draft banner; publish freezes them into v1 | ✅ |
+| 7 | The register changes to Revit 2026; v1 keeps 2025 | ✅ |
+| 8 | user3 enters Team ARC's capability rows; a committed row needs owner and due | ✅ |
+| 9 | user4 (lead) cannot add capability; as office viewer sees no register | ✅ after F-R1c-2 |
+| 10 | The Client reads v1 as frozen, only the published register line | ✅ |
+
+Findings: F-R1c-1 the Deliverables header did not wrap (fixed 17151f6f); F-R1c-2 a project tab clipped its right edge (fixed 459deba2).
+
