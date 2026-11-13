@@ -152,3 +152,73 @@ describe("safety", () => {
     expect(textOf(run(ctx(null)))).toBe("");
   });
 });
+
+describe("R2d-2: the client outside Sentinel, skipped steps, Needs a review, Incorporated in appointment", () => {
+  const outsideStep = { n: 3, name: "Client", party_words: "Client", decisions: [], complete: false };
+  const atClient = (o: Partial<RoundView> = {}) => view({ stage: "confirmed", current: 3, steps: [{ ...view().steps[0], complete: true }, { ...view().steps[1], complete: true }, outsideStep], ...o });
+
+  it("a lead sees the record-outside form; it needs the day and the name, and the reason for a rejection; it posts in the bridge's shape", async () => {
+    const c = ctx(cur({ round: atClient({ outside: { can: true, choices: ["accept", "reject"] } }), can_send: false })), el = run(c);
+    expect(textOf(el)).toContain("The client is outside Sentinel");
+    const pick = all(el, "select")[0], [date, name, ref] = all(el, "input");
+    expect(date.getAttribute("type")).toBe("date");
+    click(by(el, "Record the client's decision")[0]); await tick();
+    expect(textOf(el)).toContain("Say on which day"); date.value = "2026-11-03";
+    click(by(el, "Record the client's decision")[0]); await tick();
+    expect(textOf(el)).toContain("Say who at the client gave it"); name.value = " Jane Client ";
+    pick.value = "reject";
+    click(by(el, "Record the client's decision")[0]); await tick();
+    expect(textOf(el)).toContain("Write the reason"); expect(c.ws.post).not.toHaveBeenCalled();
+    pick.value = "accept"; ref.value = "mail of 3 Nov";
+    click(by(el, "Record the client's decision")[0]); await tick();
+    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/rounds/r1/record-outside", { outcome: "accept", date: "2026-11-03", name: "Jane Client", evidence_ref: "mail of 3 Nov" });
+    expect(c.ws.reload).toHaveBeenCalledTimes(1);
+  });
+  it("no form for someone who may not record; an outside decision reads in §17's words", () => {
+    expect(textOf(run(ctx(cur({ round: atClient({ outside: { can: false, choices: [] } }) }))))).not.toContain("The client is outside Sentinel");
+    const words = "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by sam@lead";
+    const r = atClient(); r.steps[2] = { ...outsideStep, decisions: [{ who: "sam@lead", party_words: "Client", decision: "accept", at: "2026-11-04T10:00:00Z", ledger_id: 77, outside: true, words }] };
+    expect(textOf(run(ctx(cur({ round: r }))))).toContain(`${words} · 2026-11-04 10:00 · ledger #77`);
+  });
+  it("Skip posts the step and the reason; without a reason it says so and sends nothing; a skipped team reads as skipped", async () => {
+    const r = view({ skip: { can: true, step: 1, teams: ["STR"], words: "No one can confirm for Firm · Team STR: skip step 1 for them, with a reason." } });
+    r.steps[0].owed = [{ team: "ARC", decided_by: "arc@x" }, { team: "STR", decided_by: null, skipped: true }];
+    const c = ctx(cur({ round: r })), el = run(c);
+    expect(textOf(el)).toContain("No one can confirm for Firm · Team STR"); expect(textOf(el)).toContain("Team STR: skipped");
+    click(by(el, "Skip step 1")[0]); await tick();
+    expect(c.ws.post).not.toHaveBeenCalled(); expect(textOf(el)).toContain("carries its reason");
+    all(el, "textarea")[0].value = " no engineer yet ";
+    click(by(el, "Skip step 1")[0]); await tick();
+    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/rounds/r1/skip", { step: 1, reason: "no engineer yet" });
+  });
+  it("Needs a review shows the reasons; a lead dismisses with a note; nobody else gets the button; an open round shows none", async () => {
+    const c = ctx(cur({ needs_review: ["a member joined the project", "the naming standard was reinstalled"], can_dismiss: true })), el = run(c);
+    expect(textOf(el)).toContain("Needs a review: a member joined the project; the naming standard was reinstalled");
+    click(by(el, "No review needed")[0]); await tick();
+    expect(c.ws.post).not.toHaveBeenCalled(); expect(textOf(el)).toContain("A note is required");
+    all(el, "textarea")[0].value = "  checked  ";
+    click(by(el, "No review needed")[0]); await tick();
+    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/d1/review-needed/dismiss", { note: "checked" });
+    expect(by(run(ctx(cur({ needs_review: ["x"], can_dismiss: false }))), "No review needed")).toEqual([]);
+    expect(textOf(run(ctx(cur({ needs_review: ["x"], round: view() }))))).not.toContain("Needs a review");
+  });
+  it("Incorporated in appointment: the recorded versions with their parties, and a lead's form", async () => {
+    const c = ctx(cur({ incorporated: { "1": { parties: ["Firm A", "Firm B"], sha: "s", at: "t", by: "l@x" } }, can_incorporate: true }));
+    c.st.versions = [{ version_no: 1, label: "Tender issue P01" }, { version_no: 2, label: "Confirmed C01" }] as never;
+    const el = run(c);
+    expect(textOf(el)).toContain("v1 · Incorporated in appointment: Firm A, Firm B");
+    click(by(el, "Record")[0]); await tick();
+    expect(c.ws.post).not.toHaveBeenCalled(); expect(textOf(el)).toContain("Name the parties");
+    const sels = all(el, "select"), which = sels[sels.length - 1];
+    which.value = "2"; all(el, "input").slice(-1)[0].value = "Firm A, , Firm C";
+    click(by(el, "Record")[0]); await tick();
+    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/d1/incorporated", { version_no: 2, parties: ["Firm A", "Firm C"] });
+  });
+  it("a viewer sees the record but no form; with no version there is no section", () => {
+    const c = ctx(cur({ incorporated: { "1": { parties: ["Firm A"], sha: null, at: null, by: null } }, can_incorporate: false }));
+    c.st.versions = [{ version_no: 1, label: "x" }] as never;
+    const el = run(c);
+    expect(textOf(el)).toContain("Incorporated in appointment: Firm A"); expect(by(el, "Record")).toEqual([]);
+    expect(textOf(run(ctx(cur({ can_incorporate: true }))))).not.toContain("Incorporated in appointment");
+  });
+});

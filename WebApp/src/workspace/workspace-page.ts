@@ -158,7 +158,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
   function renderHeader(c: PaneCtx): void {
     keyEl.textContent = c.st.key;
     titleEl.textContent = ingest ? "Review ingestion" : c.st.doc?.title ?? ""; // the review is not the open document: no title, status or views of it
-    statusEl.textContent = !ingest && c.st.doc ? c.st.round?.words || statusLine(c.st.doc) : "";
+    statusEl.textContent = !ingest && c.st.doc ? (c.st.round?.words || statusLine(c.st.doc)) + (c.st.round?.needs_review?.length ? ` · Needs a review: ${c.st.round.needs_review.join("; ")}` : "") : "";
     viewBar.replaceChildren();
     if (ingest || !c.st.doc) return;
     if (view === "edit" && c.canEdit) viewBar.append(aiPicker(c.base, () => c.st.key)); // the one AI picker; Draft with AI reads its selection

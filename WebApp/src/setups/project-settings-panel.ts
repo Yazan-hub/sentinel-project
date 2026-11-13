@@ -8,6 +8,7 @@ import { loadScope } from "./load-scope";
 import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, STANDARD_INSTALLED, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
+import { clientOutsideBlock, type ClientOutside } from "./client-outside";
 import { PARTIES, PARTY_WORDS, NO_PARTY, INVITED_WORDS, MAIL_NOTE, partyWord, canEditParty, invitableParties, inviteProblem, groupByParty, dayOf, type Party, type MemberRow, type InvitationRow } from "./members-people";
 import { packFilename, packWords, saveAs, anchorWords, type AnchorStatus } from "./audit-pack";
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
@@ -339,6 +340,18 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           host.append(row);
         }
       } else if (invitations === null) host.append(line("Pending invitations not read."));
+
+      // R2d-2: "The client is not in Sentinel" — an owner's setting, read here for a lead too (the bridge refuses the change to anyone else).
+      const coR = await bfetch(`${base}/cde/${encodeURIComponent(key)}/client-outside`).catch(() => null);
+      if (mine !== memSeq) return;
+      if (coR?.ok) {
+        const co = (await coR.json().catch(() => null)) as ClientOutside | null;
+        if (co && typeof co.on === "boolean")
+          host.append(clientOutsideBlock(document, co, async (on) => {
+            try { await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/client-outside`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ on }) })); await loadMembers(); return null; }
+            catch (e) { return (e as Error)?.message ?? String(e); }
+          }));
+      }
 
       membersErrDiv = document.createElement("div");
       membersErrDiv.style.cssText = "color:#fca5a5;font-size:11px;padding:.3rem 0;min-height:1em";

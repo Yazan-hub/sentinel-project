@@ -3,11 +3,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runWithAuth } from "./bridge-auth.mjs";
 
-const sb = vi.fn(), newTopicObject = vi.fn(), bcfCreateTopic = vi.fn();
+const audit = vi.fn(), auditAll = vi.fn(async () => []), sb = vi.fn(), newTopicObject = vi.fn(), bcfCreateTopic = vi.fn();
 vi.mock("./cde-store.mjs", () => ({
   sb: (...a) => sb(...a),
   ensureProject: vi.fn(async () => ({ id: "proj1" })),
-  audit: vi.fn(),
+  audit: (...a) => audit(...a),
+  auditAll: (...a) => auditAll(...a),
   isUuid: (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || "")),
   forwardingConfigured: () => true,
   newTopicObject: (...a) => newTopicObject(...a),
@@ -26,7 +27,7 @@ vi.mock("./office-store.mjs", () => ({ getSnapshot: vi.fn(), getScan: vi.fn() })
 const resolveLive = vi.fn(async () => ({ facts: { n: 1 } }));
 vi.mock("./live-resolve.mjs", () => ({ resolveLive: (...a) => resolveLive(...a) }));
 
-const { sendForReview, decide, withdraw, appointmentIndicated, currentRound } = await import("./rounds-store.mjs");
+const { sendForReview, decide, withdraw, appointmentIndicated, currentRound, recordOutside, skipStep, clientOutside, setClientOutside, incorporated, dismissReview } = await import("./rounds-store.mjs");
 const { transitionDoc, publishDoc, patchSection, addBlock, setSectionPlan, setSectionBindings, removeSection, reorderBlocks, pickStart } = await import("./bimdocs-store.mjs");
 
 const DOC = "11111111-1111-4111-8111-111111111111", RND = "22222222-2222-4222-8222-222222222222";
@@ -38,7 +39,7 @@ const roundRow = (o = {}) => ({ id: RND, document_id: DOC, doc_type: "BEP", stag
   roster: [{ uid: "lead2", email: "l2@x", party: "lead_appointed", role: "lead" }], sent_by: "owner1", issued_version: null, ...o });
 
 beforeEach(() => {
-  sb.mockReset(); newTopicObject.mockReset(); bcfCreateTopic.mockReset(); resolveLive.mockClear();
+  audit.mockReset(); auditAll.mockReset(); auditAll.mockResolvedValue([]); sb.mockReset(); newTopicObject.mockReset(); bcfCreateTopic.mockReset(); resolveLive.mockClear();
   doc = { id: DOC, project_id: "proj1", doc_type: "BEP", status: "wip", stage: "pre_appointment", suitability: "S0", title: "Our BEP", updated_at: "u1",
     sections: [{ id: "s1", heading: "H", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "b1", kind: "text", title: "", data: { text: "" } }] }] };
   chain = BEP; open = false; refusal = null;
@@ -195,5 +196,76 @@ describe("transitions honour the chain (every pair)", () => {
     await expect(publishDoc("k", DOC, {})).rejects.toMatchObject({ status: 409, message: "A TIDP is never published; its rows live in Deliverables." });
     chain = null; doc.doc_type = "BEP";
     await expect(publishDoc("k", DOC, {})).resolves.toMatchObject({ version_no: 1 });
+  });
+});
+
+describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () => {
+  it("recordOutside and skipStep forward the session to their functions; their bad input is a 400 before any call", async () => {
+    await runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: "Jane Client", evidence_ref: "mail" }));
+    expect(calls(/^rpc\/doc_round_record_outside/)[0][1].body).toEqual({ p_round: RND, p_outcome: "accept", p_date: "2026-11-03", p_name: "Jane Client", p_evidence_ref: "mail" });
+    expect(calls(/^rpc\/doc_round_record_outside/)[0][1].service).toBeUndefined();
+    await runWithAuth(jwt("lead2"), () => skipStep("k", RND, { step: 3, reason: "no client account" }));
+    expect(calls(/^rpc\/doc_round_skip/)[0][1].body).toEqual({ p_round: RND, p_step: 3, p_reason: "no client account" });
+    const n = sb.mock.calls.length;
+    for (const f of [() => recordOutside("k", RND, { date: "2026-11-03", name: "J" }), () => recordOutside("k", RND, { outcome: "accept", date: "3 Nov", name: "J" }),
+      () => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: " " }), () => skipStep("k", RND, { step: "1", reason: "x" }), () => skipStep("k", RND, { step: 1, reason: "" })])
+      await expect(runWithAuth(jwt("lead2"), f)).rejects.toMatchObject({ status: 400 });
+    expect(sb.mock.calls.length).toBe(n);
+  });
+  it("the database's refusal keeps its words; the machine credential is refused before any call", async () => {
+    refusal = dbRefusal("The client is not in Sentinel is off on this project: an owner turns it on in Project Settings first");
+    await expect(runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: "J" }))).rejects.toMatchObject({ status: 409, message: /is off on this project/ });
+    sb.mockClear();
+    for (const f of [() => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: "J" }), () => skipStep("k", RND, { step: 1, reason: "x" }), () => setClientOutside("k", { on: true }),
+      () => incorporated("k", DOC, { version_no: 1, parties: ["A"] }), () => dismissReview("k", DOC, { note: "n" })])
+      await expect(f()).rejects.toMatchObject({ status: 403 });
+    expect(sb).not.toHaveBeenCalled();
+  });
+  it("the setting: read as {on, can_change, has_client}; changed through set_client_outside_sentinel with the project id", async () => {
+    me = { role: "owner" };
+    sb.mockImplementation(async (path) => (path.startsWith("memberships?") ? [] : []));
+    expect(await runWithAuth(jwt("o"), () => clientOutside("k"))).toEqual({ on: false, can_change: true, has_client: false });
+    await runWithAuth(jwt("o"), () => setClientOutside("k", { on: true }));
+    expect(calls(/^rpc\/set_client_outside_sentinel/)[0][1].body).toEqual({ p_project: "proj1", p_on: true });
+    await expect(runWithAuth(jwt("o"), () => setClientOutside("k", { on: "yes" }))).rejects.toMatchObject({ status: 400 });
+    me = { role: "lead" };
+    expect((await runWithAuth(jwt("o"), () => clientOutside("k"))).can_change).toBe(false);
+  });
+  it("incorporated calls doc_incorporated with the version and the parties", async () => {
+    await runWithAuth(jwt("lead2"), () => incorporated("k", DOC, { version_no: 2, parties: ["Firm A"] }));
+    expect(calls(/^rpc\/doc_incorporated/)[0][1].body).toEqual({ p_doc: DOC, p_version: 2, p_parties: ["Firm A"] });
+    await expect(runWithAuth(jwt("lead2"), () => incorporated("k", DOC, { version_no: 0, parties: ["A"] }))).rejects.toMatchObject({ status: 400 });
+    await expect(runWithAuth(jwt("lead2"), () => incorporated("k", DOC, { version_no: 1, parties: "A" }))).rejects.toMatchObject({ status: 400 });
+  });
+  const stage = { action: "gate:pass design", entity_type: "stage_gate", at: "2026-11-10T00:00:00Z", new_value: { next_stage: "coordination" } };
+  it("currentRound shows 'Needs a review' with the reasons and the incorporated versions; an open round shows none", async () => {
+    doc.created_at = "2026-11-01T00:00:00Z";
+    auditAll.mockImplementation(async (k, f) => (f?.action_prefix === "document_incorporated"
+      ? [{ action: "document_incorporated", at: "2026-11-11T00:00:00Z", actor: "l@x", new_value: { version_no: 1, sha: "s1", parties: ["Firm A"] } }] : [stage]));
+    const r = await runWithAuth(jwt("lead2"), () => currentRound("k", DOC));
+    expect(r).toMatchObject({ needs_review: ["the project moved to the coordination stage"], can_dismiss: true, can_incorporate: true, incorporated: { 1: { parties: ["Firm A"] } } });
+    expect(auditAll.mock.calls[0][1]).toEqual({ since: "2026-11-01T00:00:00Z" });
+    me = { role: "contributor" };
+    expect(await runWithAuth(jwt("lead2"), () => currentRound("k", DOC))).toMatchObject({ can_dismiss: false, can_incorporate: false });
+    me = { role: "lead" };
+    open = true;
+    sb.mockImplementation(async (path) => (path.startsWith("bim_documents?id=") ? [doc] : path.startsWith("rpc/doc_review_chain") ? chain : path.startsWith("doc_rounds?document_id=") ? [roundRow()] : []));
+    expect(await runWithAuth(jwt("lead2"), () => currentRound("k", DOC))).toMatchObject({ needs_review: [], can_dismiss: false });
+  });
+  it("dismissReview: a lead, a note, a standing reason -> one ledger row naming the reasons and the note; refused without them", async () => {
+    doc.created_at = "2026-11-01T00:00:00Z";
+    auditAll.mockImplementation(async () => [stage]);
+    audit.mockResolvedValue({ id: 55 });
+    const r = await runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "reviewed, no change needed" }, "web"));
+    expect(r).toEqual({ dismissed: ["the project moved to the coordination stage"], ledger_id: 55 });
+    expect(audit).toHaveBeenCalledWith("proj1", "bim_document", DOC, "revision_trigger_dismissed", expect.any(String), { reasons: r.dismissed }, { note: "reviewed, no change needed", by_uid: "lead2" });
+    audit.mockClear();
+    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "  " }))).rejects.toMatchObject({ status: 400 });
+    me = { role: "contributor" };
+    await expect(runWithAuth(jwt("c"), () => dismissReview("k", DOC, { note: "n" }))).rejects.toMatchObject({ status: 403 });
+    me = { role: "lead" };
+    auditAll.mockImplementation(async () => []);
+    await expect(runWithAuth(jwt("lead2"), () => dismissReview("k", DOC, { note: "n" }))).rejects.toMatchObject({ status: 409 });
+    expect(audit).not.toHaveBeenCalled();
   });
 });

@@ -51,6 +51,9 @@ export function changedSince(live: Snapshot, snap: Snapshot): Set<string> {
   return new Set(compareSnapshots(snap, live).filter((s) => s.change !== "same").map((s) => s.id));
 }
 
+/** R2d-2: the record that appointments include a version (the ledger row, spec §7). */
+export const incorporatedWords = (parties: string[]): string => `Incorporated in appointment: ${parties.join(", ")}`;
+
 export const versionLine = (v: VersionListRow): string =>
   [`v${v.version_no}`, v.label || (v.stage && (STAGE_WORDS[v.stage] ?? v.stage)) || DASH, v.suitability || DASH, `by ${v.published_by}`, String(v.published_at ?? "").slice(0, 10)].join(" · ");
 
@@ -78,7 +81,10 @@ export function versionsView(ctx: PaneCtx): HTMLElement {
     const read = btn(d, "Read"), print = btn(d, "Print");
     read.addEventListener("click", () => { void opened(v.version_no).then((ok) => { if (ok) ctx.show("read"); else say("That version could not be read."); }); });
     print.addEventListener("click", () => { void opened(v.version_no).then((ok) => (ok ? startPrint(ctx, say) : say("That version could not be read."))); });
-    row.append(h(d, "span", `flex:1;min-width:0;color:${C.soft};font:13px system-ui`, versionLine(v)), read, print);
+    const inc = st.round?.incorporated?.[String(v.version_no)];
+    const label = h(d, "span", `flex:1;min-width:0;color:${C.soft};font:13px system-ui`, versionLine(v));
+    if (inc) label.append(h(d, "div", `color:${C.muted};font:11px system-ui;margin-top:.15rem`, incorporatedWords(inc.parties)));
+    row.append(label, read, print);
     root.append(row);
   }
   root.append(msg);

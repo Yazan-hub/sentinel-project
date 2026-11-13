@@ -26,12 +26,16 @@ export interface WorkspaceState { key: string; doc: DocRow | null; versions: Ver
   respondsTo: { title: string; version_no: number | null } | null /* the EIR this document answers, loaded by open */;
   round: RoundCurrent | null /* R2d: GET …/rounds/current, null when not read */ }
 /** R2d: the document round on screen (the bridge's roundView) and what the caller may do about it. */
-export interface RoundStep { n: number; name: string; party_words: string; owed?: { team: string; decided_by: string | null }[];
-  decisions: { who: string; party_words: string; decision: string; note?: string | null; at: string; ledger_id: number | string }[]; complete: boolean }
+export interface RoundStep { n: number; name: string; party_words: string; owed?: { team: string; decided_by: string | null; skipped?: boolean }[];
+  decisions: { who: string; party_words: string; decision: string; note?: string | null; at: string; ledger_id: number | string; outside?: boolean; words?: string | null }[]; complete: boolean }
 export interface RoundView { round_id: string; stage: string; status: string; status_words: string; codes: { shared?: string; issue?: string; accept?: string } | null; deadline: string | null;
   sent_by_email: string | null; sent_at: string | null; steps: RoundStep[]; current: number; can_decide: boolean; why_not: string | null; choices: string[]; can_withdraw: boolean;
-  issued_version: number | null; outcome: string | null }
-export interface RoundCurrent { round: RoundView | null; words: string; stage: string; doc_status: string; suitability: string | null; chain: boolean; can_send: boolean; appointment: { can: boolean; needs_note: boolean } }
+  issued_version: number | null; outcome: string | null;
+  outside?: { can: boolean; choices: string[] } /* R2d-2: a lead records the Client's step taken outside Sentinel */;
+  skip?: { can: boolean; step: number | null; teams: string[]; words: string | null } /* R2d-2: a lead skips a tender step nobody can decide */ }
+export interface RoundCurrent { round: RoundView | null; words: string; stage: string; doc_status: string; suitability: string | null; chain: boolean; can_send: boolean; appointment: { can: boolean; needs_note: boolean };
+  client_outside?: boolean; needs_review?: string[] /* R2d-2: "Needs a review: (reason)" */; can_dismiss?: boolean;
+  incorporated?: Record<string, { parties: string[]; sha: string | null; at: string | null; by: string | null }>; can_incorporate?: boolean }
 export interface Workspace {
   open(docId: string): Promise<void>; reload(): Promise<void>; viewVersion(n: number | null): Promise<void>;
   write(method: "POST" | "PUT" | "PATCH", rest: string, body?: object): Promise<DocRow | null>; // rest after /bimdocs/:key/:docId

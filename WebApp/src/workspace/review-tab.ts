@@ -5,13 +5,14 @@
 import { C, btn, h } from "./dom";
 import { pathSegment } from "../setups/escape-html";
 import { askYesNo } from "../setups/ask";
+import { incorporatedWords } from "./versions-view";
 import type { RoundView } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page";
 
 /** What each decision is called on a button and in the list. Copy of DECISION_WORDS in bridge/rounds-logic.mjs (pinned by a test). */
 export const DECISION_WORDS: Record<string, string> = {
   accept: "Accept", accept_with_comments: "Accept with comments", reject: "Reject",
-  received: "Received", clarification: "Ask for clarification", selected: "Selected", not_selected: "Not selected",
+  received: "Received", clarification: "Ask for clarification", selected: "Selected", not_selected: "Not selected", skipped: "Skipped",
 };
 export const NOTE_REQUIRED = new Set(["reject", "clarification"]);
 
@@ -31,7 +32,9 @@ const when = (at: string): string => String(at ?? "").slice(0, 16).replace("T", 
 
 /** One decision on a line: who, their party, the decision in words, the note, when, ledger #n. */
 export const decisionLine = (x: RoundView["steps"][number]["decisions"][number]): string =>
-  `${x.who} (${x.party_words}) · ${DECISION_WORDS[x.decision] ?? x.decision}${x.note ? `: ${x.note}` : ""} · ${when(x.at)} · ledger #${x.ledger_id}`;
+  x.outside && x.words ? `${x.words} · ${when(x.at)} · ledger #${x.ledger_id}` // "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by ..."
+  : x.words ? `${x.who} (${x.party_words}) · ${x.words} · ${when(x.at)} · ledger #${x.ledger_id}`
+  : `${x.who} (${x.party_words}) · ${DECISION_WORDS[x.decision] ?? x.decision}${x.note ? `: ${x.note}` : ""} · ${when(x.at)} · ledger #${x.ledger_id}`;
 
 export function reviewTab(ctx: PaneCtx): HTMLElement {
   const d = ctx.doc, st = ctx.st, doc = st.doc, cur = st.round, box = h(d, "div");
@@ -45,6 +48,23 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
   };
   const noteBox = (): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", "A note (optional)"); t.value = ""; return t; };
   const round = cur.round;
+  const area = (placeholder: string): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", placeholder); t.value = ""; return t; };
+  const input = (type: string, placeholder = ""): HTMLInputElement => { const i = h(d, "input", `${FIELD};margin:.2rem 0`); i.setAttribute("type", type); if (placeholder) i.setAttribute("placeholder", placeholder); i.value = ""; return i; };
+
+  // R2d-2: "Needs a review: (reason)" until a round starts or a lead dismisses it with a note.
+  if (cur.needs_review?.length && round?.status !== "open") {
+    box.append(h(d, "p", `color:${C.warn};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`, `Needs a review: ${cur.needs_review.join("; ")}`));
+    if (cur.can_dismiss) {
+      const nb = area("Why no review is needed");
+      const b = btn(d, "No review needed");
+      b.addEventListener("click", () => {
+        const text = nb.value.trim();
+        if (!text) { note.textContent = "A note is required to dismiss this: say why no review is needed."; return; }
+        void act(ctx.ws.post(`${base}/review-needed/dismiss`, { note: text }));
+      });
+      box.append(nb, b);
+    }
+  }
 
   if (round) {
     box.append(h(d, "p", SOFT, `${round.status_words}${round.deadline ? ` · due ${round.deadline}` : ""}${round.sent_by_email ? ` · sent by ${round.sent_by_email}` : ""}`));
@@ -53,7 +73,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
       const here = round.status === "open" && s.n === round.current;
       box.append(h(d, "div", HEAD, `Step ${s.n} · ${s.name}${s.complete ? " · done" : here ? " · now" : ""}`));
       box.append(h(d, "div", MUTED, `Who must decide: ${s.party_words}`));
-      for (const o of s.owed ?? []) box.append(h(d, "div", SOFT, `Team ${o.team}: ${o.decided_by ? `decided by ${o.decided_by}` : "waiting"}`));
+      for (const o of s.owed ?? []) box.append(h(d, "div", SOFT, `Team ${o.team}: ${o.decided_by ? `decided by ${o.decided_by}` : o.skipped ? "skipped" : "waiting"}`));
       for (const x of s.decisions) box.append(h(d, "div", SOFT, decisionLine(x)));
     }
     if (round.status === "open") {
@@ -74,6 +94,33 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
         }
         box.append(nb, row);
       } else if (round.why_not) box.append(h(d, "p", MUTED, round.why_not));
+      if (round.outside?.can && round.outside.choices.length) {
+        box.append(h(d, "div", HEAD, "The client is outside Sentinel"));
+        box.append(h(d, "div", MUTED, "Record what the client decided, the day they gave it and who gave it. It stays on the record as taken outside Sentinel."));
+        const pick = h(d, "select", `${FIELD};width:auto;margin:.2rem 0`);
+        for (const c of round.outside.choices) { const op = h(d, "option", "", DECISION_WORDS[c] ?? c); op.value = c; pick.append(op); }
+        const date = input("date"), name = input("text", "Who at the client gave it"), ref = input("text", "Where it is kept (e-mail, letter), or the reason");
+        const rec = btn(d, "Record the client's decision", true);
+        rec.addEventListener("click", () => {
+          if (!date.value) { note.textContent = "Say on which day the client gave it."; return; }
+          if (!name.value.trim()) { note.textContent = "Say who at the client gave it."; return; }
+          if (NOTE_REQUIRED.has(pick.value) && !ref.value.trim()) { note.textContent = "Write the reason in the last box: it is required here."; return; }
+          void act(ctx.ws.post(`/bimdocs/${pathSegment(st.key)}/rounds/${pathSegment(round.round_id)}/record-outside`,
+            { outcome: pick.value, date: date.value, name: name.value.trim(), ...(ref.value.trim() ? { evidence_ref: ref.value.trim() } : {}) }));
+        });
+        box.append(pick, date, name, ref, rec);
+      }
+      if (round.skip?.can && round.skip.step) {
+        const step = round.skip.step;
+        box.append(h(d, "div", HEAD, "A step nobody can decide"), h(d, "div", MUTED, round.skip.words ?? ""));
+        const why = area("Why it is skipped (required)");
+        const sk = btn(d, `Skip step ${step}`);
+        sk.addEventListener("click", () => {
+          if (!why.value.trim()) { note.textContent = "A skipped step carries its reason: write it above."; return; }
+          void act(ctx.ws.post(`/bimdocs/${pathSegment(st.key)}/rounds/${pathSegment(round.round_id)}/skip`, { step, reason: why.value.trim() }));
+        });
+        box.append(why, sk);
+      }
       if (round.can_withdraw) {
         const w = btn(d, "Withdraw from review");
         w.style.marginTop = ".6rem";
@@ -121,6 +168,24 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
     row.append(see, send);
     box.append(row);
   } else if (!round && !cur.chain) box.append(h(d, "p", MUTED, "This document is not sent for review in rounds. Share and publish from the Documents tab."));
+  if (st.versions.length) {
+    const done = st.versions.filter((v) => cur.incorporated?.[String(v.version_no)]);
+    if (done.length || cur.can_incorporate) box.append(h(d, "div", HEAD, "Incorporated in appointment"));
+    for (const v of done) box.append(h(d, "div", SOFT, `v${v.version_no} · ${incorporatedWords(cur.incorporated![String(v.version_no)].parties)}`));
+    if (cur.can_incorporate) {
+      box.append(h(d, "div", MUTED, "After an appointment is signed, record which version it includes and whose appointments include it."));
+      const which = h(d, "select", `${FIELD};width:auto;margin:.2rem 0`);
+      for (const v of st.versions) { const op = h(d, "option", "", `v${v.version_no}${v.label ? ` · ${v.label}` : ""}`); op.value = String(v.version_no); which.append(op); }
+      const parties = input("text", "Whose appointments include it (separate with commas)");
+      const rec = btn(d, "Record");
+      rec.addEventListener("click", () => {
+        const list = parties.value.split(",").map((x) => x.trim()).filter(Boolean);
+        if (!list.length) { note.textContent = "Name the parties whose appointments include this version."; return; }
+        void act(ctx.ws.post(`${base}/incorporated`, { version_no: Number(which.value), parties: list }));
+      });
+      box.append(which, parties, rec);
+    }
+  }
   box.append(note);
   return box;
 }

@@ -1401,6 +1401,9 @@ async function handleRequest(req, res) {
         const s = await office.getScan(p1);
         return s ? send(res, 200, s) : send(res, 404, { message: "no scan report received for this project yet" });
       }
+      // R2d-2: the project setting "The client is not in Sentinel" (GET → {on, can_change, has_client}; POST {on} an owner's, ledgered by the database)
+      if (p2 === "client-outside" && !p3 && req.method === "GET") return send(res, 200, await (await import("./rounds-store.mjs")).clientOutside(p1));
+      if (p2 === "client-outside" && !p3 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).setClientOutside(p1, await readBody(req)));
       // ── Members: add-by-email (sign-up-first), roles, last-owner guard. Writes ride the
       // forwarded session so 0004's lead-gate RLS decides; /me tells the UI what to render.
       if (p2 === "members" && !p3 && req.method === "GET") {
@@ -2334,6 +2337,15 @@ async function handleRequest(req, res) {
       }
       if (p1 && p2 === "rounds" && p3 && p4 === "withdraw" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).withdraw(p1, p3, body));
       if (p1 && p2 && p3 === "appointment-indicated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).appointmentIndicated(p1, p2, body));
+      // R2d-2 (0054): the client outside Sentinel, the tender skip rule, Incorporated in appointment, Needs a review
+      //   POST /bimdocs/:key/rounds/:roundId/record-outside {outcome, date: "YYYY-MM-DD", name, evidence_ref?} → the decide answer (a lead; the setting on; the Client's step)
+      //   POST /bimdocs/:key/rounds/:roundId/skip {step, reason} → {step, decision: "skipped", closed, status, ...} (a lead; tender only)
+      //   POST /bimdocs/:key/:docId/incorporated {version_no, parties: [text]} → {document_id, version_no, sha, parties, ledger_id} (a lead)
+      //   POST /bimdocs/:key/:docId/review-needed/dismiss {note} → {dismissed: [reasons], ledger_id} (a lead; the note is required)
+      if (p1 && p2 === "rounds" && p3 && p4 === "record-outside" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).recordOutside(p1, p3, body));
+      if (p1 && p2 === "rounds" && p3 && p4 === "skip" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).skipStep(p1, p3, body));
+      if (p1 && p2 && p3 === "incorporated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).incorporated(p1, p2, body));
+      if (p1 && p2 && p3 === "review-needed" && p4 === "dismiss" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).dismissReview(p1, p2, body, actor));
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       // R1c: the facts the editor offers, and the live values of a document (the freeze preview: exactly what a publish would freeze).
