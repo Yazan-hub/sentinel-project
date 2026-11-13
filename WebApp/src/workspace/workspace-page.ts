@@ -12,7 +12,8 @@ import { becameVisible, createWorkspace, reopenTarget, resolveSection, reviewLin
 import { C, btn, h } from "./dom";
 import { editPane, type Carried, type EditorHandle, type EditPaneEl } from "./block-editors";
 import { ingestView, type IngestProposal } from "./ingest-view";
-import { commentsTab, outlinePane } from "./outline";
+import { commentsTab } from "./comments-tab";
+import { outlinePane } from "./outline";
 import { qualityTab } from "./quality-tab";
 import { peopleTab } from "./people-tab";
 import { readinessView, READ_ONLY_NOTE } from "./readiness-view";

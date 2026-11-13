@@ -44,8 +44,23 @@ describe("the workspace controller", () => {
   it("open reads the document, then its versions, comments and score, the role and the caller", async () => {
     const t = setup(); await t.ws.open("d1");
     expect(t.json.mock.calls[0].slice(0, 2)).toEqual(["GET", "/bimdocs/a/d1"]);
-    expect(t.json.mock.calls.map((c) => c[1]).sort()).toEqual(["/bimdocs/a/d1", "/bimdocs/a/d1/comments", "/bimdocs/a/d1/executability", "/bimdocs/a/d1/live", "/bimdocs/a/d1/versions"]);
+    expect(t.json.mock.calls.map((c) => c[1]).sort()).toEqual(["/bimdocs/a/d1", "/bimdocs/a/d1/comments/threads", "/bimdocs/a/d1/executability", "/bimdocs/a/d1/live", "/bimdocs/a/d1/me", "/bimdocs/a/d1/versions", "/cde/a/members"]);
     expect(t.ws.state()).toMatchObject({ key: "a", doc: { id: "d1" }, role: "lead", me: "lead@x", problems: [], respondsTo: null, viewing: null });
+  });
+  it("R2c: threads, the caller's level and the members load with the document; the outline's comments are the open threads", async () => {
+    const th = (id: string, section_id: string | null, resolved: boolean) => ({ id, audience: "everyone", anchor: { section_id }, author: "a@x", text: id, created_at: "t", replies: [], resolved, assignee: null, mentions: [] });
+    const t = setup((m, p) => p.endsWith("/comments/threads") ? ok({ threads: [th("t1", "s1", false), th("t2", "s1", true), th("t3", null, false)], can_team: true, default_audience: "team" })
+      : p.endsWith("/me") ? ok({ level: "comment", party: "lead_appointed", can_team: true, default_audience: "team" }) : p === "/cde/a/members" ? ok([{ user_id: "u", email: "m@x" }]) : docRoute()(m, p));
+    await t.ws.open("d1");
+    const st = t.ws.state();
+    expect(st.threads.length).toBe(3); expect(st.comments.map((c) => c.id)).toEqual(["t1"]);
+    expect(st).toMatchObject({ canTeam: true, defaultAudience: "team", access: { level: "comment" }, members: [{ email: "m@x" }] });
+  });
+  it("R2c: a contributor whose level on this document is read or comment cannot edit; leads and an unset level keep today's rule", () => {
+    const st = (role: string, level?: string) => ({ ...emptyState("a"), doc: doc(), role, access: level ? { level } : null }) as never;
+    expect(rightsOf(st("contributor", "read")).canEdit).toBe(false); expect(rightsOf(st("contributor", "comment")).canEdit).toBe(false);
+    expect(rightsOf(st("contributor", "edit")).canEdit).toBe(true); expect(rightsOf(st("contributor")).canEdit).toBe(true);
+    expect(rightsOf(st("lead", "govern"))).toMatchObject({ canEdit: true, canGovern: true });
   });
   it("a linked EIR's title is read for the page", async () => {
     const t = setup((m, p) => (p === "/bimdocs/a/e1" ? ok(doc({ id: "e1", doc_type: "EIR", title: "SNW EIR" })) : docRoute(doc({ responds_to: "e1", responds_to_version: 2 }))(m, p)));

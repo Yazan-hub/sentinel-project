@@ -4,6 +4,15 @@ import type { CommentRow, DocRow, Executability, LiveSet, VersionListRow, Versio
 import { statusLine } from "../sentinel-core/doc-blocks";
 import { canEditRole, canGovernRole } from "../setups/my-role";
 import { pathSegment } from "../setups/escape-html";
+import type { MemberRow } from "../setups/members-people";
+
+/** R2c: a comment thread as the bridge folds it (GET …/comments/threads). anchor.section_id null = the whole document. */
+export type Audience = "everyone" | "team";
+export interface Thread { id: string; audience: Audience; anchor: { section_id: string | null; block_id?: string | null }; author: string; author_uid?: string; text: string; created_at: string;
+  replies: { id: string; author: string; text: string; created_at: string; mentions?: { uid: string; email: string }[] | string[] }[]; resolved: boolean; resolved_by?: string | null;
+  assignee: { uid: string; email: string } | null; mentions: { uid: string; email: string }[] }
+/** What the caller may do on this document (GET …/me). */
+export interface MyAccess { level: "read" | "comment" | "edit" | "govern"; party: string | null; can_team: boolean; default_audience: Audience }
 
 export interface WorkspaceDeps {
   json(method: "GET" | "POST" | "PUT" | "PATCH", path: string, body?: object): Promise<{ status: number; body: any }>; // path after the bridge base
@@ -11,7 +20,8 @@ export interface WorkspaceDeps {
   onProjectChange(cb: () => void): () => void; askYesNo(q: string): Promise<boolean>;
   role(key: string): Promise<string>; me(): Promise<string>;
 }
-export interface WorkspaceState { key: string; doc: DocRow | null; versions: VersionListRow[]; comments: CommentRow[]; ex: Executability | null;
+export interface WorkspaceState { key: string; doc: DocRow | null; versions: VersionListRow[]; comments: CommentRow[] /* derived: one row per OPEN thread, for the outline */; ex: Executability | null;
+  threads: Thread[]; canTeam: boolean; defaultAudience: Audience; members: MemberRow[] | null /* null: the list is for members */; access: MyAccess | null;
   live: LiveSet | null /* the freeze preview: GET …/live, null when refused */; role: string; me: string; problems: string[]; message: string; viewing: VersionRow | null;
   respondsTo: { title: string; version_no: number | null } | null /* the EIR this document answers, loaded by open */ }
 export interface Workspace {
@@ -36,7 +46,7 @@ export const isStaleConflict = (message: unknown): boolean =>
   typeof message === "string" && /^stale write|changed or was issued meanwhile/.test(message);
 
 export const emptyState = (key: string): WorkspaceState => ({
-  key, doc: null, versions: [], comments: [], ex: null, live: null, role: "viewer", me: "", problems: [], message: "", viewing: null, respondsTo: null,
+  key, doc: null, versions: [], comments: [], threads: [], canTeam: false, defaultAudience: "everyone", members: null, access: null, ex: null, live: null, role: "viewer", me: "", problems: [], message: "", viewing: null, respondsTo: null,
 });
 
 type Reply = { status: number; body: any };
@@ -92,20 +102,23 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       const x = await call("GET", `/bimdocs/${pathSegment(key)}/${pathSegment(doc.responds_to)}`);
       return { title: (x && is2xx(x) && typeof x.body?.title === "string" && x.body.title) || "the linked EIR", version_no: doc.responds_to_version };
     };
-    const [versions, comments, ex, live, respondsTo, role, me] = await Promise.all([
+    const [versions, tr, ex, live, respondsTo, role, me, access, members] = await Promise.all([
       list<VersionListRow>(`${base}/versions`),
-      list<CommentRow>(`${base}/comments`),
+      call("GET", `${base}/comments/threads`).then((x) => (x && is2xx(x) && x.body && Array.isArray(x.body.threads) ? (x.body as { threads: Thread[]; can_team?: boolean; default_audience?: Audience }) : null)),
       call("GET", `${base}/executability`).then((x) => (x && is2xx(x) && x.body && typeof x.body === "object" ? (x.body as Executability) : null)),
       call("GET", `${base}/live`).then((x) => (x && is2xx(x) && x.body && typeof x.body === "object" && x.body.blocks && typeof x.body.blocks === "object" ? (x.body as LiveSet) : null)),
       eir(),
       deps.role(key).catch(() => "viewer"),
       deps.me().catch(() => ""),
+      call("GET", `${base}/me`).then((x) => (x && is2xx(x) && x.body && typeof x.body.level === "string" ? (x.body as MyAccess) : null)),
+      call("GET", `/cde/${pathSegment(key)}/members`).then((x) => (x && is2xx(x) && Array.isArray(x.body) ? (x.body as MemberRow[]) : null)),
     ]);
+    const threads = tr?.threads ?? [];
     if (stale()) return false;
     // A write may have landed while this read ran: its newer row of the same document is kept over this older answer.
     const held = state.doc, newer = !!held && held.id === doc.id && state.key === key && typeof held.updated_at === "string" && typeof doc.updated_at === "string" && doc.updated_at < held.updated_at;
     const row = newer && held ? held : doc;
-    state = { key, doc: row, versions, comments, ex, live, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
+    state = { key, doc: row, versions, comments: openComments(threads), threads, canTeam: !!(tr?.can_team ?? access?.can_team), defaultAudience: tr?.default_audience ?? access?.default_audience ?? "everyone", members, access, ex, live, role, me, problems: docProblems(row), message: keep.message, viewing: keep.viewing === undefined ? state.viewing : keep.viewing, respondsTo };
     render(state);
     return true;
   }
@@ -207,6 +220,10 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   return { open, reload: async () => { await reload(); }, viewVersion, write, get, post, rescore, reloadLive, pending: () => inflight, state: () => state };
 }
 
+/** The outline's chips count open threads: one row per open thread that is anchored on a section. */
+export const openComments = (threads: Thread[]): CommentRow[] =>
+  threads.filter((t) => !t.resolved && t.anchor?.section_id).map((t) => ({ id: t.id, section_id: String(t.anchor.section_id), author: t.author, text: t.text, created_at: t.created_at }));
+
 export function docProblems(doc: DocRow): string[] {
   const seen = new Set<string>(), twice = new Set<string>();
   for (const s of doc.sections ?? []) { if (s) (seen.has(s.id) ? twice : seen).add(s.id); }
@@ -231,7 +248,8 @@ export function resolveSection(doc: DocRow, at: string | undefined): string | nu
 export function rightsOf(st: WorkspaceState): { canEdit: boolean; canGovern: boolean } {
   const d = st.doc;
   const open = !!d && st.problems.length === 0 && (d.status === "wip" || d.status === "shared") && d.doc_type !== "READINESS" && d.doc_type !== "TIDP";
-  return { canEdit: open && !st.viewing && canEditRole(st.role), canGovern: open && canGovernRole(st.role) };
+  const level = st.access?.level; // R2c: a document-level "can read" or "can comment" takes edit away from a contributor
+  return { canEdit: open && !st.viewing && canEditRole(st.role) && (!level || level === "edit" || level === "govern"), canGovern: open && canGovernRole(st.role) };
 }
 
 export function reviewLines(doc: DocRow, versions: VersionListRow[]): string[] {

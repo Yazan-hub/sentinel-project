@@ -1,5 +1,5 @@
 // The left-hand outline: the document's head, filters, one row per section (chips, section lead) and, for a lead,
-// the section operations. Plus the read-only Comments side tab. A viewer sees the same outline and no action.
+// the section operations. A viewer sees the same outline and no action.
 import type { CommentRow, DocRow, Executability, SectionRow, Snapshot } from "../sentinel-core/doc-blocks";
 import { STAGE_WORDS, statusLine } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "../setups/ask";
@@ -25,7 +25,7 @@ export function initials(owner: string | null): string {
 
 const boundChecks = (s: SectionRow): { id: string }[] => (Array.isArray(s?.bindings?.checks) ? s.bindings.checks : []);
 
-/** The small labels on an outline row: comments, Unbound (no check bound), Empty (the score found nothing written). */
+/** The small labels on an outline row: open comment threads, Unbound (no check bound), Empty (the score found nothing written). */
 export function sectionChips(s: SectionRow, ex: Executability | null, comments: CommentRow[]): string[] {
   const n = comments.filter((c) => c.section_id === s.id).length;
   const chips: string[] = [];
@@ -202,22 +202,4 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
   }
   draw();
   return root;
-}
-
-/** The open section's thread, read-only: adding a comment stays in the Documents tab until the workspace has rounds. */
-export function commentsTab(ctx: PaneCtx): HTMLElement {
-  const d = ctx.doc, box = h(d, "div");
-  const text = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
-  if (!ctx.focused) box.append(h(d, "p", text, "Pick a section in the outline to see its comments."));
-  else {
-    const mine = ctx.st.comments.filter((c) => c.section_id === ctx.focused).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-    if (!mine.length) box.append(h(d, "p", text, "No comments on this section."));
-    for (const c of mine) {
-      const item = h(d, "div", `margin:0 0 .6rem;padding:.4rem .5rem;border:1px solid ${C.line};border-radius:.35rem`);
-      item.append(h(d, "div", `color:${C.muted};font:11px system-ui`, `${c.author} · ${String(c.created_at ?? "").slice(0, 10)}`), h(d, "div", `color:${C.text};font:12px system-ui;white-space:pre-wrap;overflow-wrap:anywhere`, String(c.text ?? "")));
-      box.append(item);
-    }
-  }
-  box.append(h(d, "p", `color:${C.muted};font:11px system-ui;margin:.6rem 0 0`, "Add comments in the Documents tab for now."));
-  return box;
 }

@@ -10,7 +10,7 @@ vi.mock("./read-view", () => ({
 
 import { askText, askYesNo } from "../setups/ask";
 import { readVersion } from "./read-view";
-import { answersLine, commentsTab, filterSections, initials, isComprehensive, outlinePane, removeQuestion, sectionChips } from "./outline";
+import { answersLine, filterSections, initials, isComprehensive, outlinePane, removeQuestion, sectionChips } from "./outline";
 import { emptyState } from "./workspace-state";
 import { fakeDocument, findAll, textOf, click } from "./fake-dom";
 
@@ -197,23 +197,6 @@ describe("outlinePane", () => {
     const el = outlinePane(ctx(true, { d: doc({ sections: [sec("s1", { bindings: bound })] }) })); click(labelled(el, "Unbound"));
     expect(textOf(el)).toContain("No section matches.");
   });
-});
-
-describe("commentsTab", () => {
-  it("asks for a section first", () => {
-    const t = textOf(commentsTab(ctx(true, { focused: null })));
-    expect(t).toContain("Pick a section in the outline to see its comments."); expect(t).toContain("Add comments in the Documents tab for now.");
-  });
-  it("lists the section's comments oldest first, nobody else's", () => {
-    const t = textOf(commentsTab(ctx(true, { focused: "s1", comments: [
-      comment("s1", { id: "b", author: "late@x", text: "second", created_at: "2026-10-25T11:00:00Z" }),
-      comment("s1", { id: "a", author: "early@x", text: "first", created_at: "2026-10-24T11:00:00Z" }),
-      comment("s2", { text: "elsewhere" })] })));
-    expect(t.indexOf("early@x · 2026-10-24")).toBeGreaterThanOrEqual(0);
-    expect(t.indexOf("first")).toBeLessThan(t.indexOf("second")); expect(t).not.toContain("elsewhere");
-    expect(t).toContain("Add comments in the Documents tab for now.");
-  });
-  it("says so when the section has none", () => expect(textOf(commentsTab(ctx(true, { focused: "s1" })))).toContain("No comments on this section."));
 });
 
 describe("F-R1b-5: no second structure change behind a slow one", () => {

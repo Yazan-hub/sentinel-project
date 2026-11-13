@@ -39,7 +39,9 @@ export interface SectionRow { id: string; heading: string; guidance: string; bod
   kind?: string; pillar?: string; question?: string; answer?: { value: string; note: string } | null; due?: string | null }
 export interface DocRow { id: string; doc_type: string; title: string; status: "wip" | "shared" | "published" | "archived";
   stage: "pre_appointment" | "confirmed" | "revision"; suitability: string; responds_to: string | null; responds_to_version: number | null;
-  template_id: string | null; template_version: number | null; updated_at: string; sections: SectionRow[] }
+  template_id: string | null; template_version: number | null; updated_at: string; sections: SectionRow[];
+  /** R2c per-document overrides: person (user id) and task team code → "read" | "comment" | "edit". */
+  access?: { members?: Record<string, string>; teams?: Record<string, string> } | null }
 export interface VersionListRow { id: string; version_no: number; label: string; published_by: string; published_at: string;
   revision: string | null; stage: string | null; suitability: string | null; sha: string | null }
 // A version recorded before 0049 has no stage or suitability in its snapshot (and null stage/suitability/sha on its row);
