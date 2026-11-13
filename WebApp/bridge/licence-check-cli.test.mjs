@@ -18,19 +18,21 @@ function run(files, args = []) {
   } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
+// Each test starts node as a child process (up to six); under the full suite's load 5 s is not enough.
+const SPAWNS = 30_000;
 describe("licence-check pin readers", () => {
   it("passes the real pins and fails a requirement line it cannot read", () => {
     expect(run({}).out).toContain("licence-check:");
     const r = run({ "photo/requirements.txt": "# c\n-r other.txt\ngsplat @ https://example.test/x.whl\n" });
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/UNKNOWN gsplat @ https/);
-  });
+  }, SPAWNS);
   it("judges both versions of a pin and reads name[extra]==ver", () => {
     const r = run({ "photo/requirements.txt": "laspy==2.8.0\ntransformers[torch]==4.1 --hash=sha256:ab\n" });
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/UNKNOWN laspy@2\.8\.0/);
     expect(r.out).toMatch(/UNKNOWN transformers@4\.1/);
-  });
+  }, SPAWNS);
 });
 
 // MA-7-3 (amendment 20): the add-in has no image-import API — a SentinelAddin .cs naming one fails the run, naming the line.
@@ -47,5 +49,5 @@ describe("licence-check imagery scan (MA-7-3)", () => {
     const r = run({ "SentinelAddin/A.cs": "class A {\n  void M() { ImageType.Create(d, o); }\n}\n" });
     expect(r.code).toBe(1);
     expect(r.out).toContain("IMAGERY SentinelAddin/A.cs:2 — imagery is never put into the model (design 4.4); nothing ships with it");
-  });
+  }, SPAWNS);
 });

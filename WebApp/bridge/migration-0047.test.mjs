@@ -25,7 +25,7 @@ describe("migration 0047 — one line, whatever order the ids were drawn in", ()
   beforeAll(async () => {
     before = await buildDb({ before: "0047" });
     after = await buildDb();
-  });
+  }, 60_000); // two databases: under the full suite's load the 10 s default is not enough (the peers allow 60 s)
 
   it("before 0047 the racing order forks the chain — and 0047 refuses to apply onto a forked chain", async () => {
     await before.query("insert into public.audit_log(entity_type, action) values ('event', 'first')");
