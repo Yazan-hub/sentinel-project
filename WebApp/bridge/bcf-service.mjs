@@ -2335,6 +2335,7 @@ async function handleRequest(req, res) {
         if (r.bcf?.guid) broadcast(p1, { type: "topic", action: "created", guid: r.bcf.guid, title: "Review rejected" });
         return send(res, 200, r);
       }
+      if (p1 && p2 === "rounds" && p3 && p4 === "render" && !seg[5] && req.method === "GET") return send(res, 200, await (await import("./rounds-store.mjs")).roundRender(p1, p3)); // GET /bimdocs/:key/rounds/:roundId/render → the frozen render as a version-shaped row (version_no 0), masked below contributor
       if (p1 && p2 === "rounds" && p3 && p4 === "withdraw" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).withdraw(p1, p3, body));
       if (p1 && p2 && p3 === "appointment-indicated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).appointmentIndicated(p1, p2, body));
       // R2d-2 (0054): the client outside Sentinel, the tender skip rule, Incorporated in appointment, Needs a review

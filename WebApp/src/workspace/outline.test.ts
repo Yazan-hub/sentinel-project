@@ -89,6 +89,12 @@ describe("outlinePane", () => {
     const labels = findAll(outlinePane(ctx(true)), "button").map(textOf);
     for (const a of ACTIONS) expect(labels, a).toContain(a);
   });
+  it("while a round is open a lead sees no structure action (R2d review)", () => {
+    const c = ctx(true); c.st.round = { round: { status: "open" } } as never;
+    expect(findAll(outlinePane(c), "button").map(textOf).filter((t) => ACTIONS.includes(t))).toEqual([]);
+    const closed = ctx(true); closed.st.round = { round: { status: "closed" } } as never;
+    expect(findAll(outlinePane(closed), "button").map(textOf)).toContain("Add section");
+  });
   it("the head offers Link an EIR… to a lead on a BEP with a start still to pick", () => {
     const d = doc({ template_id: "bep-comprehensive", sections: [sec("s1"), sec("s2", { template_key: "eir-response" })] });
     expect(findAll(outlinePane(ctx(true, { d })), "button").map(textOf)).toContain("Link an EIR…");

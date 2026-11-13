@@ -37,7 +37,7 @@ export interface RoundCurrent { round: RoundView | null; words: string; stage: s
   client_outside?: boolean; needs_review?: string[] /* R2d-2: "Needs a review: (reason)" */; can_dismiss?: boolean;
   incorporated?: Record<string, { parties: string[]; sha: string | null; at: string | null; by: string | null }>; can_incorporate?: boolean }
 export interface Workspace {
-  open(docId: string): Promise<void>; reload(): Promise<void>; viewVersion(n: number | null): Promise<void>;
+  open(docId: string): Promise<void>; reload(): Promise<void>; viewVersion(n: number | null, path?: string): Promise<void>; // path: read something else version-shaped (a round's frozen render, version_no 0)
   write(method: "POST" | "PUT" | "PATCH", rest: string, body?: object): Promise<DocRow | null>; // rest after /bimdocs/:key/:docId
   get<T>(path: string): Promise<T | null>; // guarded GET of any bridge path; null when stale or refused (message set)
   post<T>(path: string, body?: object): Promise<T | null>; // guarded POST of any other bridge path; adds actor, never updated_at; any non-2xx (a 409 too) sets message and returns null without asking
@@ -144,10 +144,10 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
 
   const reload = async (): Promise<boolean> => (state.doc ? load(state.doc.id, { message: "" }) : false);
 
-  async function viewVersion(n: number | null): Promise<void> {
+  async function viewVersion(n: number | null, path?: string): Promise<void> {
     const mine = ++viewTok, sc = tok;
     if (n === null || !state.doc) { state = { ...state, viewing: null }; render(state); return; }
-    const r = await call("GET", `/bimdocs/${pathSegment(state.key)}/${pathSegment(state.doc.id)}/versions/${n}`);
+    const r = await call("GET", path ?? `/bimdocs/${pathSegment(state.key)}/${pathSegment(state.doc.id)}/versions/${n}`);
     if (mine !== viewTok || sc !== tok) return;
     if (r && is2xx(r) && r.body?.snapshot) state = { ...state, viewing: r.body as VersionRow, message: "" };
     else say(r ? words(r, "") : "The bridge did not answer.");

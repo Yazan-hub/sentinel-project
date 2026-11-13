@@ -196,7 +196,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
   };
 
   function draw(): void {
-    root.replaceChildren(head(), filters(), list(), ...(ctx.canGovern ? [actions()] : []), note);
+    root.replaceChildren(head(), filters(), list(), ...(ctx.canGovern && st.round?.round?.status !== "open" ? [actions()] : []) /* R2d: the structure is locked while a round is open */, note);
   }
   draw();
   return root;

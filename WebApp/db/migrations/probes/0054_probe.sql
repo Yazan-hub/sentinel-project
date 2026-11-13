@@ -4,7 +4,7 @@
 -- Part 2: one DO block on scratch rows (an office with a BEP chain, a project with an owner, a second lead and a team member, and no Client).
 --   It turns the setting on, sends a confirmed BEP with no Client, runs steps 1-2, records the Client's acceptance outside Sentinel (published A1),
 --   skips a tender step 3, records Incorporated in appointment, and always raises its summary, so everything it wrote rolls back.
---   "PROBE 0054: 8 of 8 as expected." is the pass.
+--   "PROBE 0054: 10 of 10 as expected." is the pass.
 
 -- Part 1
 select 'projects.client_outside_sentinel exists, default false' as what,
@@ -115,5 +115,16 @@ begin
      and new_value->'parties' = '["Firm A","Firm B"]'::jsonb and new_value->>'by_uid' = l2::text;
   if n = 1 then ok := ok + 1; else raise notice 'FAIL 7: incorporated row'; end if;
 
-  raise exception 'PROBE 0054: % of 8 as expected.', ok;
+  -- 8 appointment indicated is a BEP's (an EIR is refused)
+  perform set_config('request.jwt.claims', '', true);
+  insert into public.bim_documents(project_id, doc_type, title, sections) values (pid, 'EIR', 'Probe EIR', secs) returning id into doc;
+  perform set_config('request.jwt.claims', jl, true);
+  begin perform public.doc_appointment_indicated(doc, 'by letter'); raise notice 'FAIL 8: an EIR was indicated';
+  exception when others then if sqlerrm like '%applies to a BEP%' then ok := ok + 1; else raise notice 'FAIL 8: %', sqlerrm; end if; end;
+  -- 9 a chained type is published only through a round, even by the service
+  perform set_config('request.jwt.claims', '', true);
+  begin update public.bim_documents set status = 'published' where id = doc2; raise notice 'FAIL 9: a service write published a chained BEP';
+  exception when others then if sqlerrm like '%published through a review round%' then ok := ok + 1; else raise notice 'FAIL 9: %', sqlerrm; end if; end;
+
+  raise exception 'PROBE 0054: % of 10 as expected.', ok;
 end $$;

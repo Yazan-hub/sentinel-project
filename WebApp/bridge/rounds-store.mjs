@@ -3,7 +3,8 @@
 // files the one issue a rejection raises, and folds a round into the caller's view (rounds-logic.mjs).
 import { sb, isUuid, forwardingConfigured, newTopicObject, bcfCreateTopic, ensureProject, audit, auditAll } from "./cde-store.mjs";
 import { getDoc, chainFor } from "./bimdocs-store.mjs";
-import { buildSnapshot } from "./bimdocs-logic.mjs";
+import { buildSnapshot, maskVersion } from "./bimdocs-logic.mjs";
+import { requireDocAccess } from "./doc-access.mjs";
 import { roundView, docWords, revisionReasons, incorporatedByVersion, ROUND_COLS, DECISION_COLS } from "./rounds-logic.mjs";
 import { rejectionTopic } from "./review-logic.mjs";
 import { currentUserToken, currentSub, resolveActor } from "./bridge-auth.mjs";
@@ -54,6 +55,18 @@ async function roundRow(key, roundId) {
   if (!r) throw err(404, "round not found");
   await getDoc(key, r.document_id); // the round must belong to this project: a document of another project is a 404
   return r;
+}
+
+/** What a round froze at the send, as a version-shaped row (version_no 0), so a decider reads what will be cut. The render column is never granted to a
+ *  signed-in caller: it is read with the service key after the caller proved to be an active member who may read the document; below contributor it is masked. */
+export async function roundRender(key, roundId) {
+  const round = await roundRow(key, roundId);
+  const doc = await getDoc(key, round.document_id);
+  const role = await requireDocAccess(key, doc, "read");
+  const row = (await sb(`doc_rounds?id=eq.${enc(roundId)}&select=render,sent_at,sent_by_email,stage`, { service: true }))?.[0];
+  if (!row) throw err(404, "round not found");
+  const full = { id: roundId, document_id: round.document_id, version_no: 0, label: "Sent for review", published_by: row.sent_by_email, published_at: row.sent_at, stage: row.stage, snapshot: row.render };
+  return role === "service" || (ROLE_RANK[role] || 0) >= ROLE_RANK.contributor ? full : maskVersion(full);
 }
 
 /** One decision on the step the round waits on. A rejection also files one issue (best-effort: `bcf` {guid} or {error}, null otherwise). */

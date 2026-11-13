@@ -47,6 +47,22 @@ describe("words", () => {
   });
 });
 
+describe("R2d review", () => {
+  it("no raw outcome code ever appears on screen", () => {
+    for (const outcome of ["not_selected", "withdrawn", "rejected", "skipped"]) {
+      const t = textOf(run(ctx(cur({ round: view({ status: "voided", outcome, status_words: "Rejected, back to draft" }) }))));
+      expect(t, outcome).not.toContain(outcome);
+    }
+  });
+  it("Read what was sent opens the frozen render in the Read view while the round is open", async () => {
+    const c = ctx(cur({ round: view() }));
+    (c.ws as never as { viewVersion: unknown }).viewVersion = vi.fn(async () => { (c.st as never as { viewing: unknown }).viewing = { version_no: 0 }; });
+    click(by(run(c), "Read what was sent")[0]); await tick();
+    expect((c.ws as never as { viewVersion: { mock: { calls: unknown[][] } } }).viewVersion.mock.calls[0]).toEqual([0, "/bimdocs/snowdon/rounds/r1/render"]);
+    expect(c.show).toHaveBeenCalledWith("read");
+  });
+});
+
 describe("no round", () => {
   it("a lead sees the send form: a deadline, the codes by stage, the freeze preview and Send", () => {
     const el = run(ctx(cur()));
@@ -89,7 +105,7 @@ describe("an open round", () => {
   });
   it("the caller's choices are buttons; a note is required for reject and says so before sending", async () => {
     const c = ctx(cur({ round: view({ can_decide: true, choices: ["accept", "accept_with_comments", "reject"] }) })), el = run(c);
-    expect(all(el, "button").map(textOf)).toEqual(["Accept", "Accept with comments", "Reject"]);
+    expect(all(el, "button").map(textOf).filter((t) => t !== "Read what was sent")).toEqual(["Accept", "Accept with comments", "Reject"]);
     expect(textOf(el)).toContain("A note is required for: Reject.");
     click(by(el, "Reject")[0]); await tick();
     expect(c.ws.post).not.toHaveBeenCalled(); expect(textOf(el)).toContain("A note is required to reject");
@@ -105,7 +121,7 @@ describe("an open round", () => {
   });
   it("tender step 3 choices use the bridge's words, a note for clarification", () => {
     const el = run(ctx(cur({ round: view({ can_decide: true, choices: ["received", "clarification", "selected", "not_selected"] }) })));
-    expect(all(el, "button").map(textOf)).toEqual(["Received", "Ask for clarification", "Selected", "Not selected"]);
+    expect(all(el, "button").map(textOf).filter((t) => t !== "Read what was sent")).toEqual(["Received", "Ask for clarification", "Selected", "Not selected"]);
     expect(textOf(el)).toContain("A note is required for: Ask for clarification.");
   });
   it("why_not shows when the caller cannot decide", () => {

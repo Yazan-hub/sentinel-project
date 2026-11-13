@@ -27,7 +27,7 @@ vi.mock("./office-store.mjs", () => ({ getSnapshot: vi.fn(), getScan: vi.fn() })
 const resolveLive = vi.fn(async () => ({ facts: { n: 1 } }));
 vi.mock("./live-resolve.mjs", () => ({ resolveLive: (...a) => resolveLive(...a) }));
 
-const { sendForReview, decide, withdraw, appointmentIndicated, currentRound, recordOutside, skipStep, clientOutside, setClientOutside, incorporated, dismissReview } = await import("./rounds-store.mjs");
+const { roundRender, sendForReview, decide, withdraw, appointmentIndicated, currentRound, recordOutside, skipStep, clientOutside, setClientOutside, incorporated, dismissReview } = await import("./rounds-store.mjs");
 const { transitionDoc, publishDoc, patchSection, addBlock, setSectionPlan, setSectionBindings, removeSection, reorderBlocks, pickStart } = await import("./bimdocs-store.mjs");
 
 const DOC = "11111111-1111-4111-8111-111111111111", RND = "22222222-2222-4222-8222-222222222222";
@@ -119,6 +119,28 @@ describe("decide, withdraw, appointment indicated", () => {
     expect(calls(/^rpc\/doc_round_withdraw/)[0][1].body).toEqual({ p_round: RND, p_note: "n" });
     expect(await runWithAuth(jwt("lead2"), () => appointmentIndicated("k", DOC, {}))).toMatchObject({ stage: "confirmed" });
     expect(calls(/^rpc\/doc_appointment_indicated/)[0][1].body).toEqual({ p_doc: DOC, p_note: null });
+  });
+});
+
+describe("roundRender: what the deciders will see cut", () => {
+  const withRender = () => {
+    const base = sb.getMockImplementation();
+    sb.mockImplementation(async (path, opts = {}) => (/^doc_rounds\?id=.*select=render/.test(path)
+      ? (opts.service ? [{ render: { id: DOC, title: "Our BEP", sections: [{ id: "s1", heading: "H", secret: "x", answer: { value: 1, note: "n", private: "p" } }], frozen: { a: 1 }, internal: "i" }, sent_at: "t", sent_by_email: "o@x", stage: "pre_appointment" }] : [])
+      : base(path, opts)));
+  };
+  it("reads the render with the service key after the round and the access checks, as a version-shaped row", async () => {
+    withRender();
+    const r = await runWithAuth(jwt("lead1"), () => roundRender("k", RND));
+    expect(r).toMatchObject({ version_no: 0, label: "Sent for review", document_id: DOC, snapshot: { title: "Our BEP", internal: "i" } });
+    expect(calls(/select=render/)[0][1].service).toBe(true);
+  });
+  it("a viewer gets the masked render; a round id that is no UUID is a 404", async () => {
+    withRender(); (await import("./members-store.mjs")).requireMinRole.mockResolvedValueOnce("viewer");
+    const r = await runWithAuth(jwt("client1"), () => roundRender("k", RND));
+    expect(r.snapshot).not.toHaveProperty("internal");
+    expect(r.snapshot.sections[0]).not.toHaveProperty("secret");
+    await expect(roundRender("k", "nope")).rejects.toMatchObject({ status: 404 });
   });
 });
 

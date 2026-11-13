@@ -180,6 +180,9 @@ begin
   if me is null then
     raise exception 'You were not on the roster when this round was sent: only members who were active then decide.' using errcode = 'insufficient_privilege';
   end if;
+  if not public.is_member(r.project_id) then
+    raise exception 'You are no longer a member of this project, so you cannot decide this round.' using errcode = 'insufficient_privilege';
+  end if;
   if v_uid = r.sent_by then raise exception 'The sender does not decide their own round.' using errcode = 'insufficient_privilege'; end if;
   if exists (select 1 from public.doc_round_decisions x where x.round_id = r.id and x.uid = v_uid and not x.outside and x.decision <> 'skipped') then
     raise exception 'You have already decided in this round.';
@@ -383,6 +386,7 @@ declare
   v_roster jsonb;
   v_id uuid := gen_random_uuid();
   v_sha text;
+  v_render jsonb;
   v_ledger bigint;
   v_outside boolean;
   s jsonb;
@@ -464,10 +468,12 @@ begin
     from public.memberships m left join auth.users u on u.id = m.user_id
    where m.project_id = d.project_id and m.state = 'active';
 
-  v_sha := encode(sha256(convert_to(p_render::text, 'UTF8')), 'hex');
+  -- the render is the document's own row, built here; only the resolved live data (`frozen`, R1c) comes from the caller
+  v_render := to_jsonb(d) || case when p_render ? 'frozen' then jsonb_build_object('frozen', p_render->'frozen') else '{}'::jsonb end;
+  v_sha := encode(sha256(convert_to(v_render::text, 'UTF8')), 'hex');
   perform set_config('sentinel.doc_round', v_id::text, true);
   insert into public.doc_rounds(id, project_id, document_id, doc_type, stage, steps, chain_ref, render, render_sha, roster, teams_owed, codes, deadline, sent_by, sent_by_email)
-  values (v_id, d.project_id, d.id, d.doc_type, d.stage, v_chain, public.review_template(d.project_id)->>'ref', p_render, v_sha, v_roster,
+  values (v_id, d.project_id, d.id, d.doc_type, d.stage, v_chain, public.review_template(d.project_id)->>'ref', v_render, v_sha, v_roster,
           case when v_type = 'bep' then v_teams else '{}' end,
           jsonb_build_object('shared', v_shared, 'issue', v_issue, 'accept', v_accept), p_deadline, v_uid, auth.jwt()->>'email');
   v_ledger := public.doc_round_ledger(d.project_id, v_id, 'review', 'review:doc_start', null,

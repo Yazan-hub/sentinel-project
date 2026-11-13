@@ -35,6 +35,14 @@ describe("R1b entry points in the old panel", () => {
   });
 });
 
+describe("R2d review: the status moves are hidden while a round is open", () => {
+  it("both editor bars take their moves from roundOf and offer none when it is open", () => {
+    expect(src.split("const moves = open ? [] : next[doc.status] || [];").length - 1).toBe(2);
+    expect(src.split("for (const to of moves.filter(").length - 1).toBe(2);
+    expect(src).not.toContain("hasChain");
+  });
+});
+
 describe("R1b hand-over: the moved functions live only in the workspace", () => {
   it.each(["Compile to IDS", "Naming candidate", "Suggest bindings", "Check integrity", "Draft with AI", "Print / PDF", "showIngestReview", "showBindings",
     "showSuggestBindings", "w.document.write", "./ai-picker", "findNamingCandidate"])("%s is gone", (s) => expect(src).not.toContain(s));

@@ -71,14 +71,14 @@ describe("0053 rounds", () => {
     expect((await q(tx, "select status, outcome from public.doc_rounds where id = $1", [round_id]))[0]).toEqual({ status: "closed", outcome: "selected" });
   }));
 
-  it("confirmed after appointment indicated: steps 1-3 accept -> version C01, document published A1; the version's snapshot equals the round's render though the document's live sources changed", () => as(db, "service", async (tx) => {
+  it("confirmed after appointment indicated: steps 1-3 accept -> version C01, document published A1; the version's snapshot equals the round's render though the document's frozen data changed", () => as(db, "service", async (tx) => {
     const doc = await mkDoc(P);
     const t = await start(tx, owner, doc);
     await decide(tx, arc, t.round_id, "accept"); await decide(tx, lead2, t.round_id, "accept"); await decide(tx, client, t.round_id, "selected");
     await who(tx, owner);
     expect((await q(tx, "select public.doc_appointment_indicated($1) r", [doc]))[0].r).toMatchObject({ stage: "confirmed" });
     expect(await docRow(tx, doc)).toMatchObject({ stage: "confirmed", status: "wip" });
-    const c = await start(tx, owner, doc, { live: { risks: 9, register: ["a"] } }, null, { accept: "A1" });
+    const c = await start(tx, owner, doc, { frozen: { risks: 9, register: ["a"] } }, null, { accept: "A1" });
     expect(await decide(tx, arc, c.round_id, "accept_with_comments", "mind the grid")).toMatchObject({ step: 1 });
     expect(await docRow(tx, doc)).toMatchObject({ status: "shared", suitability: "S3" });
     await decide(tx, lead2, c.round_id, "accept");
@@ -89,7 +89,7 @@ describe("0053 rounds", () => {
     const v = (await q(tx, "select revision, sha, snapshot, suitability from public.bim_document_versions where document_id = $1 and version_no = 2", [doc]))[0];
     const rr = (await q(tx, "select render, render_sha from public.doc_rounds where id = $1", [c.round_id]))[0];
     expect(v).toMatchObject({ revision: "C01", suitability: "A1" });
-    expect(v.snapshot).toEqual(rr.render); expect(v.snapshot.live).toEqual({ risks: 9, register: ["a"] });
+    expect(v.snapshot).toEqual(rr.render); expect(v.snapshot.frozen).toEqual({ risks: 9, register: ["a"] });
     expect(v.sha).toBe(rr.render_sha);
   }));
 

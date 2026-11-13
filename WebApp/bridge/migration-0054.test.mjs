@@ -197,6 +197,47 @@ describe("0054 Incorporated in appointment", () => {
   }));
 });
 
+describe("0054 review fixes", () => {
+  it("the render is built from the document row: a forged title or extra field is dropped, the caller's frozen data is kept", () => as(db, "service", async (tx) => {
+    const doc = await mkDoc(PA);
+    await who(tx, owner);
+    const { round_id } = (await q(tx, "select public.doc_round_start($1, $2, null, '{}') r", [doc, JSON.stringify({ id: doc, title: "FORGED", sections, extra: 1, status: "published", frozen: { risks: 3 } })]))[0].r;
+    const rr = (await q(tx, "select render from public.doc_rounds where id = $1", [round_id]))[0].render;
+    expect(rr.title).toBe("Doc"); expect(rr.status).toBe("wip"); expect(rr).not.toHaveProperty("extra");
+    expect(rr.frozen).toEqual({ risks: 3 }); expect(rr.sections).toEqual(sections);
+  }));
+  it("a member removed after the send cannot decide", () => as(db, "service", async (tx) => {
+    const doc = await mkDoc(PA);
+    const R = (await start(tx, owner, doc)).round_id;
+    await decide(tx, arc, R, "accept");
+    await who(tx, null);
+    await tx.query("delete from public.memberships where project_id = $1 and user_id = $2", [PA, lead2.sub]);
+    await expect(refusal(tx, () => decide(tx, lead2, R, "accept"))).rejects.toThrow(/no longer a member/);
+  }));
+  it("appointment indicated is a BEP's", () => as(db, "service", async (tx) => {
+    const doc = await mkDoc(PA, "EIR");
+    await who(tx, lead2);
+    await expect(refusal(tx, () => q(tx, "select public.doc_appointment_indicated($1, 'by letter')", [doc]))).rejects.toThrow(/applies to a BEP/);
+  }));
+  it("a chained type is published only under a round's mark, even by the service", () => as(db, "service", async (tx) => {
+    const doc = await mkDoc(PA);
+    await who(tx, null);
+    await expect(refusal(tx, () => tx.query("update public.bim_documents set status = 'published' where id = $1", [doc]))).rejects.toThrow(/published through a review round/);
+  }));
+});
+
+describe("0054 the probes pass on PGlite", () => {
+  for (const [n, rows, ok] of [["0053", null, 9], ["0054", 4, 10]])
+    it(`probe ${n}: part 1 every row true, part 2 'PROBE ${n}: ${ok} of ${ok} as expected.' (rolled back)`, async () => {
+      const probe = readFileSync(new URL(`../db/migrations/probes/${n}_probe.sql`, import.meta.url), "utf8").replace(/\r/g, "");
+      const i = probe.search(/^-- Part 2$/m);
+      const r1 = (await db.query(probe.slice(probe.search(/^-- Part 1$/m), i))).rows;
+      expect(r1.filter((r) => r.ok !== true).map((r) => r.what)).toEqual([]);
+      if (rows) expect(r1.length).toBe(rows);
+      await expect(db.exec(probe.slice(i))).rejects.toThrow(`PROBE ${n}: ${ok} of ${ok} as expected.`);
+    });
+});
+
 describe("0054 files are valid UTF-8", () => {
   for (const f of ["0054_round_outside.sql", "probes/0054_probe.sql"])
     it(`${f} decodes strictly`, () => {

@@ -68,7 +68,6 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
 
   if (round) {
     box.append(h(d, "p", SOFT, `${round.status_words}${round.deadline ? ` · due ${round.deadline}` : ""}${round.sent_by_email ? ` · sent by ${round.sent_by_email}` : ""}`));
-    if (round.outcome) box.append(h(d, "p", SOFT, round.outcome));
     for (const s of round.steps) {
       const here = round.status === "open" && s.n === round.current;
       box.append(h(d, "div", HEAD, `Step ${s.n} · ${s.name}${s.complete ? " · done" : here ? " · now" : ""}`));
@@ -121,6 +120,12 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
         });
         box.append(why, sk);
       }
+      const readSent = btn(d, "Read what was sent");
+      readSent.addEventListener("click", () => void (async () => {
+        await ctx.ws.viewVersion(0, `/bimdocs/${pathSegment(st.key)}/rounds/${pathSegment(round.round_id)}/render`); // the frozen render, as the Read view of a version
+        if (ctx.ws.state().viewing?.version_no === 0) ctx.show("read"); else note.textContent = ctx.ws.state().message;
+      })());
+      box.append(readSent);
       if (round.can_withdraw) {
         const w = btn(d, "Withdraw from review");
         w.style.marginTop = ".6rem";
