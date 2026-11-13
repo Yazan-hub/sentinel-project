@@ -38,7 +38,7 @@ export function supabase(): SupabaseClient {
 export const authEnabled = (): boolean => import.meta.env.VITE_SENTINEL_AUTH === "1";
 
 /**
- * Send a 6-digit sign-in CODE to `email` (no redirect — the robust flow for an app embedded in the
+ * Send a sign-in CODE (its length is the project's Email OTP length, 8 today) to `email` (no redirect — the robust flow for an app embedded in the
  * platform, where magic-link redirects fight the iframe). Requires the Supabase "Magic Link" email
  * template to render `{{ .Token }}`. Returns a user-facing result, never throws.
  * R2a: this is the invited person's way in. Sign-up is closed, so the code goes only to an account that exists
@@ -58,7 +58,7 @@ export async function sendEmailCode(email: string): Promise<{ ok: boolean; messa
   }
 }
 
-/** Verify the 6-digit code the user typed → establishes the session in-place (no redirect). */
+/** Verify the code the user typed → establishes the session in-place (no redirect). */
 export async function verifyEmailCode(email: string, code: string): Promise<{ ok: boolean; message: string }> {
   try {
     const { error } = await supabase().auth.verifyOtp({

@@ -17,3 +17,9 @@ describe("Sign in with a code", () => {
     expect(handler).not.toMatch(/sendEmailCode|codeSubmit/);
   });
 });
+describe("the code box names no length", () => {
+  it("Supabase sends codes of the project's Email OTP length (8 today), so the box says The code from the e-mail", () => {
+    expect(src).toContain("<span>The code from the e-mail</span>");
+    expect(src).not.toContain("6-digit");
+  });
+});

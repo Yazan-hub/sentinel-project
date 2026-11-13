@@ -137,7 +137,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     '<div class="sx-card" role="dialog" aria-label="Sign in with a code"><form class="sx-form" id="sx-codeform" novalidate>' +
     `<div class="sx-title"><button type="button" class="sx-iconbtn" id="sx-back-signin" aria-label="Back to the password sign-in">${icon("back")}</button><span class="sx-grow">Sign in with a code</span><button type="button" class="sx-iconbtn" id="sx-close" aria-label="Close">${icon("close")}</button></div>` +
     `<label class="sx-field"><span>Email</span><input id="sx-email" type="email" autocomplete="username" placeholder="you@firm.com" value="${esc(formEmail)}" ${codeSent ? "readonly" : ""}></label>` +
-    (codeSent ? '<label class="sx-field"><span>The 6-digit code from the e-mail</span><input id="sx-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>' : "") +
+    (codeSent ? '<label class="sx-field"><span>The code from the e-mail</span><input id="sx-code" inputmode="numeric" autocomplete="one-time-code" placeholder="12345678"></label>' : "") +
     (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
     `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? (codeSent ? "Signing in…" : "Sending…") : (codeSent ? "Sign in" : "Send me a code")}</button>` +
     (codeSent ? '<button type="button" class="sx-item" id="sx-again">Send another code</button>'
