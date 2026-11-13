@@ -251,7 +251,7 @@ export async function myWork(key) {
       if (!title.has(b.doc_id)) continue;
       for (const t of foldThreads(b.data, aud)) {
         if (t.resolved) continue;
-        const base = { doc_id: b.doc_id, title: title.get(b.doc_id), thread_id: t.id };
+        const base = { doc_id: b.doc_id, title: title.get(b.doc_id), thread_id: t.id, section_id: t.anchor?.section_id ?? null }; // null: a whole-document thread
         if (t.assignee?.uid === uid) out.assigned.push({ ...base, excerpt: excerpt(t.text) });
         for (const c of [{ by: t.author, by_uid: t.author_uid, at: t.created_at, text: t.text, mentions: t.mentions }, ...t.replies.map((r) => ({ by: r.author, by_uid: null, at: r.created_at, text: r.text, mentions: r.mentions }))])
           if (c.mentions.some((m) => m.uid === uid) && c.by_uid !== uid) out.mentions.push({ ...base, by: c.by, at: c.at, excerpt: excerpt(c.text) });

@@ -8,8 +8,8 @@ import { C, btn, h } from "../workspace/dom";
 export interface MyWork {
   sections: { doc_id: string; title: string; section_id: string; heading: string }[];
   reviews: { version_id: string; container_name: string; step: number | string; name: string }[];
-  mentions: { doc_id: string; title: string; thread_id: string; by: string; at: string; excerpt: string }[];
-  assigned: { doc_id: string; title: string; thread_id: string; excerpt: string }[];
+  mentions: { doc_id: string; title: string; thread_id: string; section_id?: string | null; by: string; at: string; excerpt: string }[];
+  assigned: { doc_id: string; title: string; thread_id: string; section_id?: string | null; excerpt: string }[];
 }
 export type OpenAt = { section?: string };
 
@@ -40,7 +40,7 @@ export function myWorkList(d: Document, w: MyWork, open: (docId: string, at?: Op
   };
   group("My sections", w.sections.map((s) => ({ text: `${s.title} · ${s.heading}`, go: () => open(s.doc_id, { section: s.section_id }) })));
   group("My reviews", w.reviews.map((r) => ({ text: `${r.container_name} · ${r.name}`, go: () => openReview?.() })));
-  group("Mentions", w.mentions.map((m) => ({ text: `${m.by} mentioned you in ${m.title}: ${m.excerpt}`, go: () => open(m.doc_id) })));
-  group("Assigned to me", w.assigned.map((a) => ({ text: `${a.title}: ${a.excerpt}`, go: () => open(a.doc_id) })));
+  group("Mentions", w.mentions.map((m) => ({ text: `${m.by} mentioned you in ${m.title}: ${m.excerpt}`, go: () => open(m.doc_id, m.section_id ? { section: m.section_id } : undefined) })));
+  group("Assigned to me", w.assigned.map((a) => ({ text: `${a.title}: ${a.excerpt}`, go: () => open(a.doc_id, a.section_id ? { section: a.section_id } : undefined) })));
   return root;
 }

@@ -9,7 +9,7 @@ import { fakeDocument, findAll, textOf, click } from "../workspace/fake-dom";
 const W: MyWork = {
   sections: [{ doc_id: "d1", title: "SNW BEP", section_id: "s2", heading: "2. Roles" }, { doc_id: "d1", title: "SNW BEP", section_id: "s3", heading: "3. Standards" }],
   reviews: [{ version_id: "v1", container_name: "SNW-ARC-01", step: 1, name: "Architect review" }],
-  mentions: [{ doc_id: "d2", title: "SNW EIR", thread_id: "t1", by: "lead@x", at: "t", excerpt: "please check" }],
+  mentions: [{ doc_id: "d2", title: "SNW EIR", thread_id: "t1", section_id: "s5", by: "lead@x", at: "t", excerpt: "please check" }],
   assigned: [{ doc_id: "d3", title: "SNW TIDP", thread_id: "t2", excerpt: "fix the date" }],
 };
 const EMPTY: MyWork = { sections: [], reviews: [], mentions: [], assigned: [] };
@@ -20,12 +20,12 @@ describe("myWorkList", () => {
     for (const w of ["My sections (2)", "My reviews (1)", "Mentions (1)", "Assigned to me (1)", "SNW BEP · 2. Roles", "SNW-ARC-01 · Architect review", "lead@x mentioned you in SNW EIR: please check", "SNW TIDP: fix the date"]) expect(t).toContain(w);
     expect(t).not.toContain("Nothing here.");
   });
-  it("a click opens the document at its section; a mention or assignment opens the document; a review opens the Review desk", () => {
+  it("a click opens the document at its section — a mention or assignment too, when its thread has one; a review opens the Review desk", () => {
     const open = vi.fn(), review = vi.fn(), el = myWorkList(fakeDocument(), W, open, review);
     const line = (s: string) => findAll(el, "button").find((b) => textOf(b).startsWith(s))!;
     click(line("SNW BEP · 3.")); expect(open).toHaveBeenLastCalledWith("d1", { section: "s3" });
-    click(line("lead@x mentioned")); expect(open).toHaveBeenLastCalledWith("d2");
-    click(line("SNW TIDP")); expect(open).toHaveBeenLastCalledWith("d3");
+    click(line("lead@x mentioned")); expect(open).toHaveBeenLastCalledWith("d2", { section: "s5" });
+    click(line("SNW TIDP")); expect(open).toHaveBeenLastCalledWith("d3", undefined); // a whole-document thread
     click(line("SNW-ARC-01")); expect(review).toHaveBeenCalledTimes(1);
   });
   it("empty lists say Nothing here., once each", () => {

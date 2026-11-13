@@ -91,8 +91,8 @@ describe("My work", () => {
     const w = await runWithAuth(jwt("me"), () => myWork("k"));
     expect(w.sections).toEqual([{ doc_id: DOC, title: "BEP", section_id: "s1", heading: "Scope" }]);
     expect(w.reviews).toEqual([{ version_id: "v9", container_name: "F-ARC", step: 2, name: "Lead check" }]);
-    expect(w.mentions).toEqual([{ doc_id: DOC, title: "BEP", thread_id: "m1", by: "o@x", at: "t", excerpt: "text m1" }]);
-    expect(w.assigned).toEqual([{ doc_id: DOC, title: "BEP", thread_id: "a1", excerpt: "text a1" }]);
+    expect(w.mentions).toEqual([{ doc_id: DOC, title: "BEP", thread_id: "m1", section_id: "s1", by: "o@x", at: "t", excerpt: "text m1" }]);
+    expect(w.assigned).toEqual([{ doc_id: DOC, title: "BEP", thread_id: "a1", section_id: "s1", excerpt: "text a1" }]);
   });
   it("never a team thread for the Client: the Delivery-team bag is not even asked for", async () => {
     stores.doc_comments_team = [{ doc_id: DOC, data: { events: [root("t1", { mentions: [{ uid: "c1", email: "client@x.com" }] })] } }];
