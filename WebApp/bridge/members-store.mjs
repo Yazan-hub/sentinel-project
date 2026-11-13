@@ -216,13 +216,30 @@ export async function myMembership(key, deps) {
   const sub = subOf(d);
   if (!sub && !currentUserToken() && d.sub === undefined) return SERVICE_ME;
   if (d.sub !== undefined && d.sub === null) return SERVICE_ME; // test seam parity
-  const proj = await d.ensureProject(key);
+  // F-R2a-5: an invited person counts as nobody to the database, so their own session cannot even find the project (a 404 before
+  // the flip below could run). Accept their live invitations first, then look again; with none, the 404 stands.
+  let proj;
+  try { proj = await d.ensureProject(key); }
+  catch (e) { if (e?.status !== 404 || !sub || !(await acceptMyInvitations(deps))) throw e; proj = await d.ensureProject(key); }
   const rows = await memberRows(d, proj.id);
   const mine = rows.find((m) => m.user_id === sub);
   if (!mine) return { role: null, party: null, task_team: null, state: null };
   // An invited row counts as nobody until a live invitation accepts it; an expired or revoked one leaves it invited (role null).
   if (mine.state === "invited" && !(await flipInvited(d, proj.id, sub))) return { role: null, party: mine.party ?? null, task_team: mine.task_team ?? null, state: "invited" };
   return { role: mine.role, party: mine.party ?? null, task_team: mine.task_team ?? null, state: "active" };
+}
+
+/** F-R2a-5: every live invitation of the signed-in caller accepted (flipInvited each) → how many flipped. The invitations are read
+ *  with the service key but only by the verified sub, so nothing about anyone else is read. The hub calls it before it lists. */
+export async function acceptMyInvitations(deps) {
+  const d = wire(deps);
+  const sub = subOf(d);
+  if (!sub) return 0;
+  const now = new Date().toISOString();
+  const pend = (await d.sb(`invitations?user_id=eq.${enc(sub)}&accepted_at=is.null&revoked_at=is.null&expires_at=gt.${enc(now)}&select=project_id`, { service: true })) || [];
+  let n = 0;
+  for (const i of pend) if (await flipInvited(d, i.project_id, sub)) n++;
+  return n;
 }
 
 /** The invited -> active flip: first the invitation is accepted — only one that is pending and not past its expiry (the WHERE,

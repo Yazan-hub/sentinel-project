@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { runWithAuth } from "./bridge-auth.mjs";
-import { ROLES, ROLE_RANK, PARTIES, PARTY_WORDS, changeParty, myMembership, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole, requireSpend, canUseCloudAi } from "./members-store.mjs";
+import { ROLES, ROLE_RANK, PARTIES, PARTY_WORDS, changeParty, myMembership, acceptMyInvitations, listMembers, listMemberRows, addMember, changeRole, removeMember, myRole, requireMinRole, requireSpend, canUseCloudAi } from "./members-store.mjs";
 
 const jwt = (payload) =>
   "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify(payload)).toString("base64url") + ".sig";
@@ -293,6 +293,30 @@ describe("R2a — changeParty, parties on addMember, myMembership", () => {
     const owner = withTeams({ sub: "u-owner", ensureProject: vi.fn(async () => ({ id: "p1", key: "demo", office_key: "hq" })) });
     await expect(addMember("demo", { email: "known@x.com", role: "viewer", party: "appointing" }, "w", owner)).resolves.toMatchObject({ user_id: "u-new", party: "appointing", task_team: null });
     expect(owner.sb.mock.calls.find(([, o]) => o?.method === "POST")[1].body).toMatchObject({ party: "appointing", task_team: null, role: "viewer" });
+  });
+  it("F-R2a-5: an invited person's own session cannot find the project, so the first call accepts their live invitations and looks again", async () => {
+    const d = withTeams({ sub: "u-view" });
+    d.rows[1] = { project_id: "p1", user_id: "u-view", role: "viewer", party: "appointed", task_team: "ARC", state: "invited" };
+    let seen = false;
+    d.ensureProject = vi.fn(async () => { if (!seen) throw Object.assign(new Error("not found"), { status: 404 }); return { id: "p1", key: "demo" }; });
+    const inner = d.sb;
+    d.sb = vi.fn(async (p, o = {}) => {
+      if (p.startsWith("invitations") && !o.method) return [{ project_id: "p1" }];
+      if (p.startsWith("invitations") && o.method === "PATCH") return [{ id: "inv-1" }];
+      if (p.startsWith("memberships") && o.method === "PATCH") { seen = true; d.rows[1].state = "active"; return null; }
+      return inner(p, o);
+    });
+    await expect(myMembership("demo", d)).resolves.toEqual({ role: "viewer", party: "appointed", task_team: "ARC", state: "active" });
+    const read = d.sb.mock.calls.find(([p, o]) => p.startsWith("invitations") && !o?.method);
+    expect(read[0]).toMatch(/^invitations\?user_id=eq\.u-view&accepted_at=is\.null&revoked_at=is\.null&expires_at=gt\.[^&]+&select=project_id$/);
+    expect(read[1].service).toBe(true);
+    // No live invitation: the 404 stands, nothing is written.
+    const e = withTeams({ sub: "u-x" });
+    e.ensureProject = vi.fn(async () => { throw Object.assign(new Error("not found"), { status: 404 }); });
+    const innerE = e.sb; e.sb = vi.fn(async (p, o = {}) => (p.startsWith("invitations") ? [] : innerE(p, o)));
+    await expect(myMembership("demo", e)).rejects.toMatchObject({ status: 404 });
+    expect(e.sb.mock.calls.filter(([, o]) => o?.method === "PATCH")).toHaveLength(0);
+    await expect(acceptMyInvitations({ ...e, sub: null })).resolves.toBe(0);
   });
   it("myMembership answers the party fields; an invited row is flipped once (the live invitation accepted first, then the row, both service) and answered active", async () => {
     const d = withTeams({ sub: "u-view" });

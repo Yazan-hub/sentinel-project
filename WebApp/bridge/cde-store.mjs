@@ -336,6 +336,8 @@ export { officeKeyOf, listOfficeProjects, projectScope } from "./office-scope.mj
 
 /** List every CDE project (newest first) with a container count — the hub's card data. */
 export async function listProjects() {
+  // F-R2a-5: an invited person's projects appear on their first sign-in — their live invitations are accepted before the list is read.
+  if (currentSub()) await (await import("./members-store.mjs")).acceptMyInvitations().catch((e) => console.error(`[invitations] accepting on sign-in failed: ${e?.message || e}`));
   // PostgREST embeds an aggregate as information_containers:[{count}].
   // Each select falls back to the one before its migration: 0048's version, then 0029's kind and office_key.
   const selects = [
