@@ -19,6 +19,7 @@ const SCOPE_COLS = ["project_id", "project_key", "office_id", "office_key"];
 const CHILD_OF = {
   container_versions: ["container_id", "select id from public.information_containers where project_id = any($1::uuid[])"],
   bim_document_versions: ["document_id", "select id from public.bim_documents where project_id = any($1::uuid[])"],
+  doc_round_decisions: ["round_id", "select id from public.doc_rounds where project_id = any($1::uuid[])"],
 };
 // Tables intentionally without a tenant. platform_admins: global list of operators; 0033 revokes it from every signed-in role.
 const NOT_SCOPED = { platform_admins: "0033_trust_boundaries: global operator list, RLS on with no policy, all privileges revoked from the API roles",
@@ -61,6 +62,12 @@ async function seedTenant(tag, user) {
   t.doc = (await q(`insert into public.bim_documents(project_id, doc_type, title) values ($1, 'BEP', $2) returning id`, [t.proj, `BEP ${tag}`])).id;
   await db.query(`insert into public.bim_document_versions(document_id, version_no, snapshot) values ($1, 1, (select to_jsonb(d) from public.bim_documents d where d.id = $1))`, [t.doc]);
   await db.query(`insert into public.doc_reads(project_id, document_id, version_no, user_id) values ($1, $2, 1, $3)`, [t.proj, t.doc, user.sub]); // 0052: bridge-only
+  // 0053: a closed round and its decision (written under the round functions' mark, as only they may)
+  t.round = uuid();
+  await db.exec(`begin; select set_config('sentinel.doc_round', '${t.round}', true);
+    insert into public.doc_rounds(id, project_id, document_id, doc_type, stage, steps, render, render_sha, roster, codes, sent_by, status, outcome, closed_at)
+      values ('${t.round}', '${t.proj}', '${t.doc}', 'BEP', 'pre_appointment', '[{"name":"a"},{"name":"b"}]', '{}', 'x', '[]', '{}', '${user.sub}', 'closed', 'selected', now());
+    insert into public.doc_round_decisions(round_id, step, uid, decision) values ('${t.round}', 1, '${user.sub}', 'accept'); commit;`);
   await db.query(`insert into public.audit_log(project_id, entity_type, entity_id, action, actor) values ($1, 'file', $2, 'seed', 'test')`, [t.proj, t.container]);
   t.topic = uuid();
   await db.query(`insert into public.bcf_topics(guid, project_id, data) values ($1, $2, $3)`, [t.topic, t.projKey, JSON.stringify({ guid: t.topic })]);
