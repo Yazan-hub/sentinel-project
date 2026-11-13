@@ -32,3 +32,7 @@ describe("R1b hand-over wiring", () => {
     expect(main).toContain("const docsEl = docsPanel("); // docsEl is read only when the person leaves, after it exists
   });
 });
+describe("F-R1c-2: a project tab never grows past its panel", () => {
+  it("the shown tab may shrink below its widest line, so its own bars wrap and its body scrolls", () =>
+    expect(main).toContain('if (on) { t.el.style.flex = "1"; t.el.style.minHeight = "0"; t.el.style.minWidth = "0"; }'));
+});

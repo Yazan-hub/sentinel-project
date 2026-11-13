@@ -88,7 +88,8 @@ function tabbed(tabs: { label: string; el: HTMLElement }[]): HTMLElement {
     tabs.forEach((t, j) => {
       const on = j === i;
       t.el.style.display = on ? "flex" : "none";
-      if (on) { t.el.style.flex = "1"; t.el.style.minHeight = "0"; }
+      // F-R1c-2: minWidth 0, or the shown tab grows to its widest unwrapped line and the root's overflow:hidden clips its right edge.
+      if (on) { t.el.style.flex = "1"; t.el.style.minHeight = "0"; t.el.style.minWidth = "0"; }
     });
     btns.forEach((b, j) => {
       const on = j === i;
