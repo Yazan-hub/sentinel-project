@@ -60,6 +60,7 @@ async function seedTenant(tag, user) {
   await db.query(`insert into public.invitations(project_id, email, user_id, role, inviter_uid, expires_at) values ($1, $2, $3, 'viewer', $3, now() + interval '14 days')`, [t.proj, `invitee-${tag}@x.test`, user.sub]);
   t.doc = (await q(`insert into public.bim_documents(project_id, doc_type, title) values ($1, 'BEP', $2) returning id`, [t.proj, `BEP ${tag}`])).id;
   await db.query(`insert into public.bim_document_versions(document_id, version_no, snapshot) values ($1, 1, (select to_jsonb(d) from public.bim_documents d where d.id = $1))`, [t.doc]);
+  await db.query(`insert into public.doc_reads(project_id, document_id, version_no, user_id) values ($1, $2, 1, $3)`, [t.proj, t.doc, user.sub]); // 0052: bridge-only
   await db.query(`insert into public.audit_log(project_id, entity_type, entity_id, action, actor) values ($1, 'file', $2, 'seed', 'test')`, [t.proj, t.container]);
   t.topic = uuid();
   await db.query(`insert into public.bcf_topics(guid, project_id, data) values ($1, $2, $3)`, [t.topic, t.projKey, JSON.stringify({ guid: t.topic })]);
