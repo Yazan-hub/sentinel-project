@@ -1,5 +1,5 @@
 // R2a row 7: the invitation e-mail already holds a code, so the code form offers "I already have a code" — it shows the
-// code box for the typed e-mail without sending a second e-mail (Sentinel's mail service sends two an hour).
+// code box for the typed e-mail without sending a second e-mail (Sentinel's mail service sends a limited number an hour).
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 

@@ -36,12 +36,16 @@ async function realAuthFetch(path, { method = "GET", body } = {}) {
  *  window kept here, not takeWriteBudget's one-minute one (review finding 4). The machine credential is not budgeted. */
 const HOUR = 3600_000;
 const sent = { all: [], bySub: new Map() };
+// F-R2a-4: custom mail (Gmail SMTP, 2026-11-13) lets Supabase send 30 e-mails an hour; invitations keep 20 of them, at most 5 per person,
+// so sign-in codes always have room. The limits live here, once.
+export const INVITES_PER_PERSON = 5, INVITES_ALL = 20;
 export function hourlyBudget(sub, now = Date.now()) {
   if (!sub) return;
   const keep = (list) => list.filter((t) => now - t < HOUR);
   sent.all = keep(sent.all);
   const mine = keep(sent.bySub.get(sub) || []);
-  if (mine.length >= 2 || sent.all.length >= 2) throw err(429, "Sentinel's mail service sends two invitations an hour — try again later; nothing was saved");
+  if (mine.length >= INVITES_PER_PERSON || sent.all.length >= INVITES_ALL)
+    throw err(429, `Sentinel sends at most ${INVITES_PER_PERSON} invitations an hour per person and ${INVITES_ALL} for everyone — try again later; nothing was saved`);
   mine.push(now); sent.all.push(now); sent.bySub.set(sub, mine);
 }
 
@@ -91,9 +95,14 @@ async function accountFor(d, email, key) {
 }
 
 /** GoTrue sends the sign-in code to an existing account. The founder's "Magic Link" template is the invitation's words. */
+export const NOT_SENT = "Invitation saved, but the e-mail was not sent: the mail service refused it. Use Resend in a while; if it fails again, a project owner checks the mail settings.";
 async function trySend(d, email) {
   try { await d.authFetch("/otp", { method: "POST", body: { email, create_user: false } }); return { ok: true }; }
-  catch (e) { return { ok: false, message: `Invitation saved; the e-mail was not sent (${String(e?.message || e).slice(0, 160)}) — use Resend in a while` }; }
+  catch (e) {
+    // F-R2a-4: the mail service's own words (JSON, SMTP codes) go to the bridge log, never to the screen.
+    console.error(`[invitations] the code e-mail was not sent: ${String(e?.message || e).slice(0, 400)}`);
+    return { ok: false, message: NOT_SENT };
+  }
 }
 
 /** POST /cde/:key/invitations {email, role, party, task_team} → {status 201, message, invitation}, or status 202 when the row is
@@ -107,7 +116,7 @@ export async function invite(key, body = {}, deps) {
   const proj = await d.ensureProject(key);
   const mine = await requireInviter(key, proj, body, d);
   const fields = await d.members.partyFields({ sb: d.sb }, proj, body);
-  d.budget("invitations", { perUser: 2, all: 2 }, subOf(d)); // Supabase's built-in mail: 2 an hour for the whole project
+  d.budget("invitations", { perUser: INVITES_PER_PERSON, all: INVITES_ALL }, subOf(d));
   const { user, created } = await accountFor(d, email, key);
   if (!user?.id) throw err(502, "the account could not be created or found — nothing was sent");
   const rows = await d.members.listMemberRows(key, { ...d.deps, ensureProject: async () => proj });
@@ -133,7 +142,7 @@ export async function invite(key, body = {}, deps) {
   }
   await d.audit(proj.id, "membership", user.id, "member_invited", "web", null, { email, role: body.role, ...fields, expires_at, invitation_id: inv.id ?? null });
   const sent = await trySend(d, email);
-  return { status: sent.ok ? 201 : 202, message: sent.ok ? SENT : sent.message, invitation: row({ ...inv, email, user_id: user.id, role: body.role, ...fields, expires_at }) };
+  return { status: sent.ok ? 201 : 202, sent: sent.ok, message: sent.ok ? SENT : sent.message, invitation: row({ ...inv, email, user_id: user.id, role: body.role, ...fields, expires_at }) };
 }
 
 /** GET /cde/:key/invitations (lead or owner) → {items}: the pending ones, after sweeping the expired. */
@@ -159,12 +168,12 @@ export async function resend(key, id, deps) {
   const inv = (await pending(d, proj.id, `&id=eq.${enc(id)}`))?.[0];
   if (!inv) throw err(404, "no pending invitation with this id — it was accepted, revoked or has expired");
   await ownersOnly(d, key, proj, inv, "resends");
-  d.budget("invitations", { perUser: 2, all: 2 }, subOf(d));
+  d.budget("invitations", { perUser: INVITES_PER_PERSON, all: INVITES_ALL }, subOf(d));
   const expires_at = plus14(d), resent_at = d.now().toISOString();
   await d.sb(`invitations?id=eq.${enc(inv.id)}`, { method: "PATCH", body: { expires_at, resent_at }, prefer: "return=minimal", service: true });
   await d.audit(proj.id, "membership", inv.user_id, "member_invited", "web", null, { email: inv.email, role: inv.role, party: inv.party, task_team: inv.task_team, expires_at, invitation_id: inv.id, resent: true });
   const sent = await trySend(d, inv.email);
-  return { status: sent.ok ? 200 : 202, message: sent.ok ? SENT : sent.message, invitation: row({ ...inv, expires_at, resent_at }) };
+  return { status: sent.ok ? 200 : 202, sent: sent.ok, message: sent.ok ? SENT : sent.message, invitation: row({ ...inv, expires_at, resent_at }) };
 }
 
 /** DELETE /cde/:key/invitations/:id → {revoked, account_deleted}. An owner's or the Client's invitation is an owner's to revoke. */

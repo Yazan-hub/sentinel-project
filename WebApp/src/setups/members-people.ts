@@ -6,7 +6,7 @@ export const PARTIES: Party[] = ["appointing", "lead_appointed", "appointed"];
 export const PARTY_WORDS: Record<Party, string> = { appointing: "Client", lead_appointed: "Lead firm", appointed: "Firm" };
 export const NO_PARTY = "No party yet";
 export const INVITED_WORDS = "Invited, not signed in yet";
-export const MAIL_NOTE = "Invitations go out as a sign-in code by e-mail. Sentinel's mail service sends two an hour, so a code can take a while; Resend sends another.";
+export const MAIL_NOTE = "Invitations go out as a sign-in code by e-mail. Sentinel's mail service sends a limited number of e-mails an hour, so a code can take a while; Resend sends another.";
 
 export interface MemberRow { user_id: string; email: string; role: string; party: Party | null; task_team: string | null; state: "invited" | "active" }
 export interface InvitationRow { id: string; email: string; role: string; party: Party | null; task_team: string | null; sent_at: string; expires_at: string }

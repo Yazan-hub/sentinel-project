@@ -170,6 +170,8 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   const line = (text: string, color = "#a1a1aa") => { const d = document.createElement("div"); d.textContent = text; d.style.cssText = `color:${color};font-size:11px;padding:.2rem 0`; return d; };
   const json = async (r: Response) => { const j = (await r.json().catch(() => ({}))) as { message?: string }; if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`); return j; };
   const said = (text: string) => { memberErr(text); if (membersErrDiv) membersErrDiv.style.color = "#4ade80"; }; // the bridge's good news, in its words
+  // F-R2a-4: an invitation saved but not mailed is a warning, never the good-news green.
+  const told = (j: { sent?: boolean; message?: string }) => { const t = String(j.message || "Invitation sent"); if (j.sent === false) { memberErr(t); if (membersErrDiv) membersErrDiv.style.color = "#fbbf24"; } else said(t); };
   async function loadMembers() {
     const mine = ++memSeq, key = pid();
     const host = el("ps-members");
@@ -302,7 +304,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           }));
           emailIn.value = "";
           await loadMembers();
-          said(String(j.message || "Invitation sent")); // the bridge's words, incl. "saved; the e-mail was not sent"
+          told(j); // the bridge's words; "…the e-mail was not sent…" shows as a warning
         } catch (e) { memberErr((e as Error)?.message ?? String(e)); }
         finally { sendBtn.disabled = false; sendBtn.textContent = "Send invitation"; }
       });
@@ -323,7 +325,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           const resend = document.createElement("button"); resend.textContent = "Resend"; resend.style.cssText = btn;
           resend.addEventListener("click", async () => {
             resend.disabled = true;
-            try { const j = await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/invitations/${encodeURIComponent(i.id)}/resend`, { method: "POST" })); await loadMembers(); said(String(j.message || "Invitation sent")); }
+            try { const j = await json(await bfetch(`${base}/cde/${encodeURIComponent(pid())}/invitations/${encodeURIComponent(i.id)}/resend`, { method: "POST" })); await loadMembers(); told(j); }
             catch (e) { memberErr((e as Error)?.message ?? String(e)); resend.disabled = false; }
           });
           const revoke = document.createElement("button"); revoke.textContent = "Revoke"; revoke.style.cssText = `${btn};color:#fca5a5;border-color:#7f1d1d`;

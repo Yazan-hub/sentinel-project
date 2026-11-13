@@ -42,7 +42,7 @@ export const authEnabled = (): boolean => import.meta.env.VITE_SENTINEL_AUTH ===
  * platform, where magic-link redirects fight the iframe). Requires the Supabase "Magic Link" email
  * template to render `{{ .Token }}`. Returns a user-facing result, never throws.
  * R2a: this is the invited person's way in. Sign-up is closed, so the code goes only to an account that exists
- * (shouldCreateUser false): the invitation made it. Sentinel's mail service sends two e-mails an hour, so a code can take a while.
+ * (shouldCreateUser false): the invitation made it. Sentinel's mail service sends a limited number of e-mails an hour (30 since custom mail, 2026-11-13), so a code can take a while.
  */
 export async function sendEmailCode(email: string): Promise<{ ok: boolean; message: string }> {
   try {

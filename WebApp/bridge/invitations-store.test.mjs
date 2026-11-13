@@ -1,6 +1,6 @@
 // invitations-store (R2a): invite by e-mail, list, resend, revoke, expiry — with GoTrue, the database and the budget mocked.
 import { describe, it, expect, vi } from "vitest";
-import { invite, listInvitations, resend, revoke, SENT, EXPIRY_DAYS } from "./invitations-store.mjs";
+import { invite, listInvitations, resend, revoke, SENT, NOT_SENT, EXPIRY_DAYS } from "./invitations-store.mjs";
 import * as members from "./members-store.mjs";
 
 const T0 = new Date("2026-11-12T10:00:00Z");
@@ -71,7 +71,7 @@ describe("invite", () => {
     expect(post[1].service).toBeUndefined();
     expect(w.invitations[0]).toMatchObject({ email: "new.person@x.com", user_id: "u-new.person", inviter_uid: "u-owner" });
     expect(w.deps.audit).toHaveBeenCalledWith("p1", "membership", "u-new.person", "member_invited", "web", null, expect.objectContaining({ email: "new.person@x.com", role: "viewer", party: "appointed", invitation_id: "inv-1" }));
-    expect(w.deps.budget).toHaveBeenCalledWith("invitations", { perUser: 2, all: 2 }, "u-owner");
+    expect(w.deps.budget).toHaveBeenCalledWith("invitations", { perUser: 5, all: 20 }, "u-owner");
   });
   it("a known address answers the same words: GoTrue's 422 is swallowed, the account found by paging, no GoTrue words in the answer", async () => {
     const w = world();
@@ -88,13 +88,15 @@ describe("invite", () => {
     expect(w.auth.at(-1)).toEqual(["DELETE", "/admin/users/u-new.person"]);
     expect(w.invitations).toEqual([]);
   });
-  it("the hourly budget: two an hour per person and for everyone, then a 429 in words", async () => {
-    const { hourlyBudget } = await import("./invitations-store.mjs");
+  it("the hourly budget: five an hour per person and twenty for everyone, then a 429 in words", async () => {
+    const { hourlyBudget, INVITES_PER_PERSON, INVITES_ALL } = await import("./invitations-store.mjs");
+    expect([INVITES_PER_PERSON, INVITES_ALL]).toEqual([5, 20]);
     const t = Date.parse("2026-11-12T12:00:00Z");
-    hourlyBudget("a", t); hourlyBudget("a", t + 1);
-    expect(() => hourlyBudget("a", t + 2)).toThrow(/two invitations an hour/);
-    expect(() => hourlyBudget("b", t + 3)).toThrow(/two invitations an hour/); // everyone's two are spent
-    hourlyBudget("b", t + HOUR_MS + 10); // an hour later
+    for (let i = 0; i < 5; i++) hourlyBudget("a", t + i);
+    expect(() => hourlyBudget("a", t + 5)).toThrow(/at most 5 invitations an hour per person and 20 for everyone/);
+    for (let i = 0; i < 15; i++) hourlyBudget(`p${i}`, t + 10 + i); // everyone's twenty are now spent
+    expect(() => hourlyBudget("b", t + 30)).toThrow(/20 for everyone/);
+    hourlyBudget("b", t + HOUR_MS + 40); // an hour later
     expect(() => hourlyBudget(null, t + 4)).not.toThrow(); // the machine credential is not budgeted
   });
   it("refusals come before any GoTrue call: a contributor, a lead inviting the Client, a lead inviting an owner, a bad e-mail, a Firm without a team, an unknown role", async () => {
@@ -127,7 +129,9 @@ describe("invite", () => {
     const w = world({ mailFails: true });
     const r = await invite("demo", inviteBody, w.deps);
     expect(r.status).toBe(202);
-    expect(r.message).toMatch(/^Invitation saved; the e-mail was not sent \(.*over_email_send_rate_limit.*\) — use Resend in a while$/);
+    expect(r.sent).toBe(false);
+    expect(r.message).toBe(NOT_SENT); // F-R2a-4: plain words; the mail service's JSON stays in the bridge log
+    expect(r.message).not.toMatch(/[{}]|over_email_send_rate_limit/);
     expect(w.invitations).toHaveLength(1);
     expect(w.memberships.find((m) => m.user_id === "u-new.person").state).toBe("invited");
   });

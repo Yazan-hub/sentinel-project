@@ -141,7 +141,7 @@ export function authWidget(opts: { anchor?: string } = {}): HTMLElement {
     (msg ? `<div class="sx-err" role="alert">${esc(msg)}</div>` : "") +
     `<button class="sx-primary" type="submit" aria-busy="${busy}">${busy ? (codeSent ? "Signing in…" : "Sending…") : (codeSent ? "Sign in" : "Send me a code")}</button>` +
     (codeSent ? '<button type="button" class="sx-item" id="sx-again">Send another code</button>'
-      // The invitation e-mail already holds a code: typing it must not cost a second e-mail (the mail service sends two an hour).
+      // The invitation e-mail already holds a code: typing it must not cost a second e-mail (the mail service sends a limited number an hour).
       : '<button type="button" class="sx-item" id="sx-have">I already have a code</button>') +
     "</form></div>";
 
