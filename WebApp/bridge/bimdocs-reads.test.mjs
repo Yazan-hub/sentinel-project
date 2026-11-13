@@ -86,6 +86,8 @@ describe("My work", () => {
       root("a1"), { id: "x", type: "assign", thread_id: "a1", assignee_uid: "me", assignee: "me@x.com", by: "o", by_uid: "o1", created_at: "t" },
       root("r1", { mentions: [{ uid: "me", email: "me@x.com" }] }), { id: "y", type: "resolve", thread_id: "r1", resolved: true, by: "o", by_uid: "o1", created_at: "t" },
       root("own", { author_uid: "me", mentions: [{ uid: "me", email: "me@x.com" }] }),
+      // review R2c-4: my own reply that mentions me is no mention
+      { id: "rep", type: "comment", thread_id: "a1", author: "me@x.com", author_uid: "me", text: "my reply", mentions: [{ uid: "me", email: "me@x.com" }], created_at: "t" },
     ] } }];
     readReviews.mockResolvedValue({ items: [{ version_id: "v9", container_name: "F-ARC", step: 2, name: "Lead check", can_decide: true }, { version_id: "v8", container_name: "X", step: 1, name: "Self", can_decide: false }] });
     const w = await runWithAuth(jwt("me"), () => myWork("k"));

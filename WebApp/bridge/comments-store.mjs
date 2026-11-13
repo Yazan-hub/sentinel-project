@@ -51,7 +51,7 @@ export function foldThreads(bag, audience) {
     if (e.type === "comment" && e.thread_id === e.id)
       root({ id: e.id, audience, anchor: { section_id: e.anchor?.section_id ?? null, block_id: e.anchor?.block_id ?? null }, author: e.author, author_uid: e.author_uid ?? null,
         text: e.text, created_at: e.created_at, replies: [], resolved: false, resolved_by: null, assignee: null, mentions: e.mentions ?? [] });
-    else if (e.type === "comment") byId.get(e.thread_id)?.replies.push({ id: e.id, author: e.author, text: e.text, created_at: e.created_at, mentions: e.mentions ?? [] });
+    else if (e.type === "comment") byId.get(e.thread_id)?.replies.push({ id: e.id, author: e.author, author_uid: e.author_uid ?? null, text: e.text, created_at: e.created_at, mentions: e.mentions ?? [] });
     else if (e.type === "resolve" && byId.has(e.thread_id)) { const t = byId.get(e.thread_id); t.resolved = !!e.resolved; t.resolved_by = e.resolved ? e.by ?? null : null; }
     else if (e.type === "assign" && byId.has(e.thread_id)) byId.get(e.thread_id).assignee = e.assignee_uid ? { uid: e.assignee_uid, email: e.assignee ?? null } : null;
   }

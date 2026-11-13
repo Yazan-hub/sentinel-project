@@ -253,7 +253,7 @@ export async function myWork(key) {
         if (t.resolved) continue;
         const base = { doc_id: b.doc_id, title: title.get(b.doc_id), thread_id: t.id, section_id: t.anchor?.section_id ?? null }; // null: a whole-document thread
         if (t.assignee?.uid === uid) out.assigned.push({ ...base, excerpt: excerpt(t.text) });
-        for (const c of [{ by: t.author, by_uid: t.author_uid, at: t.created_at, text: t.text, mentions: t.mentions }, ...t.replies.map((r) => ({ by: r.author, by_uid: null, at: r.created_at, text: r.text, mentions: r.mentions }))])
+        for (const c of [{ by: t.author, by_uid: t.author_uid, at: t.created_at, text: t.text, mentions: t.mentions }, ...t.replies.map((r) => ({ by: r.author, by_uid: r.author_uid ?? null, at: r.created_at, text: r.text, mentions: r.mentions }))])
           if (c.mentions.some((m) => m.uid === uid) && c.by_uid !== uid) out.mentions.push({ ...base, by: c.by, at: c.at, excerpt: excerpt(c.text) });
       }
     }
@@ -431,6 +431,8 @@ export async function setSectionPlan(key, docId, sectionId, { owner, due, update
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
+  // Review R2c-5: the plan's owner is the section lead My work reads, so a changed one must be a member (call 6).
+  if (owner !== undefined && (owner === null ? null : owner.trim() || null) !== (old.owner ?? null)) await requireLeadMember(key, owner);
   const next = { ...old, ...(owner !== undefined && { owner: owner === null ? null : owner.trim() || null }), ...(due !== undefined && { due }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
   const row = await patchSections(doc, sections);
@@ -632,7 +634,8 @@ export { MAX_COMMENT_CHARS } from "./comments-store.mjs";
 export const listComments = (key, docId) => listFlat(key, docId);
 
 export async function addComment(key, docId, sectionId, text, actor) {
-  const t = await addThread(key, docId, { anchor: { section_id: sectionId }, text }, actor);
+  // Review R2c-1: the old panel lists Everyone comments only, so it writes to Everyone (it has no audience picker).
+  const t = await addThread(key, docId, { anchor: { section_id: sectionId }, text, audience: "everyone" }, actor);
   return { id: t.id, section_id: sectionId, author: t.author, text: t.text, created_at: t.created_at };
 }
 

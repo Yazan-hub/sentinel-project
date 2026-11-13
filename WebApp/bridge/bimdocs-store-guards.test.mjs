@@ -47,8 +47,8 @@ vi.mock("./members-store.mjs", () => ({
         throw Object.assign(new Error(`this action requires the ${min} role`), { status: 403 });
     }
   }),
-  listMembers: vi.fn(async () => [{ user_id: "u1", email: "a@b", role: "viewer", party: null, state: "active" }]),
-  myMembership: vi.fn(async () => ({ role: globalThis.__testRole || "service", party: null, task_team: null, state: "active" })),
+  listMembers: vi.fn(async () => [{ user_id: "u1", email: "a@b", role: "viewer", party: null, state: "active" }, { user_id: "u2", email: "lead@x", role: "lead", party: "lead_appointed", state: "active" }]), // review R2c-5: a plan owner must be a member
+  myMembership: vi.fn(async () => ({ role: globalThis.__testRole || "service", party: globalThis.__testParty ?? null, task_team: null, state: "active" })),
 }));
 vi.mock("./office-store.mjs", () => ({
   getSnapshot: vi.fn(async () => ({ source: { kind: "template", title: "T.rte" }, at: "2026-09-10T08:00:00Z", received_at: "2026-09-10T08:00:01Z", pack: { worksets: [] }, catalog: { count: 0, types: [] }, ruleset: null })),
@@ -192,6 +192,18 @@ describe("section comments — external store, append-only, server-stamped", () 
     expect(audit.mock.calls.some((x) => x[3] === "comment_added")).toBe(true);
   });
 
+  it("review R2c-1: a Lead-firm member's comment from the old panel goes to Everyone, so the panel that lists Everyone shows it", async () => {
+    const { addComment, listComments } = await import("./bimdocs-store.mjs");
+    globalThis.__testRole = "contributor"; globalThis.__testParty = "lead_appointed";
+    try {
+      const before = (await listComments("demo", "11111111-1111-4111-8111-111111111111")).length;
+      await addComment("demo", "11111111-1111-4111-8111-111111111111", "sec1", "Seen from the old panel.", "arch@x.com");
+      const all = await listComments("demo", "11111111-1111-4111-8111-111111111111");
+      expect(all).toHaveLength(before + 1);
+      expect(all.at(-1)).toMatchObject({ section_id: "sec1", text: "Seen from the old panel." });
+    } finally { globalThis.__testRole = undefined; globalThis.__testParty = undefined; }
+  });
+
   it("404s an unknown section listing available ids; 400s empty and oversized text", async () => {
     const { addComment } = await import("./bimdocs-store.mjs");
     await expect(addComment("demo", "11111111-1111-4111-8111-111111111111", "nope", "x", "a")).rejects.toMatchObject({ status: 404, message: expect.stringMatching(/sec1/) });
@@ -266,6 +278,10 @@ describe("setSectionAnswer — a declared item's answer, by the verified identit
 
 describe("setSectionPlan — owner + due on the item itself, lead and above", () => {
   beforeEach(() => { doc = readinessDoc(); sb.mockImplementation(async (path, opts) => opts?.method === "PATCH" ? [{ ...doc, sections: opts.body.sections }] : [doc]); });
+  it("review R2c-5: a plan owner who is not a member of the project is refused in words and nothing is written", async () => {
+    await expect(setSectionPlan("k", doc.id, "m1", { owner: "stranger@x", actor: "lead@x" })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/stranger@x is not a member of this project/) });
+    expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+  });
   it("sets owner and due and audits 'plan_set' with old and new", async () => {
     const row = await setSectionPlan("k", doc.id, "m1", { owner: "lead@x", due: "2026-10-01", actor: "lead@x" });
     expect(row.sections.find((x) => x.id === "m1")).toMatchObject({ owner: "lead@x", due: "2026-10-01" });
