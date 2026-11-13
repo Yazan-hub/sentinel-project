@@ -51,11 +51,18 @@ export async function sendEmailCode(email: string): Promise<{ ok: boolean; messa
       options: { shouldCreateUser: false },
     });
     return error
-      ? { ok: false, message: /signup|not allowed|not found/i.test(error.message) ? "No Sentinel account has this e-mail. Ask the project's lead to invite you." : error.message }
+      ? { ok: false, message: sendRefusal(error.message) }
       : { ok: true, message: `Code sent to ${email}. It can take a few minutes; the code lasts an hour.` };
   } catch (e) {
     return { ok: false, message: (e as Error).message };
   }
+}
+
+/** F-R2a-6: why a code could not be sent, in words — never the mail service's raw answer (it can be just "{}"). */
+export function sendRefusal(raw: string): string {
+  if (/signup|not allowed|not found/i.test(raw)) return "No Sentinel account has this e-mail. Ask the project's lead to invite you.";
+  if (/rate|too many|seconds/i.test(raw)) return "Too many codes were asked for just now. Wait a minute, then send another code.";
+  return "The sign-in e-mail could not be sent just now. Try again in a few minutes; if it keeps failing, the project owner checks the mail settings.";
 }
 
 /** GoTrue's "Token has expired or is invalid" in plain words, naming the address (R2a row 7: a code typed for the wrong address). */

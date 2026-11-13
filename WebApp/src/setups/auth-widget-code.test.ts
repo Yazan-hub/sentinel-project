@@ -3,7 +3,7 @@
 import { describe, it, expect, vi } from "vitest";
 
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ auth: {} }) }));
-const { codeRefusal } = await import("./auth");
+const { codeRefusal, sendRefusal } = await import("./auth");
 import { readFileSync } from "node:fs";
 
 const src = readFileSync(new URL("./auth-widget.ts", import.meta.url), "utf8");
@@ -30,6 +30,13 @@ describe("a refused code is explained in words (R2a row 7)", () => {
   it("names the address and what to check; other errors keep their words", () => {
     expect(codeRefusal(" a@firm.com ", "Token has expired or is invalid")).toBe("That code does not work for a@firm.com. Check that this is the address the code was sent to (the back arrow lets you change it) and that you typed the newest code, or send another code.");
     expect(codeRefusal("a@firm.com", "network down")).toBe("network down");
+  });
+});
+describe("a code that cannot be sent is explained in words (F-R2a-6)", () => {
+  it("never shows the mail service's raw answer", () => {
+    expect(sendRefusal("{}")).toBe("The sign-in e-mail could not be sent just now. Try again in a few minutes; if it keeps failing, the project owner checks the mail settings.");
+    expect(sendRefusal("Signups not allowed for otp")).toBe("No Sentinel account has this e-mail. Ask the project's lead to invite you.");
+    expect(sendRefusal("For security purposes, you can only request this after 52 seconds.")).toMatch(/^Too many codes/);
   });
 });
 
