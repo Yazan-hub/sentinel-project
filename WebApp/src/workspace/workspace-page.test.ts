@@ -72,6 +72,28 @@ describe("R2c: the Review tab says how many have read the latest version", () =>
   });
 });
 
+describe("R2c: My work in the workspace header", () => {
+  const mine = { sections: [{ doc_id: "d9", title: "Other BEP", section_id: "s4", heading: "4. Roles" }], reviews: [{ version_id: "v", container_name: "C-1", step: 1, name: "Review it" }], mentions: [], assigned: [] };
+  it("the button counts my work, opens the list, and a line opens that document at its section", async () => {
+    answers["/bimdocs/k/d1"] = row("BEP", []);
+    answers["/bimdocs/k/mine"] = mine;
+    answers["/bimdocs/k/d9"] = row("BEP", [{ id: "s4", heading: "4. Roles", guidance: "", body: "", state: "wip", owner: null, bindings: {} }]);
+    const opened: string[] = [];
+    const el = workspacePage({ baseUrl: "http://b", onBack: () => {}, onOpenReview: () => opened.push("review"), doc: fakeDocument() }) as any;
+    await el.open("d1"); await tick();
+    const header = el.childNodes[0], btn = findAll(header, "button").find((b) => textOf(b).startsWith("My work"))!;
+    expect(textOf(btn)).toBe("My work (2)");
+    click(btn); await tick();
+    const drop = el.childNodes[3];
+    expect(textOf(drop)).toContain("My sections (1)");
+    click(findAll(drop, "button").find((b) => textOf(b).startsWith("C-1"))!); await tick();
+    expect(opened).toEqual(["review"]); expect(drop.style.display).toBe("none");
+    click(btn); await tick();
+    click(findAll(el.childNodes[3], "button").find((b) => textOf(b).startsWith("Other BEP"))!); await tick();
+    expect(calls.some((c) => c.method === "GET" && c.path === "/bimdocs/k/d9")).toBe(true);
+  });
+});
+
 describe("workspace page: READINESS and TIDP", () => {
   it("a TIDP document opens in Read with the read-only note above it", async () => {
     answers["/bimdocs/k/d1"] = row("TIDP", []);

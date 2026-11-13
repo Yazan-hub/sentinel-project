@@ -32,6 +32,18 @@ describe("R1b hand-over wiring", () => {
     expect(main).toContain("const docsEl = docsPanel("); // docsEl is read only when the person leaves, after it exists
   });
 });
+describe("R2c: My work opens a document from the Dashboard and from the workspace header", () => {
+  it("the Dashboard and the workspace share one open-a-document callback and one Review desk opener", () => {
+    expect(main).toContain("onOpenDoc: (id, at) => openWorkspace(id, at), onOpenReview: () => openReviewDesk() });");
+    expect(main).toContain("onLeave: () => docsEl.refresh(), onOpenReview: () => openReviewDesk() });");
+    expect(main).toContain('openReviewDesk = () => { app.layout = "BIM Tools";');
+    expect(main).toContain('tabIndex(bimToolTabs.map((t) => t.label), "Review")');
+  });
+  it("the Dashboard draws the My work card", () => {
+    const shell = readFileSync(new URL("../setups/project-shell.ts", import.meta.url), "utf8");
+    expect(shell).toContain('id="ps-work"'); expect(shell).toContain("My work (${myWorkTotal(w)})");
+  });
+});
 describe("F-R1c-2: a project tab never grows past its panel", () => {
   it("the shown tab may shrink below its widest line, so its own bars wrap and its body scrolls", () =>
     expect(main).toContain('if (on) { t.el.style.flex = "1"; t.el.style.minHeight = "0"; t.el.style.minWidth = "0"; }'));

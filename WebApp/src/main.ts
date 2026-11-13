@@ -275,7 +275,8 @@ async function main() {
   const rfiEl = rfiPanel(components, { baseUrl: SERVICE_URL });
   // Project Shell — the Lifecycle Command Center: docked as the "Dashboard" tab INSIDE the project
   // space (Forma-style: hub → open a project → its own Dashboard | Project Files | Settings tabs).
-  const projectEl = projectShell(components, { baseUrl: SERVICE_URL });
+  let openReviewDesk = () => { /* bound after the BIM Tools group is built below */ };
+  const projectEl = projectShell(components, { baseUrl: SERVICE_URL, onOpenDoc: (id, at) => openWorkspace(id, at), onOpenReview: () => openReviewDesk() });
   // Projects Hub — the "which project?" landing over the governed Supabase dataset. Opening a card
   // switches the whole app (active-project.ts) and enters that project's space.
   let enterProjectSpace = () => { /* bound after the space is built below */ };
@@ -296,7 +297,7 @@ async function main() {
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
   // The BIM documents workspace — a full page (layout "Workspace"); the 3D viewer stays hidden, not destroyed, while it is open.
-  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); }, onLeave: () => docsEl.refresh() });
+  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); }, onLeave: () => docsEl.refresh(), onOpenReview: () => openReviewDesk() });
   // Documents panel — ISO 19650 project documents (BEP/EIR) with states, versions, print/PDF.
   const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { app.layout = "Workspace"; void workspaceEl.open(docId, at); };
   // The project's BEP (newest first from the bridge); none yet: the Documents tab, where "+ New document" makes one.
@@ -397,7 +398,7 @@ async function main() {
   // — no `components` plumbing in the app.
   // Consolidate related panels into grouped tabs (internal sub-tabs) so the activity bar stays compact
   // and nothing is hidden below the fold. Each child panel keeps its own state (reused by reference).
-  const bimToolsEl = tabbed([
+  const bimToolTabs = [
     { label: "Browser", el: browserEl },
     { label: "Properties", el: propsEl },
     { label: "Visibility", el: visEl },
@@ -405,7 +406,10 @@ async function main() {
     { label: "Sheets", el: sheetsEl },
     { label: "Review", el: reviewEl },
     { label: "Performance", el: perfEl },
-  ]);
+  ];
+  const bimToolsEl = tabbed(bimToolTabs);
+  // "My work" (Dashboard and the workspace header): a review line opens the Review desk, a tab of BIM Tools.
+  openReviewDesk = () => { app.layout = "BIM Tools"; (bimToolsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(bimToolTabs.map((t) => t.label), "Review")); };
   const coordEl = tabbed([
     { label: "Issues", el: issuesEl },
     { label: "RFIs", el: rfiEl },

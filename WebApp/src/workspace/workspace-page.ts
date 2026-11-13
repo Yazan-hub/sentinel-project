@@ -6,6 +6,7 @@ import { activePid, onActiveProjectChange } from "../setups/active-project";
 import { myRoleRead } from "../setups/my-role";
 import { currentUser } from "../setups/auth";
 import { askYesNo } from "../setups/ask";
+import { loadMyWork, myWorkList, myWorkTotal, type MyWork } from "../setups/my-work";
 import { aiPicker } from "../setups/ai-picker";
 import { statusLine, type DocRow } from "../sentinel-core/doc-blocks";
 import { pathSegment } from "../setups/escape-html";
@@ -60,7 +61,7 @@ export const OUTLINE: { pane: (ctx: PaneCtx) => HTMLElement } = { pane: outlineP
 
 const VIEW_NAMES: [View, string][] = [["edit", "Edit"], ["read", "Read"], ["compare", "Compare"], ["versions", "Versions"]];
 
-export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLeave?: () => void; doc?: Document }): WorkspaceEl {
+export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLeave?: () => void; onOpenReview?: () => void; doc?: Document }): WorkspaceEl {
   const d = opts.doc ?? document;
   const base = opts.baseUrl.replace(/\/$/, "");
   let shownBusy = false; // whether the bar and the outline were last drawn with a write in flight
@@ -93,7 +94,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
   const keyEl = h(d, "span", `color:${C.muted};font:11px ui-monospace,monospace;flex:0 0 auto`);
   const titleEl = h(d, "span", "font:600 14px system-ui;color:#fff;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap");
   const statusEl = h(d, "span", `color:${C.soft};font:11px system-ui;flex:0 0 auto`);
-  left.append(back, keyEl, titleEl, statusEl);
+  const workBtn = btn(d, "My work (0)"); // R2c: the same list as the Dashboard's, as a drop-down under the header
+  workBtn.style.flex = "0 0 auto";
+  left.append(back, keyEl, titleEl, statusEl, workBtn);
   const viewBar = h(d, "div", "display:flex;gap:.3rem;justify-content:flex-end");
   header.append(left, h(d, "div"), viewBar);
   const msgEl = h(d, "div", `padding:.4rem .9rem;color:${C.warn};font:12px system-ui;border-bottom:1px solid ${C.line};flex:0 0 auto`);
@@ -103,7 +106,27 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
   const centre = h(d, "div", "overflow:auto;padding:1.2rem 1.6rem");
   const sideCol = h(d, "div", `border-left:1px solid ${C.line};overflow:auto;padding:.6rem .7rem;background:${C.side}`);
   grid.append(outlineCol, centre, sideCol);
-  root.append(header, msgEl, grid);
+  const workDrop = h(d, "div", `display:none;position:absolute;z-index:5;top:2.9rem;left:.9rem;width:26rem;max-width:calc(100% - 1.8rem);max-height:60%;overflow:auto;padding:.4rem .7rem .6rem;background:${C.panel};border:1px solid ${C.border};border-radius:.4rem`);
+  root.style.position = "relative";
+  root.append(header, msgEl, grid, workDrop); // the drop-down last: the grid stays the third child
+
+  let work: MyWork | null = null, workKey = "", workShown = false, workRead = false;
+  function drawWork(): void {
+    if (workKey !== activePid()) { work = null; workRead = false; } // another project: its list is not this one's
+    workBtn.textContent = `My work (${myWorkTotal(work)})`;
+    workDrop.style.display = workShown ? "" : "none";
+    const close = (): void => { workShown = false; drawWork(); };
+    workDrop.replaceChildren(...(!workShown ? [] : [work
+      ? myWorkList(d, work, (id, at) => { close(); void root.open(id, at); }, () => { close(); opts.onOpenReview?.(); })
+      : h(d, "div", `color:${C.muted};font:12px system-ui`, workRead ? "My work could not be read." : "Reading…")]));
+  }
+  async function loadWork(): Promise<void> {
+    const key = activePid();
+    const w = await loadMyWork(base, key);
+    if (key !== activePid()) return; // another project meanwhile
+    work = w; workKey = key; workRead = true; drawWork();
+  }
+  workBtn.addEventListener("click", () => { workShown = !workShown; drawWork(); if (workShown) void loadWork(); });
 
   let view: View = "read";
   let tab: keyof typeof SIDE_TABS = "quality";
@@ -206,6 +229,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
       const st = ws.state();
       if (!st.doc || st.doc.id !== docId) return; // stale, or not read (the centre says why)
       last.set(st.key, docId);
+      void loadWork(); // the header's count
       ingest = null;
       view = at.view ?? (rightsOf(st).canEdit ? "edit" : "read");
       focused = null;

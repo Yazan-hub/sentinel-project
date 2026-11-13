@@ -10,6 +10,7 @@ import { activeRuleset, paramNamesOf, NO_RULESET } from "./active-ruleset";
 import { runStageGate, gateLine, ledgerLine, type GateReply } from "./stage-gate";
 import { getAppManager } from "../app";
 import { escapeHtml as esc } from "./escape-html";
+import { loadMyWork, myWorkList, myWorkTotal, type OpenAt } from "./my-work";
 
 /**
  * Project Shell — the Lifecycle Command Center (docs/phase1-spec.md Part A). The project as one
@@ -49,7 +50,7 @@ const DIMS = ["2d", "3d", "4d", "5d", "6d", "7d"];
 const money = (n: number, cur: string) => `${cur} ${Math.round(n).toLocaleString("en-US")}`;
 const healthColor = (v: number) => (v >= 90 ? "#22c55e" : v >= 80 ? "#eab308" : "#ef4444");
 
-export function projectShell(components: OBC.Components, opts: { baseUrl?: string } = {}): HTMLElement {
+export function projectShell(components: OBC.Components, opts: { baseUrl?: string; onOpenDoc?: (docId: string, at?: OpenAt) => void; onOpenReview?: () => void } = {}): HTMLElement {
   const base = (opts.baseUrl ?? SERVICE_URL).replace(/\/$/, "");
   const fragments = components.get(OBC.FragmentsManager);
   const pid = () => activePid();
@@ -73,6 +74,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       '<div id="ps-kpis" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin-top:.8rem"></div>' +
       '<div id="ps-dims" style="display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.8rem"></div>' +
       '<div id="ps-gate" style="margin-top:.9rem"></div>' +
+      '<div id="ps-work" style="margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.6rem"></div>' +
     "</div>" +
     '<div id="ps-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
@@ -171,8 +173,21 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       : noRuleset ? `${rulesetErr ? `Ruleset not read — ${rulesetErr}` : NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date."),
       projectErr ? "#ef4444" : noRuleset ? "#eab308" : undefined);
   };
+  // R2c "My work": my sections, reviews, mentions and assignments across the project's documents. Not part of the wave's await:
+  // a slow or refused list never holds the KPIs; a slower wave for the previous project never lands (seq).
+  const loadWork = async (mine: number, key: string) => {
+    const box = el("ps-work");
+    box.replaceChildren();
+    const w = await loadMyWork(base, key);
+    if (mine !== seq || !w) return;
+    const title = document.createElement("div");
+    title.style.cssText = "font:600 12px system-ui;color:#e5e7eb";
+    title.textContent = `My work (${myWorkTotal(w)})`;
+    box.append(title, myWorkList(document, w, (id, at) => opts.onOpenDoc?.(id, at), opts.onOpenReview));
+  };
   const reload = async () => {
     const mine = ++seq, key = pid();
+    void loadWork(mine, key);
     // Nothing of the previous wave is drawn under this one: the gate button is withheld until the role is read,
     // and the tiles and the gate preview start from "not measured".
     gateRole = null;
