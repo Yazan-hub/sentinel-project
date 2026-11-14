@@ -14,10 +14,13 @@ import { matrixEditor, referencesEditor, tableEditor } from "./grid-editors";
 import { installNamingRule, makeNamingRule, namingEditor } from "./naming-block";
 import { refusal } from "./refusal";
 import { factsEditor, liveViewEditor } from "./live-editors";
+import { loinEditor } from "./loin-editor";
+import { proposedChangesEditor } from "./proposed-changes-editor";
+import { eirLinkEditor } from "./eir-link-editor";
 import { moveId, type WorkspaceState } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page"; // type-only: no import cycle
 
-export const ADDABLE_KINDS = ["text", "table", "matrix", "naming", "references", "facts", "live_view"] as const;
+export const ADDABLE_KINDS = ["text", "table", "matrix", "naming", "references", "facts", "live_view", "loin", "proposed_changes", "eir_link"] as const;
 
 /** `/section/<sid>/blocks` (+ `/<bid>`): the path after /bimdocs/:key/:docId. */
 export const blockPath = (sectionId: string, blockId?: string): string =>
@@ -36,7 +39,8 @@ export const THEIRS_LINE = "Someone else changed this part while you were typing
 export const REPLACE_THEIRS = "Someone else changed this part while you were typing. Replace their version with yours?";
 const stored = (b: Block): Draft => ({ title: typeof b.title === "string" ? b.title : "", data: b.data });
 export type BlockEditor = (block: Block, ctx: PaneCtx, sectionId: string) => EditorHandle;
-export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor, naming: namingEditor, facts: factsEditor, live_view: liveViewEditor };
+export const EDITORS: Partial<Record<BlockKind, BlockEditor>> = { table: tableEditor, matrix: matrixEditor, references: referencesEditor, naming: namingEditor, facts: factsEditor, live_view: liveViewEditor,
+  loin: loinEditor, proposed_changes: proposedChangesEditor, eir_link: eirLinkEditor };
 
 /** An extra control under a text block's text area (Task 12 adds "Make this a naming rule"); null shows nothing. */
 export type TextAction = (block: Block<"text">, sectionId: string, ctx: PaneCtx, area: HTMLTextAreaElement) => HTMLElement | null;
@@ -49,7 +53,6 @@ export const CLOSED_ACTIONS: Partial<Record<BlockKind, ClosedAction>> = { naming
 /** A document nobody has published yet shows each section's guidance open; once a version exists it folds. */
 export const guidanceOpen = (st: WorkspaceState): boolean => st.doc?.status === "wip" && st.versions.length === 0;
 
-const NO_EDITOR = "Filled in a later release; shown as stored.";
 const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const editorOf = (b: Block): BlockEditor | undefined => (typeof b.kind === "string" && has(EDITORS, b.kind) ? EDITORS[b.kind] : undefined);
 const nameOf = (b: Block): string => (typeof b.kind === "string" && has(BLOCK_NAMES, b.kind) ? BLOCK_NAMES[b.kind] : "part");
@@ -204,7 +207,7 @@ export function editPane(ctx: PaneCtx): EditPaneEl {
     const closed = () => {
       open.delete(b.id); current = null; seed = undefined;
       const extra = closedAction(b, s.id);
-      body.replaceChildren(renderBlock(b, rc, ctx.doc, ctx.ws.state().live), ...(editor ? [] : [h(d, "div", `color:${C.muted};font:italic 12px system-ui`, NO_EDITOR)]), ...(extra ? [extra] : []));
+      body.replaceChildren(renderBlock(b, rc, ctx.doc, ctx.ws.state().live), ...(extra ? [extra] : []));
       bar.replaceChildren(...(editor ? [act("Edit", () => opened())] : []), ...tail());
     };
     const opened = () => {

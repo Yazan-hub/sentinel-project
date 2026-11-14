@@ -91,14 +91,14 @@ export function tableProblems(data: Table): string[] {
 
 // ---- the editors ----
 
-const FIELD = `background:${C.bg};color:${C.text};border:1px solid ${C.btnBorder};border-radius:.3rem;padding:.25rem .4rem;font:12px system-ui;min-width:6rem;box-sizing:border-box`;
-const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
-const rec = (v: unknown): Record<string, any> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, any>) : {}); // eslint-disable-line @typescript-eslint/no-explicit-any
+export const FIELD = `background:${C.bg};color:${C.text};border:1px solid ${C.btnBorder};border-radius:.3rem;padding:.25rem .4rem;font:12px system-ui;min-width:6rem;box-sizing:border-box`;
+export const arr = <T>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+export const rec = (v: unknown): Record<string, any> => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, any>) : {}); // eslint-disable-line @typescript-eslint/no-explicit-any
 const orNull = (v: string): string | null => (v === "" ? null : v);
 const MARKS: MatrixMark[] = ["produces", "contributes", "signs_off"];
 
 /** Shared frame: caption input, a place for the grid, a message line, and the problem list the shell reads through `problems`/`onChange`. */
-function frame(ctx: Parameters<BlockEditor>[1], kind: BlockKind, title: unknown) {
+export function frame(ctx: Parameters<BlockEditor>[1], kind: BlockKind, title: unknown) {
   const d = ctx.doc;
   const el = h(d, "div"), grid = h(d, "div", "overflow:auto"), note = h(d, "div", `color:${C.warn};font:12px system-ui;margin:.3rem 0`);
   const caption = h(d, "input", `${FIELD};width:100%;margin-bottom:.4rem`);
@@ -108,15 +108,15 @@ function frame(ctx: Parameters<BlockEditor>[1], kind: BlockKind, title: unknown)
   return { d, el, grid, note, caption, changed: () => watchers.forEach((f) => f()), onChange: (cb: () => void) => { watchers.push(cb); } };
 }
 
-type Frame = ReturnType<typeof frame>;
-const input = (f: Frame, field: string, value: string, set: (v: string) => void, type = "text"): HTMLInputElement => {
+export type Frame = ReturnType<typeof frame>;
+export const input = (f: Frame, field: string, value: string, set: (v: string) => void, type = "text"): HTMLInputElement => {
   const i = h(f.d, "input", FIELD);
   i.dataset.field = field; i.type = type; i.value = value;
   const on = () => set(i.value);
   i.addEventListener("input", on); i.addEventListener("change", on);
   return i;
 };
-const select = (f: Frame, field: string, options: [string, string][], value: string, set: (v: string) => void): HTMLSelectElement => {
+export const select = (f: Frame, field: string, options: [string, string][], value: string, set: (v: string) => void): HTMLSelectElement => {
   const s = h(f.d, "select", FIELD);
   s.dataset.field = field;
   for (const [v, label] of options) { const o = h(f.d, "option", "", label); o.value = v; s.append(o); }
@@ -124,19 +124,19 @@ const select = (f: Frame, field: string, options: [string, string][], value: str
   s.addEventListener("change", () => set(s.value));
   return s;
 };
-const cell = (f: Frame, tag: "td" | "th", ...kids: (HTMLElement | string)[]): HTMLElement => {
+export const cell = (f: Frame, tag: "td" | "th", ...kids: (HTMLElement | string)[]): HTMLElement => {
   const c = h(f.d, tag, `border:1px solid ${C.line};padding:.25rem .35rem;vertical-align:top;text-align:left`);
   c.append(...kids);
   return c;
 };
-const table = (f: Frame, head: HTMLElement[], rows: HTMLElement[]): HTMLElement => {
+export const table = (f: Frame, head: HTMLElement[], rows: HTMLElement[]): HTMLElement => {
   const t = h(f.d, "table", "border-collapse:collapse;font:12px system-ui;color:#e5e7eb");
   const hr = f.d.createElement("tr"); hr.append(...head);
   t.append(hr, ...rows);
   return t;
 };
-const tr = (f: Frame, ...cells: HTMLElement[]): HTMLElement => { const r = f.d.createElement("tr"); r.append(...cells); return r; };
-const small = (f: Frame, label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
+export const tr = (f: Frame, ...cells: HTMLElement[]): HTMLElement => { const r = f.d.createElement("tr"); r.append(...cells); return r; };
+export const small = (f: Frame, label: string, fn: () => void | Promise<void>): HTMLButtonElement => {
   const b = btn(f.d, label);
   b.addEventListener("click", () => { void fn(); });
   return b;
@@ -159,20 +159,30 @@ export const tableEditor: BlockEditor = (block, ctx) => {
   const f = frame(ctx, "table", block.title), d = f.d;
   const src = rec(block.data);
   let data: Table = { columns: arr<TableColumn>(src.columns), rows: arr(src.rows).map((r) => ({ ...rec(r), cells: { ...rec(rec(r).cells) } })) as Table["rows"], group_by_team: src.group_by_team === true };
-  let emails: string[] = [];
-  const listId = `members-${block.id}`;
-  const list = h(d, "datalist");
-  list.setAttribute("id", listId);
-  const fillList = () => list.replaceChildren(...emails.map((e) => { const o = h(d, "option"); o.value = e; return o; }));
-  let asked = false;
-  const loadMembers = async () => { // once, and only when a person column exists
-    if (asked || !data.columns.some((c) => c.type === "person")) return;
-    asked = true;
-    try {
-      const m = await ctx.ws.get<{ email: string; role: string }[]>(`/cde/${encodeURIComponent(ctx.st.key)}/members`);
-      emails = arr<{ email?: unknown }>(m).map((x) => x.email).filter((e): e is string => typeof e === "string");
-      fillList();
-    } catch { /* no suggestions */ }
+  let emails: string[] = [], codes: string[] = [];
+  const listId = `members-${block.id}`, teamsId = `teams-${block.id}`;
+  const list = h(d, "datalist"), teamList = h(d, "datalist");
+  list.setAttribute("id", listId); teamList.setAttribute("id", teamsId);
+  const fill = (el: HTMLElement, values: string[]) => el.replaceChildren(...values.map((e) => { const o = h(d, "option"); o.value = e; return o; }));
+  const asked = { person: false, team: false };
+  const hasType = (t: ColumnType) => data.columns.some((c) => c.type === t);
+  const loadLists = async () => { // each once, and only when a column of that type exists
+    if (!asked.person && hasType("person")) {
+      asked.person = true;
+      try { // a person column offers the people who can be nominated: active members, not invited ones
+        const m = await ctx.ws.get<{ email: string; state?: string }[]>(`/cde/${encodeURIComponent(ctx.st.key)}/members`);
+        emails = arr<{ email?: unknown; state?: unknown }>(m).filter((x) => x.state !== "invited").map((x) => x.email).filter((e): e is string => typeof e === "string");
+        fill(list, emails);
+      } catch { /* no suggestions */ }
+    }
+    if (!asked.team && hasType("team")) {
+      asked.team = true;
+      try {
+        const t = await ctx.ws.get<{ code: string }[]>(`/teams/${encodeURIComponent(ctx.st.key)}`);
+        codes = arr<{ code?: unknown }>(t).map((x) => x.code).filter((e): e is string => typeof e === "string");
+        fill(teamList, codes);
+      } catch { /* no suggestions */ }
+    }
   };
 
   const problemsEl = h(d, "div", `color:${C.warn};font:12px system-ui;margin:.3rem 0`);
@@ -197,12 +207,13 @@ export const tableEditor: BlockEditor = (block, ctx) => {
         return select(f, c.key, [["", "—"], ...(known ? [] : [[s, s] as [string, string]]), ...c.choices.map((x): [string, string] => [x, x])], s, (x) => setCell(row.id, c.key, orNull(x)));
       }
       case "person": { const i = input(f, c.key, s, (x) => setCell(row.id, c.key, x)); i.setAttribute("list", listId); return i; }
+      case "team": { const i = input(f, c.key, s, (x) => setCell(row.id, c.key, x)); i.setAttribute("list", teamsId); return i; }
       default: return input(f, c.key, s, (x) => setCell(row.id, c.key, x));
     }
   }
 
   function draw() {
-    void loadMembers();
+    void loadLists();
     const head = data.columns.map((c, at) => cell(f, "th", h(d, "div", "font-weight:700", c.label),
       ...(ctx.canGovern ? [select(f, "type", [["text", "Text"], ["number", "Number"], ["date", "Date"], ["choice", "Choice"], ["person", "Person"], ["team", "Task team"]], c.type, (x) => setCol(c.key, { type: x as ColumnType}))] : []),
       ...columnTools(f, ctx, data.columns, at, {
@@ -218,7 +229,7 @@ export const tableEditor: BlockEditor = (block, ctx) => {
       ...data.columns.map((c) => cell(f, "td", cellInput(r, c))),
       cell(f, "td", small(f, "Remove row", () => { data = removeRow(data, i); draw(); }))));
     const bar = h(d, "div", "margin-top:.3rem;display:flex;gap:.3rem");
-    f.grid.replaceChildren(table(f, [...(data.group_by_team ? [cell(f, "th", "Task team")] : []), ...head, cell(f, "th", "")], rows), list, bar);
+    f.grid.replaceChildren(table(f, [...(data.group_by_team ? [cell(f, "th", "Task team")] : []), ...head, cell(f, "th", "")], rows), list, ...(hasType("team") ? [teamList] : []), bar);
     bar.append(small(f, "Add row", () => { data = addRow(data); draw(); }),
       ...(ctx.canGovern ? [small(f, "Add column", async () => {
         const v = await askText("Column name", { doc: ctx.doc });

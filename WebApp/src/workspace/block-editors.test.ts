@@ -5,7 +5,7 @@ vi.mock("../setups/bridge-fetch", () => ({ bfetch: vi.fn(async () => { throw new
 vi.mock("../setups/ask", () => ({ askText: vi.fn(async () => null), askYesNo: vi.fn(async () => true) }));
 
 import { askYesNo } from "../setups/ask";
-import { ADDABLE_KINDS, blockPath, editPane, guidanceOpen } from "./block-editors";
+import { ADDABLE_KINDS, EDITORS, blockPath, editPane, guidanceOpen } from "./block-editors";
 import { fakeDocument, findAll, textOf, click, fire } from "./fake-dom";
 
 const text = (id: string, md: string) => ({ id, kind: "text", title: "", data: { markdown: md } });
@@ -28,8 +28,9 @@ const button = (el: HTMLElement, label: string) => findAll(el, "button").find((b
 const area = (root: HTMLElement, id: string) => findAll(shell(root, id), "textarea")[0] as HTMLTextAreaElement;
 
 describe("ADDABLE_KINDS", () => {
-  it("lists the seven kinds a lead can add", () => {
-    expect(ADDABLE_KINDS).toEqual(["text", "table", "matrix", "naming", "references", "facts", "live_view"]);
+  it("lists the ten kinds a lead can add: every kind has an editor", () => {
+    expect(ADDABLE_KINDS).toEqual(["text", "table", "matrix", "naming", "references", "facts", "live_view", "loin", "proposed_changes", "eir_link"]);
+    for (const k of ADDABLE_KINDS) expect(EDITORS[k]).toBeDefined();
   });
 });
 
@@ -62,10 +63,10 @@ describe("editPane (G14)", () => {
     expect(ctx.ws.write).not.toHaveBeenCalled();
     expect(textOf(shell(root, "a1"))).toContain("AI draft (local/m, grounded in 2 fact(s)): review it, then Save.");
   });
-  it("a kind without an editor is shown as stored, with no Edit", () => {
+  it("an eir_link block has an Edit button now, and no later-release note", () => {
     const root = editPane(ctxWith(row([sec("s1", [{ id: "f1", kind: "eir_link", title: "", data: { clauses: [] } }])])));
-    expect(textOf(shell(root, "f1"))).toContain("Filled in a later release; shown as stored.");
-    expect(button(shell(root, "f1"), "Edit")).toBeUndefined();
+    expect(textOf(shell(root, "f1"))).not.toContain("Filled in a later release");
+    expect(button(shell(root, "f1"), "Edit")).toBeDefined();
   });
 });
 
