@@ -54,7 +54,7 @@ describe("loinCompile", () => {
     const post = vi.fn(async () => null), ctx = pane(post, lead({ message: "Nope." })), el = loinCompile(ctx, () => [rows[0]] as any);
     await press(el, "Compile to IDS");
     expect(textOf(el)).toContain("Nope.");
-    expect(post.mock.calls[0][1]).toMatchObject({ rows: [rows[0]] });
+    expect((post.mock.calls as any)[0][1]).toMatchObject({ rows: [rows[0]] });
     expect(artefactInForce).toHaveBeenCalled();
   });
 });

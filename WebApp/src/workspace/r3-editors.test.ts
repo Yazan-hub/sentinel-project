@@ -98,7 +98,7 @@ describe("eirLinkEditor", () => {
     await flush();
     expect(findAll(e.el, "input").filter((i) => (i as any).type === "checkbox")).toHaveLength(2);
     expect(textOf(e.el)).toContain("Not answered yet: Delivery");
-    expect(field(e.el, "note")[0].value).toBe("see 4.2");
+    expect((field(e.el, "note")[0] as any).value).toBe("see 4.2");
     const tick = findAll(e.el, "input").filter((i) => (i as any).type === "checkbox")[1] as any;
     tick.checked = true; fire(tick, "change");
     expect((e.value().data as any).clauses.map((c: any) => c.clause_id)).toEqual(["n1", "s2"]);

@@ -13,6 +13,7 @@ import { myRoleRead, roleWords } from "./my-role";
 import { escapeHtml as esc, pathSegment } from "./escape-html";
 import type { IngestProposal } from "../workspace/ingest-view";
 import { renderMarkdown } from "../workspace/markdown";
+import { createLine, type Choice } from "./template-form";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -250,7 +251,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   async function showCreate() {
     openId = null; onList = false;
     body.replaceChildren();
-    const templates: { template_id: string; doc_type: string; title: string; sections: number; when_to_use: string }[] = await api("/templates");
+    const templates: Choice[] = await api(`/${encodeURIComponent(pid())}/templates`); // the shipped templates, then the office's
     const wrap = document.createElement("div");
     wrap.style.cssText = "max-width:420px;display:flex;flex-direction:column;gap:.5rem";
     const input = document.createElement("input");
@@ -258,17 +259,17 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     input.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#eee;border-radius:.35rem;padding:.4rem .5rem";
     wrap.append(input);
     for (const t of templates) {
-      const b = btn(`Create ${t.doc_type} — ${t.title} (${t.sections} sections)`);
+      const b = btn(createLine(t));
       b.onclick = async () => {
         try {
-          const doc = await api(`/${encodeURIComponent(pid())}`, { method: "POST", body: JSON.stringify({ doc_type: t.doc_type, template_id: t.template_id, title: input.value || t.title, actor: await actor() }) });
+          const doc = await api(`/${encodeURIComponent(pid())}`, { method: "POST", body: JSON.stringify({ doc_type: t.doc_type, template_id: t.template_id, title: input.value || t.name || t.title || "", actor: await actor() }) });
           if ((t.doc_type === "BEP" || t.doc_type === "EIR") && opts.onOpenWorkspace) { void showList(); opts.onOpenWorkspace(doc.id); }
           else showEditor(doc.id);
         } catch (e: any) { msg(e.message, true); }
       };
       const when = document.createElement("div");
       when.style.cssText = "color:#9a9aa5;font-size:.8rem;margin:-.25rem 0 .25rem";
-      when.textContent = t.when_to_use;
+      when.textContent = t.when_to_use ?? "";
       wrap.append(b, when);
     }
     const back = btn("← Back"); back.onclick = showList; wrap.append(back);

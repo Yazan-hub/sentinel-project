@@ -23,7 +23,7 @@ export function namingOf(sections: SectionRow[]): NamingRuleset | null {
     if (d && typeof d.separator === "string" && Array.isArray(d.fields)) return { title: "", separator: d.separator, enforce: d.enforce ?? "reject", fields: d.fields } as NamingRuleset;
   }
   const found = findNamingCandidate(sections);
-  return found ? ({ title: "", enforce: "reject", ...found.ruleset } as NamingRuleset) : null;
+  return found ? (found.ruleset as NamingRuleset) : null;
 }
 
 /** The changes diffNaming found, as lines: a separator or enforce change, then each field added, removed or changed. */

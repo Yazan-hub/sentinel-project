@@ -12,6 +12,7 @@ import { clientOutsideBlock, type ClientOutside } from "./client-outside";
 import { PARTIES, PARTY_WORDS, NO_PARTY, INVITED_WORDS, MAIL_NOTE, partyWord, canEditParty, invitableParties, inviteProblem, groupByParty, dayOf, type Party, type MemberRow, type InvitationRow } from "./members-people";
 import { packFilename, packWords, saveAs, anchorWords, type AnchorStatus } from "./audit-pack";
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
+import { mountTemplates } from "./template-form";
 import { REGISTER_FORM, registerSummary, readRegister, saveRegister, type Register, type RegisterPointer } from "./office-register-form";
 import { renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
 
@@ -75,6 +76,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     '<div id="ps-standards" style="margin-top:1.2rem"></div>' +
     '<div id="ps-std-edit"></div>' +
     '<div id="ps-register" style="margin-top:1.2rem"></div>' +
+    '<div id="ps-templates" style="margin-top:1.2rem"></div>' +
     '<div id="ps-members" style="margin-top:1.2rem"></div>' +
     '<div style="border:1px solid #7f1d1d;border-radius:.45rem;margin-top:1.6rem;padding:.7rem .8rem;background:#1c1214">' +
     '<div style="color:#fca5a5;font-weight:600;font-size:12px">Danger zone</div>' +
@@ -117,6 +119,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     el("ps-office").innerHTML = '<option value="">No office</option>';
     el("ps-link").textContent = "";
     regSeq++; el("ps-register").replaceChildren(); // the register of the project before never stays under another
+    tplSeq++; el("ps-templates").replaceChildren();
   }
 
   // The platform project this Sentinel project opens in by itself (platform-link.ts): the published app cannot remember a
@@ -671,6 +674,17 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     });
   }
 
+  // R3: the office's document templates — only an office, only its lead or owner (the bridge and the database refuse everyone else).
+  let tplSeq = 0;
+  async function loadTemplates() {
+    const mine = ++tplSeq, key = pid(), host = el("ps-templates");
+    host.replaceChildren();
+    if (current?.kind !== "office") return;
+    const role = await myRole(base, key);
+    if (mine !== tplSeq || key !== pid() || !canGovernRole(role)) return;
+    await mountTemplates(host, { base, officeKey: key, who });
+  }
+
   let seq = 0; // a slower settings read for the previous project/person never lands last
   let loadedScope = "", loadedSnap = ""; // the project + person the fields hold ("" while loading or not read) and their values then
   async function load() {
@@ -718,6 +732,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       loadedSnap = snapshot();
       const isOffice = current.kind === "office";
       void loadRegister();
+      void loadTemplates();
       renderArchiveBtn();
       renderLink();
       updateDeleteEnabled();

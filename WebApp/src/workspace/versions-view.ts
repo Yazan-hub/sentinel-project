@@ -2,6 +2,9 @@
 // Frozen snapshots only (a draft's live text is never compared); a viewer's masked versions have the same fields used here.
 import type { Block, BlockKind, Snapshot, VersionListRow } from "../sentinel-core/doc-blocks";
 import { BLOCK_NAMES, STAGE_WORDS, blocksOf } from "../sentinel-core/doc-blocks";
+import { askText, askYesNo } from "../setups/ask";
+import { canGovernRole } from "../setups/my-role";
+import { pathSegment } from "../setups/escape-html";
 import { C, btn, h } from "./dom";
 import { renderBlock } from "./block-render";
 import { readVersion, startPrint } from "./read-view";
@@ -61,6 +64,23 @@ export const versionLine = (v: VersionListRow): string =>
 let note = { doc: "", text: "" };
 let noteEl: HTMLElement | null = null;
 
+/** R3: "Save as office template…" (a lead's, on a BEP or an EIR, any status): asks the name, when to use it, the variant and how much to keep,
+ *  through the in-page questions (no browser dialogs), then posts it. Only the bridge decides whether the caller may. */
+export async function saveAsTemplate(ctx: PaneCtx, say: (text: string) => void): Promise<void> {
+  const doc = ctx.st.doc, d = ctx.doc;
+  if (!doc) return;
+  const name = await askText("Name of the office template", { doc: d });
+  if (name === null || name === "") return;
+  const when = await askText("When should someone use it? A sentence, or leave it empty.", { doc: d });
+  if (when === null) return;
+  const full = await askYesNo(`Is "${name}" the full variant?`, { ok: "Full variant", cancel: "Not the full variant", doc: d });
+  const minimal = full ? false : await askYesNo(`Is "${name}" the minimal variant?`, { ok: "Minimal variant", cancel: "Neither", doc: d });
+  const keep = await askYesNo("What should the template keep?", { ok: "With its text and rows", cancel: "Structure only", doc: d });
+  const r = await ctx.ws.post<{ template_id: string; office_version: number }>(`/bimdocs/${pathSegment(ctx.st.key)}/${pathSegment(doc.id)}/save-as-template`,
+    { name, when_to_use: when, variant: full ? "full" : minimal ? "minimal" : null, keep_content: keep });
+  say(r ? `Saved as office template "${name}" (version ${r.office_version}).` : ctx.ws.state().message || "The template was not saved.");
+}
+
 export function versionsView(ctx: PaneCtx): HTMLElement {
   const d = ctx.doc, st = ctx.st, docId = st.doc?.id ?? "";
   const root = h(d, "div", "max-width:52rem;margin:0 auto");
@@ -74,7 +94,12 @@ export function versionsView(ctx: PaneCtx): HTMLElement {
     bar.append(h(d, "span", "flex:1", `Viewing v${st.viewing.version_no}, ${st.viewing.label}.`), back);
     root.append(bar);
   }
-  if (!st.versions.length) { root.append(h(d, "div", `color:${C.muted}`, NO_VERSION)); return root; }
+  if (st.doc && (st.doc.doc_type === "BEP" || st.doc.doc_type === "EIR") && canGovernRole(st.role)) {
+    const save = btn(d, "Save as office template…");
+    save.addEventListener("click", () => { void saveAsTemplate(ctx, say); });
+    root.append(save);
+  }
+  if (!st.versions.length) { root.append(h(d, "div", `color:${C.muted}`, NO_VERSION), msg); return root; }
   const opened = async (n: number): Promise<boolean> => { say(""); await ctx.ws.viewVersion(n); return ctx.ws.state().viewing?.version_no === n; };
   for (const v of st.versions) {
     const row = h(d, "div", `display:flex;align-items:center;gap:.5rem;padding:.45rem 0;border-bottom:1px solid ${C.line}`);
