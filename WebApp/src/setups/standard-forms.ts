@@ -493,6 +493,7 @@ export const STANDARD_LINKS: Record<string, StandardLink> = {
   protection: { text: "Edit in Revit ▸ Standards & Build ▸ Protection" },
   guideline: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Modelling Guideline" },
   ifc_export: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ IFC Export Mapping" },
+  doc_templates: { text: "Edit in the office's settings ▸ Document templates" }, // R3: an office artefact; its form is on the office (template-form.ts)
 };
 
 // ── the renderer ───────────────────────────────────────────────────────────────────────────────────────────
