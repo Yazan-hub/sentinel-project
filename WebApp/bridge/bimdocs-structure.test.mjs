@@ -119,7 +119,7 @@ describe("old panel save rule", () => {
     sb.mockImplementation(async (p, o) => (o?.method === "POST" ? [{ id: doc.id, doc_type: "BEP", title: "B" }] : [doc]));
     const posted = () => sb.mock.calls.find(([p, o]) => p === "bim_documents" && o?.method === "POST")[1].body;
     await createDoc("k", { doc_type: "BEP" });
-    expect(posted()).toMatchObject({ template_id: "bep-comprehensive", template_version: 1 });
+    expect(posted()).toMatchObject({ template_id: "bep-comprehensive", template_version: 2 });
     sb.mockClear();
     await createDocFromIngest("k", { doc_type: "EIR", sections: [{ heading: "H", body: "b" }] });
     expect(posted()).toMatchObject({ template_id: "eir", template_version: 1 });

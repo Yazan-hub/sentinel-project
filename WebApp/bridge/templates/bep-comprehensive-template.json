@@ -1,7 +1,7 @@
 {
   "doc_type": "BEP",
   "title": "BIM Execution Plan",
-  "version": 1,
+  "version": 2,
   "default": true,
   "variant": "full",
   "when_to_use": "Every section ISO 19650-2 asks for, at tender and after appointment. Use it when several task teams deliver or the client issued an EIR.",
@@ -38,9 +38,21 @@
       "key": "roles-and-responsibilities",
       "heading": "3. Information delivery team and responsibilities",
       "guidance": "List the key people and task teams and who is responsible for producing each kind of information. (ISO 19650-2 clause 5.3.2 a and d)",
-      "bindings": { "checks": [ { "id": "roles.responsibility", "params": {} } ] },
+      "bindings": { "checks": [ { "id": "roles.responsibility", "params": {} }, { "id": "people.nominated", "params": {} }, { "id": "roles.one_producer", "params": {} } ] },
       "blocks": [
         { "kind": "text", "title": "", "data": { "markdown": "" } },
+        {
+          "kind": "table",
+          "title": "Nominated people",
+          "data": {
+            "columns": [
+              { "key": "function", "label": "Function", "type": "text" },
+              { "key": "person", "label": "Person", "type": "person" },
+              { "key": "team", "label": "Task team", "type": "team" }
+            ],
+            "rows": []
+          }
+        },
         { "kind": "matrix", "title": "High-level responsibility matrix", "data": { "preset": "high_level" } }
       ]
     },
@@ -69,10 +81,11 @@
       "key": "information-standard",
       "heading": "7. Information standard and container naming",
       "guidance": "State the information standard that applies and the rule for naming information containers. (ISO 19650-2 clauses 5.3.2 f and 5.1.4)",
-      "bindings": { "checks": [ { "id": "naming.containers", "params": {} }, { "id": "cde.suitability", "params": {} } ] },
+      "bindings": { "checks": [ { "id": "naming.containers", "params": {} }, { "id": "cde.suitability", "params": {} }, { "id": "docs.suitability", "params": {} } ] },
       "blocks": [
         { "kind": "text", "title": "", "data": { "markdown": "" } },
-        { "kind": "naming", "title": "Container naming", "data": { "separator": "-", "enforce": "reject", "fields": [] } }
+        { "kind": "naming", "title": "Container naming", "data": { "separator": "-", "enforce": "reject", "fields": [] } },
+        { "kind": "proposed_changes", "title": "Changes to the client's naming", "data": { "changes": [] } }
       ]
     },
     {
@@ -80,7 +93,10 @@
       "heading": "8. Level of information need",
       "guidance": "Say how much geometry, detail and data each deliverable needs at each milestone. (ISO 19650-2 clause 5.2.1)",
       "bindings": { "checks": [ { "id": "loin.levels", "params": {} } ] },
-      "blocks": [ { "kind": "text", "title": "", "data": { "markdown": "" } } ]
+      "blocks": [
+        { "kind": "text", "title": "", "data": { "markdown": "" } },
+        { "kind": "loin", "title": "Information needed, LOIN", "data": { "rows": [] } }
+      ]
     },
     {
       "key": "production-methods",

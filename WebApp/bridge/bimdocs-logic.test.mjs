@@ -106,8 +106,8 @@ const KEYS = ["project-information", "eir-response", "roles-and-responsibilities
   "level-of-information-need", "production-methods", "software-hardware-it", "quality-assurance", "capability-and-capacity", "mobilisation", "risk-register", "delivery-plans", "project-documents"];
 const MINIMAL = ["project-information", "eir-response", "roles-and-responsibilities", "information-delivery-strategy", "cde-and-workflow", "information-standard", "delivery-plans", "project-documents"];
 const BOUND = {
-  "roles-and-responsibilities": ["roles.responsibility"], "information-delivery-strategy": ["midp.milestones"], "federation-strategy": ["federation.breakdown"],
-  "cde-and-workflow": ["cde.states", "cde.versioned"], "information-standard": ["naming.containers", "cde.suitability"], "level-of-information-need": ["loin.levels"],
+  "roles-and-responsibilities": ["roles.responsibility", "people.nominated", "roles.one_producer"], "information-delivery-strategy": ["midp.milestones"], "federation-strategy": ["federation.breakdown"],
+  "cde-and-workflow": ["cde.states", "cde.versioned"], "information-standard": ["naming.containers", "cde.suitability", "docs.suitability"], "level-of-information-need": ["loin.levels"],
   "production-methods": ["project.standards_pack"], "quality-assurance": ["ids.last_verdict", "gate.stage"], "delivery-plans": ["midp.plan_completeness", "midp.review"],
 };
 const tpl = (id) => loadTemplates().find((t) => t.template_id === id);
@@ -133,8 +133,9 @@ describe("R1b: template choice", () => {
     for (const s of t.sections) expect((s.bindings?.checks ?? []).map((c) => c.id)).toEqual(BOUND[s.key] ?? []);
     const kinds = Object.fromEntries(t.sections.map((s) => [s.key, s.blocks.map((b) => b.kind)]));
     expect(kinds["eir-response"]).toEqual(["text", "table"]);
-    expect(kinds["roles-and-responsibilities"]).toEqual(["text", "matrix"]);
-    expect(kinds["information-standard"]).toEqual(["text", "naming"]);
+    expect(kinds["roles-and-responsibilities"]).toEqual(["text", "table", "matrix"]);
+    expect(kinds["information-standard"]).toEqual(["text", "naming", "proposed_changes"]);
+    expect(kinds["level-of-information-need"]).toEqual(["text", "loin"]);
     expect(kinds["project-documents"]).toEqual(["text", "references"]);
     expect(kinds["mobilisation"]).toEqual(["text"]);
   });
@@ -155,5 +156,32 @@ describe("R1b: template choice", () => {
     expect(() => loadTemplates(dir({ "a-template.json": bep({ default: true }), "b-template.json": bep({ default: true }) }))).toThrow("templates: BEP needs exactly one default");
     expect(() => loadTemplates(dir({ "a-template.json": bep({ default: true }), "m-template.json": { extends: "nope", keep: ["a"] } }))).toThrow("templates: m extends unknown 'nope'");
     expect(() => loadTemplates(dir({ "a-template.json": bep({ default: true }), "m-template.json": { extends: "a", keep: ["zz"] } }))).toThrow("templates: m keeps unknown section 'zz'");
+  });
+});
+
+describe("R3 Task 4: the shipped BEP template carries the nominations table, the LOIN table and the proposed changes", () => {
+  const doc = () => instantiateTemplate(tpl("bep-comprehensive"), { title: "BEP", actor: "a" });
+  const sec = (d, key) => d.sections.find((s) => s.template_key === key);
+  it("is version 2 and records it on the document", () => {
+    expect(doc()).toMatchObject({ template_id: "bep-comprehensive", template_version: 2 });
+  });
+  it("roles: a Nominated people table (Function, Person, Task team) and the two new checks beside roles.responsibility", () => {
+    const s = sec(doc(), "roles-and-responsibilities");
+    const t = s.blocks.find((b) => b.kind === "table");
+    expect(t.title).toBe("Nominated people");
+    expect(t.data.columns.map((c) => [c.label, c.type])).toEqual([["Function", "text"], ["Person", "person"], ["Task team", "team"]]);
+    expect(s.bindings.checks.map((c) => c.id)).toEqual(["roles.responsibility", "people.nominated", "roles.one_producer"]);
+  });
+  it("naming: proposed changes to the client's naming and docs.suitability; LOIN: the LOIN block", () => {
+    const n = sec(doc(), "information-standard");
+    expect(n.blocks.find((b) => b.kind === "proposed_changes").title).toBe("Changes to the client's naming");
+    expect(n.bindings.checks.map((c) => c.id)).toContain("docs.suitability");
+    expect(sec(doc(), "level-of-information-need").blocks.find((b) => b.kind === "loin").title).toBe("Information needed, LOIN");
+  });
+  it("the minimal variant keeps what its keep list names, version 2 with it, and no LOIN section", () => {
+    const m = instantiateTemplate(tpl("bep-comprehensive-minimal"), { title: "BEP", actor: "a" });
+    expect(m.template_version).toBe(2);
+    expect(m.sections.map((s) => s.template_key)).toEqual(MINIMAL);
+    expect(sec(m, "roles-and-responsibilities").blocks.some((b) => b.title === "Nominated people")).toBe(true);
   });
 });
