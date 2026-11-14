@@ -17,7 +17,7 @@
 --   part 5: doc_incorporated (a lead): ledger document_incorporated {version_no, sha, parties}.
 --
 -- Dry-run: PGlite with every migration (bridge/migration-0054.test.mjs). Probe: probes/0054_probe.sql.
--- NOT APPLIED. Applied live only on the founder's OK (after 0053), then probed.
+-- APPLIED 2026-11-14 ~10:20 UTC on the founder's "Yes, apply both" (Supabase migration 0054_round_outside, after 0053). Probe: part 1 all true, "PROBE 0054: 10 of 10 as expected."
 -- Rollback (never run casually): re-run 0053's doc_round_start, doc_round_decide and doc_round_step_done bodies; drop function public.doc_round_effects(uuid, int, text, text, uuid),
 --   public.doc_round_record_outside(uuid, text, date, text, text), public.doc_round_skip(uuid, int, text), public.doc_incorporated(uuid, int, text[]),
 --   public.set_client_outside_sentinel(uuid, boolean); drop trigger trg_projects_outside_guard on public.projects; drop function public.projects_outside_guard();

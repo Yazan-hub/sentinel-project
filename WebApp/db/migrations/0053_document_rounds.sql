@@ -15,7 +15,7 @@
 --   part 6: the round tables are written by the round functions only (guard trigger).
 --
 -- Dry-run: on PGlite with every migration (bridge/migration-0053.test.mjs). Probe: probes/0053_probe.sql (part 1 catalog, part 2 one DO block).
--- NOT APPLIED. Applied live only on the founder's OK, then probed. Restart the 4100 bridge on this branch right after (Task 3's routes call these functions).
+-- APPLIED 2026-11-14 ~10:20 UTC on the founder's "Yes, apply both" (Supabase migration 0053_document_rounds). Probe: part 1 all true, "PROBE 0053: 9 of 9 as expected."
 -- Rollback (never run casually): drop trigger trg_bim_documents_round_lock on public.bim_documents; drop function public.bim_documents_round_lock();
 --   re-run 0049 part 6's bim_document_versions_insert_guard body; drop function public.doc_round_start(uuid, jsonb, date, jsonb),
 --   public.doc_round_decide(uuid, text, text), public.doc_round_withdraw(uuid, text), public.doc_appointment_indicated(uuid, text),
