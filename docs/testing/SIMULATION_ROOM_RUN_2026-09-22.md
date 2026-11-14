@@ -4115,3 +4115,21 @@ Run log: docs/testing/snowdon-lifecycle/R2c/R2c-RUN_2026-11-13.md. Plan: docs/su
 
 Findings: F-R2c-1 stale My work after a sign-in change (fixed d434f08f); on the R2a side F-R2a-3 to F-R2a-7 (mail, invitee activation, plain-words code errors), all fixed.
 
+
+## Session R2d — document review rounds, stages and suitability: a tender BEP issued as P01 and selected, appointment indicated, the confirmed BEP accepted as C01, A1 (2026-11-14, 10:25–11:35 UTC; branch claude/recursing-moser-a8fde0; migrations 0053 and 0054 applied on the founder's "Yes, apply both"; Chrome signed in by the founder as gmail, user3, user4, hotmail, user4, user3, gmail and hotmail; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md. Plan: docs/superpowers/plans/2026-11-13-bim-documents-workspace-r2d.md.
+
+| Row | What | Result |
+|---|---|---|
+| 0 | 0053 and 0054 applied; catalog checks 9 of 9; "PROBE 0053: 9 of 9" and "PROBE 0054: 10 of 10", rolled back | ✅ |
+| 0b | "Documents go through review" switched on in the review form → review@2 (ledger #3670) | ✅ |
+| 1 | gmail sends the tender BEP: "Out for review", no Edit, the sender cannot decide (#3671) | ✅ |
+| 2 | user3 confirms for Team ARC from My reviews → Shared, S3 (#3672) | ✅ |
+| 3 | A lead's edit refused in words (409); user4 signs off → "Issued, awaiting the client, S4", v1 P01, its sha equal to what was sent (#3673, #3674) | ✅ |
+| 4 | The Client picks Selected → "Submitted, S4", the round closed, the document a draft again (#3675, #3676) | ✅ |
+| 5 | Appointment indicated → stage confirmed (#3677); user4 sends again (#3678) | ✅ |
+| 6, 7 | user3 accepts with comments (#3679); gmail signs off for the Lead firm → S5 (#3680) | ✅ |
+| 8 | The Client accepts → "Accepted, A1", v2 C01, its sha equal to the round's and to the sha-256 of the stored copy (#3681, #3682) | ✅ |
+
+Findings: F-R2d-1 to F-R2d-7 (wording on a first draft, the appointment note, the start strip, the Read banners, a tender version offered for "Incorporated in appointment", "My work (0)" before the list is read), all fixed (482a51da). Not driven on screen: the client outside Sentinel, a skipped step, a rejection, an EIR round (probes and tests cover the first three). Founder's decision owed: an EIR on a project whose client is outside Sentinel.
