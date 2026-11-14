@@ -19,10 +19,13 @@ export const eirLinkEditor: BlockEditor = (block, ctx) => {
   const f = frame(ctx, "eir_link", block.title), d = f.d, doc = ctx.st.doc;
   let clauses: Clause[] = arr(rec(block.data).clauses).map((c) => ({ clause_id: str(rec(c).clause_id), note: str(rec(c).note) }));
   let sections: SectionRow[] | null = null; // the linked EIR's, once read
+  let unread = false; // the linked EIR could not be read: never "every clause is answered"
   const other = namedElsewhere(doc, block.id);
 
   function draw() {
-    if (!doc?.responds_to) { f.grid.replaceChildren(h(d, "div", `color:${C.warn};font:12px system-ui`, NO_EIR)); return; }
+    if (!doc) { f.grid.replaceChildren(h(d, "div", `color:${C.muted};font:12px system-ui`, "The clauses are picked in each document, once it links an EIR.")); return; } // an office template
+    if (!doc.responds_to) { f.grid.replaceChildren(h(d, "div", `color:${C.warn};font:12px system-ui`, NO_EIR)); return; }
+    if (unread) { f.grid.replaceChildren(h(d, "div", `color:${C.warn};font:12px system-ui`, "The linked EIR could not be read. Close this block and open it again.")); return; }
     if (!sections) { f.grid.replaceChildren(h(d, "div", `color:${C.muted};font:12px system-ui`, "Reading the EIR…")); return; }
     const named = (id: string) => clauses.some((c) => c.clause_id === id);
     const rows = sections.map((s) => {
@@ -41,7 +44,7 @@ export const eirLinkEditor: BlockEditor = (block, ctx) => {
   }
   draw();
   if (doc?.responds_to) void ctx.ws.get<DocRow>(`/bimdocs/${pathSegment(ctx.st.key)}/${pathSegment(doc.responds_to)}`).then((eir) => {
-    sections = eir && Array.isArray(eir.sections) ? eir.sections : [];
+    if (eir && Array.isArray(eir.sections)) sections = eir.sections; else unread = true;
     draw();
   });
   return { el: f.el, value: () => ({ title: f.caption.value, data: { clauses } }), onChange: f.onChange };

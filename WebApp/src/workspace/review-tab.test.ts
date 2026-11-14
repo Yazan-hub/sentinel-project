@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const yes = { v: true };
 vi.mock("../setups/ask", () => ({ askYesNo: vi.fn(async () => yes.v), askText: vi.fn(async () => "P01") }));
 
-import { reviewTab, codeChoices, decisionLine, DECISION_WORDS } from "./review-tab";
+import { reviewTab, codeChoices, decisionLine, DECISION_WORDS, movesFor } from "./review-tab";
 import { emptyState, type RoundCurrent, type RoundView } from "./workspace-state";
 import { fakeDocument, findAll, textOf, click } from "./fake-dom";
 import { askText, askYesNo } from "../setups/ask";
@@ -107,12 +107,24 @@ describe("no round", () => {
     expect(t).not.toContain("Send for review"); expect(t).toContain("This document is not sent for review in rounds."); expect(t).not.toContain("Documents tab");
     for (const b of ["Share", "Publish…", "Back to draft", "Archive"]) expect(by(el, b)).toHaveLength(0);
   });
+  it("review finding 3: with a review chain a lead still starts the next revision of a published document and archives; never while a round is open", () => {
+    const LABELS = ["Share", "Publish…", "Back to draft", "Back to draft (next revision)", "Archive"];
+    const chained = (status: string, round: unknown = undefined) => { const c = ctx(cur({ can_send: status === "wip", chain: true, doc_status: status, ...(round === undefined ? {} : { round }) })); (c.st as any).role = "lead"; (c.st.doc as any).status = status; return c; };
+    const got = (c: ReturnType<typeof chained>) => all(run(c), "button").map((b) => textOf(b)).filter((t) => LABELS.includes(t)).sort();
+    expect(got(chained("published"))).toEqual(["Archive", "Back to draft (next revision)"]);
+    expect(got(chained("archived"))).toEqual(["Back to draft"]);
+    expect(got(chained("wip", null))).toEqual(["Archive"]);
+    expect(movesFor("shared", true, "BEP")).toEqual(["archived"]);
+    expect(movesFor("shared", false, "TIDP")).toEqual(["wip", "archived"]); // a TIDP is never published
+    expect(got(chained("shared", null))).toEqual(["Archive"]);
+    expect(got(chained("shared", view()))).toEqual([]); // a round is open: nothing moves outside it
+  });
   describe("R3: a document with no review chain is moved from here, by a lead", () => {
     const chainless = (status: string, role = "lead", post: unknown = undefined) => { const c = ctx(cur({ can_send: false, chain: false, doc_status: status }), post ? { post } : {}); (c.st as any).role = role; (c.st.doc as any).status = status; return c; };
     it("buttons by status", () => {
-      for (const [status, want] of [["wip", ["Share"]], ["shared", ["Back to draft", "Publish…"]], ["published", ["Back to draft", "Archive"]], ["archived", ["Back to draft"]]] as const) {
+      for (const [status, want] of [["wip", ["Share", "Archive"]], ["shared", ["Back to draft", "Publish…", "Archive"]], ["published", ["Back to draft (next revision)", "Archive"]], ["archived", ["Back to draft"]]] as const) {
         const el = run(chainless(status));
-        const got = all(el, "button").map((b) => textOf(b)).filter((t) => ["Share", "Publish…", "Back to draft", "Archive"].includes(t));
+        const got = all(el, "button").map((b) => textOf(b)).filter((t) => ["Share", "Publish…", "Back to draft", "Back to draft (next revision)", "Archive"].includes(t));
         expect(got.sort()).toEqual([...want].sort());
       }
       expect(by(run(chainless("shared", "owner")), "Publish…")).toHaveLength(1);

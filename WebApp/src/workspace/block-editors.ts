@@ -91,8 +91,9 @@ EDITORS.text = (block, ctx, sid) => {
     (ctx.editorOf ? ctx.editorOf(b.id) : self)?.propose?.(r.proposal, `AI draft (${r.provider}/${r.model}, grounded in ${r.grounding_used} fact(s)): review it, then Save.`);
   });
 
-  bar.append(toggle, draft);
-  for (const act of TEXT_ACTIONS) { const el = act(b, sid, ctx, area); if (el) bar.append(el); }
+  // Draft with AI and the text actions work on an open document; the office's template form has none, so they are not shown there.
+  bar.append(toggle, ...(ctx.st.doc ? [draft] : []));
+  if (ctx.st.doc) for (const act of TEXT_ACTIONS) { const el = act(b, sid, ctx, area); if (el) bar.append(el); }
   wrap.append(area, preview, bar, note);
   const self: EditorHandle = { el: wrap, value: () => ({ title: typeof b.title === "string" ? b.title : "", data: { markdown: area.value } }),
     propose: (text, says) => { area.value = text; note.textContent = says; } };

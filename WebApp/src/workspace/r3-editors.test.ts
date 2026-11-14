@@ -6,7 +6,7 @@ vi.mock("../setups/active-ruleset", () => ({ artefactInForce: vi.fn(async () => 
 
 import { artefactInForce } from "../setups/active-ruleset";
 import { loinEditor } from "./loin-editor";
-import { changesFrom, proposedChangesEditor } from "./proposed-changes-editor";
+import { changeLine, changesFrom, proposedChangesEditor } from "./proposed-changes-editor";
 import { eirLinkEditor, NO_EIR } from "./eir-link-editor";
 import { tableEditor } from "./grid-editors";
 import { click, fakeDocument, findAll, fire, textOf } from "./fake-dom";
@@ -60,8 +60,8 @@ describe("proposedChangesEditor", () => {
     expect(textOf(e.el)).toContain("No proposed changes");
     click(btn(e.el, "Compare with the client's naming")!); await flush();
     expect(ctx.ws.get).toHaveBeenCalledWith("/bimdocs/k/e1");
-    expect(textOf(e.el)).toContain("c: added");
-    expect(textOf(e.el)).toContain("b: removed");
+    expect(textOf(e.el)).toContain("Adds C");
+    expect(textOf(e.el)).toContain("Removes B");
     expect(field(e.el, "reason")).toHaveLength(2);
     expect((e.value().data as any).changes.map((c: any) => c.field_key)).toEqual(["c", "b"]);
   });
@@ -87,7 +87,7 @@ describe("proposedChangesEditor", () => {
     vi.mocked(artefactInForce).mockResolvedValueOnce({ body: naming(["a", "z"]) } as any);
     const ctx = ctxWith({ doc: { id: "d1", doc_type: "BEP", title: "T", responds_to: "e1", sections: [] } }, eirDoc(naming(["a"]))), e = proposedChangesEditor(block("proposed_changes", { changes: [] }), ctx, "s1");
     click(btn(e.el, "Compare with the client's naming")!); await flush();
-    expect(textOf(e.el)).toContain("z: added");
+    expect(textOf(e.el)).toContain("Adds Z");
   });
 });
 
@@ -110,6 +110,18 @@ describe("eirLinkEditor", () => {
     await flush();
     expect(textOf(e.el)).toContain("Not answered yet: Naming");
     expect(textOf(e.el)).not.toContain("Not answered yet: Naming, Delivery");
+  });
+  it("review finding 11: a linked EIR that cannot be read says so, never that every clause is answered; an office template (no document) says where clauses are picked", async () => {
+    const e = eirLinkEditor(block("eir_link", { clauses: [] }), ctxWith(linked(), null), "s1");
+    await flush();
+    expect(textOf(e.el)).toContain("The linked EIR could not be read."); expect(textOf(e.el)).not.toContain("Every EIR clause is answered.");
+    expect(textOf(eirLinkEditor(block("eir_link", { clauses: [] }), ctxWith({ doc: null }), "s1").el)).toContain("The clauses are picked in each document, once it links an EIR.");
+  });
+  it("a change reads in words, not as a field key and a change word", () => {
+    expect(changeLine({ field_key: "originator", change: "added", detail: "Adds Originator" })).toBe("Adds Originator");
+    expect(changeLine({ field_key: "separator", change: "changed", detail: "separator '-' → '_'" })).toBe("separator '-' → '_'");
+    expect(changeLine({ field_key: "role", change: "changed", detail: "label Role → Discipline" })).toBe("role: label Role → Discipline");
+    expect(changeLine({ field_key: "role", change: "removed", detail: "" })).toBe("role removed");
   });
   it("no linked EIR says to link one first", () => {
     expect(textOf(eirLinkEditor(block("eir_link", { clauses: [] }), ctxWith(), "s1").el)).toContain(NO_EIR);

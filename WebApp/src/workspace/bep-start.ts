@@ -2,9 +2,10 @@
 import type { DocRow } from "../sentinel-core/doc-blocks";
 import { blocksOf } from "../sentinel-core/doc-blocks";
 
-/** A BEP of the comprehensive template that still has its EIR response section (an ingested one never had it). */
+/** A BEP of the comprehensive template, or of an office template (one saved from it carries its starts), that still has its EIR
+ *  response section (an ingested one never had it). The bridge decides the rest: an office template with no start is refused in words. */
 export const isComprehensive = (doc: Pick<DocRow, "doc_type" | "template_id" | "sections">): boolean =>
-  doc.doc_type === "BEP" && String(doc.template_id ?? "").startsWith("bep-comprehensive")
+  doc.doc_type === "BEP" && /^(bep-comprehensive|office-)/.test(String(doc.template_id ?? ""))
   && (Array.isArray(doc.sections) ? doc.sections : []).some((s) => s?.template_key === "eir-response");
 
 /** The start is picked: the BEP answers an EIR, or says it has none (a block whose id ends `.part-e`). */

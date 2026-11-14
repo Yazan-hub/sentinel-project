@@ -26,10 +26,18 @@ export function codeChoices(stage: string, docType = "BEP"): { key: "shared" | "
     : [shared, { key: "accept", label: "Acceptance code", options: ["A1", "A2", "A3"], def: "A1" }];
 }
 
-/** The moves a document with no review chain makes by status (the bridge's own table), and what each button and question says. */
-const NEXT: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
-const MOVE_WORDS: Record<string, string> = { shared: "Share", published: "Publish…", wip: "Back to draft", archived: "Archive" };
-const MOVE_QUESTION: Record<string, string> = { shared: "Share this document with the project?", wip: "Take this document back to draft?", archived: "Archive this document? It leaves the editor; its versions stay." };
+/** The moves a lead makes on a document by status (the bridge's own table, plus Publish from Shared). Where a review chain applies,
+ *  Draft, Shared and Published are reached through the round only: what is left is the next revision of a published document,
+ *  Archive and back from the archive. A TIDP is never published. */
+const NEXT: Record<string, string[]> = { wip: ["shared", "archived"], shared: ["wip", "published", "archived"], published: ["wip", "archived"], archived: ["wip"] };
+export const movesFor = (status: string, chain: boolean, docType?: string): string[] => (NEXT[status] ?? []).filter((to) =>
+  !(to === "published" && (chain || String(docType ?? "").toUpperCase() === "TIDP")) && !(chain && ((status === "wip" && to === "shared") || (status === "shared" && to === "wip"))));
+const moveWords = (from: string, to: string): string =>
+  to === "wip" ? (from === "published" ? "Back to draft (next revision)" : "Back to draft") : ({ shared: "Share", published: "Publish…", archived: "Archive" } as Record<string, string>)[to];
+const moveQuestion = (from: string, to: string): string =>
+  to === "shared" ? "Share this document with the project?"
+  : to === "archived" ? "Archive this document? It leaves the editor; its versions stay."
+  : from === "published" ? "Take this document back to draft for its next revision? Its published versions stay." : "Take this document back to draft?";
 const SOFT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
 const MUTED = `color:${C.muted};font:11px system-ui;line-height:1.4;margin:0 0 .4rem`;
 const HEAD = "color:#fff;font:700 12px system-ui;margin:.7rem 0 .3rem";
@@ -179,10 +187,11 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
     const row = h(d, "div", "display:flex;gap:.3rem;margin-top:.5rem");
     row.append(see, send);
     box.append(row);
-  } else if (!round && !cur.chain) {
-    box.append(h(d, "p", MUTED, "This document is not sent for review in rounds."));
-    // R3: with no review chain a lead shares, publishes, takes back to draft and archives here (the Documents tab is only the list).
-    const moves = canGovernRole(st.role) ? NEXT[doc.status] ?? [] : [];
+  } else if (!round && !cur.chain) box.append(h(d, "p", MUTED, "This document is not sent for review in rounds."));
+  // R3: a lead moves the document here (the Documents tab is only the list): with no review chain Share, Publish, Back to draft and
+  // Archive; with one, the next revision of a published document and Archive. Never while a round is open (the bridge refuses it too).
+  {
+    const moves = canGovernRole(st.role) && round?.status !== "open" ? movesFor(doc.status, !!cur.chain, doc.doc_type) : [];
     if (moves.length) {
       box.append(h(d, "div", HEAD, "Status"));
       const row = h(d, "div", "display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.3rem");
@@ -192,14 +201,14 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
         row.append(see);
       }
       for (const to of moves) {
-        const b = btn(d, MOVE_WORDS[to], to === "published");
+        const b = btn(d, moveWords(doc.status, to), to === "published");
         b.addEventListener("click", async () => {
           note.textContent = "";
           if (to === "published") {
             const label = await askText("Version label for this publish. It freezes exactly what the Read view shows.", { placeholder: "e.g. P01, issued for review (empty = the version number)", ok: "Publish", doc: d });
             if (label === null) return;
             void act(ctx.ws.post(`${base}/publish`, { label }));
-          } else if (await askYesNo(MOVE_QUESTION[to], { doc: d })) void act(ctx.ws.post(`${base}/transition`, { to }));
+          } else if (await askYesNo(moveQuestion(doc.status, to), { doc: d })) void act(ctx.ws.post(`${base}/transition`, { to }));
         });
         row.append(b);
       }

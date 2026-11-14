@@ -37,6 +37,11 @@ export function changesFrom(client: NamingRuleset, ours: NamingRuleset): Omit<Ch
   ];
 }
 
+const CHANGE_WORDS = { added: "added", removed: "removed", changed: "changed" } as const;
+/** One change in words: what was found ("Adds Originator", "separator '-' → '_'"), a changed field named before its changes. */
+export const changeLine = (c: Pick<Change, "field_key" | "change" | "detail">): string =>
+  !c.detail ? `${c.field_key} ${CHANGE_WORDS[c.change] ?? "changed"}` : c.change === "changed" && !c.detail.startsWith(c.field_key) ? `${c.field_key}: ${c.detail}` : c.detail;
+
 export const proposedChangesEditor: BlockEditor = (block, ctx) => {
   const f = frame(ctx, "proposed_changes", block.title), d = f.d;
   let changes: Change[] = arr(rec(block.data).changes).map((c) => ({ field_key: str(rec(c).field_key), change: (rec(c).change ?? "changed") as Change["change"], detail: str(rec(c).detail), reason: str(rec(c).reason) }));
@@ -45,7 +50,7 @@ export const proposedChangesEditor: BlockEditor = (block, ctx) => {
   function draw() {
     const lines = changes.map((c) => {
       const row = h(d, "div", "display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:.25rem 0");
-      row.append(h(d, "span", `color:${C.soft};font:12px system-ui`, `${c.field_key}: ${c.change}${c.detail ? `, ${c.detail}` : ""}`),
+      row.append(h(d, "span", `color:${C.soft};font:12px system-ui`, changeLine(c)),
         input(f, "reason", c.reason, (x) => { changes = changes.map((q) => (keyOf(q) === keyOf(c) ? { ...q, reason: x } : q)); f.changed(); }));
       (row.children[1] as HTMLInputElement).placeholder = "Why";
       return row;

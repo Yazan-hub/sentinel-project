@@ -65,19 +65,28 @@ let note = { doc: "", text: "" };
 let noteEl: HTMLElement | null = null;
 
 /** R3: "Save as office template…" (a lead's, on a BEP or an EIR, any status): asks the name, when to use it, the variant and how much to keep,
- *  through the in-page questions (no browser dialogs), then posts it. Only the bridge decides whether the caller may. */
+ *  through the in-page questions (no browser dialogs), then posts it. Only the bridge decides whether the caller may.
+ *  The last question is the one point of no return: it says who will be able to read the template (an office template is read by every
+ *  project of the office), a template of the same name and type is replaced rather than doubled, and closing it saves nothing. */
 export async function saveAsTemplate(ctx: PaneCtx, say: (text: string) => void): Promise<void> {
   const doc = ctx.st.doc, d = ctx.doc;
   if (!doc) return;
-  const name = await askText("Name of the office template", { doc: d });
-  if (name === null || name === "") return;
+  const name = (await askText("Name of the office template", { doc: d }))?.trim();
+  if (!name) return;
   const when = await askText("When should someone use it? A sentence, or leave it empty.", { doc: d });
   if (when === null) return;
   const full = await askYesNo(`Is "${name}" the full variant?`, { ok: "Full variant", cancel: "Not the full variant", doc: d });
   const minimal = full ? false : await askYesNo(`Is "${name}" the minimal variant?`, { ok: "Minimal variant", cancel: "Neither", doc: d });
   const keep = await askYesNo("What should the template keep?", { ok: "With its text and rows", cancel: "Structure only", doc: d });
+  const list = await ctx.ws.get<{ template_id: string; doc_type: string; title: string; office?: boolean }[]>(`/bimdocs/${pathSegment(ctx.st.key)}/templates`);
+  const same = (Array.isArray(list) ? list : []).find((t) => t.office && t.doc_type === doc.doc_type && String(t.title ?? "").trim().toLowerCase() === name.toLowerCase());
+  const readers = keep ? "Every member of every project of this office will be able to read it, with the text, names and rows this document holds."
+    : "Every member of every project of this office will be able to read it.";
+  const go = await askYesNo(`${same ? `An office template named "${same.title}" already exists. Replace it?` : `Save "${name}" as an office template?`} ${readers}`,
+    { ok: same ? "Replace it" : "Save template", cancel: "Cancel", doc: d });
+  if (!go) { say("The template was not saved."); return; }
   const r = await ctx.ws.post<{ template_id: string; office_version: number }>(`/bimdocs/${pathSegment(ctx.st.key)}/${pathSegment(doc.id)}/save-as-template`,
-    { name, when_to_use: when, variant: full ? "full" : minimal ? "minimal" : null, keep_content: keep });
+    { ...(same ? { id: same.template_id.replace(/^office-/, "") } : {}), name, when_to_use: when, variant: full ? "full" : minimal ? "minimal" : null, keep_content: keep });
   say(r ? `Saved as office template "${name}" (version ${r.office_version}).` : ctx.ws.state().message || "The template was not saved.");
 }
 

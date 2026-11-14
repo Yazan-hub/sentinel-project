@@ -14,7 +14,7 @@ export interface Registry { checks: { id: string; label: string }[] }
 export interface SummaryModel { head: string[]; teams: string[]; sends: string[]; controls: string[]; open: string[] }
 export interface SummaryInput { version: VersionListRow | null; versions: VersionListRow[]; ex: Executability | null; round: RoundCurrent | null; live: LiveSet | null | false;
   /** The EIR this document answers, as its clauses (sections): the live EIR for a draft, the EIR version answered for a published one. */
-  eirClauses?: { id: string; heading: string }[] | null; registry?: Registry | null; respondsTo?: unknown; projectKey: string; today: string }
+  eirClauses?: { id: string; heading: string }[] | null; eirNotFrozen?: boolean; registry?: Registry | null; respondsTo?: unknown; projectKey: string; today: string }
 
 type Rec = Record<string, unknown>;
 const rec = (v: unknown): Rec => (typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Rec) : {});
@@ -74,6 +74,7 @@ export function summaryModel(snapshot: Snapshot, o: SummaryInput): SummaryModel 
   const open = capLines([
     ...sections.filter((s) => !written(s)).map((s) => `Not written: ${str(s.heading)}`),
     ...(o.eirClauses ?? []).filter((c) => !answered.has(c.id)).map((c) => `EIR clause not answered: ${c.heading}`),
+    ...(o.eirNotFrozen ? ["EIR clauses are not listed: the EIR had no published version when this one was published."] : []),
     ...(frozen ? [] : list(o.round?.needs_review).map((r) => `Needs a review: ${str(r)}`)),
   ]);
 
@@ -143,13 +144,16 @@ export function summaryView(ctx: PaneCtx): HTMLElement {
     if (!snapshot) { paper.replaceChildren(h(d, "div", `color:${C.warn}`, "The published version could not be read.")); return; }
     const registry = await ctx.ws.get<Registry>("/bimdocs/checks");
     let eirClauses: { id: string; heading: string }[] | null = null;
-    if (snapshot.responds_to) { // a published version reads the EIR version it answered, a draft the EIR as it is now
+    // A published version reads the EIR version it answered, a draft the EIR as it is now. A version that answered an EIR with no
+    // published version has nothing frozen to read: today's EIR is not what it answered, so its clauses are not listed (and it says so).
+    const eirNotFrozen = !!version && !!snapshot.responds_to && !snapshot.responds_to_version;
+    if (snapshot.responds_to && !eirNotFrozen) {
       const eir = await ctx.ws.get<{ sections?: { id: string; heading: string }[]; snapshot?: { sections?: { id: string; heading: string }[] } }>(
         `/bimdocs/${pathSegment(key)}/${pathSegment(snapshot.responds_to)}${version && snapshot.responds_to_version ? `/versions/${snapshot.responds_to_version}` : ""}`);
       eirClauses = list(eir?.snapshot?.sections ?? eir?.sections).map(rec).map((s) => ({ id: str(s.id), heading: str(s.heading) }));
     }
     if (ctx.ws.state().key !== key) return;
-    model = summaryModel(snapshot, { version, versions: st.versions, ex: st.ex, round: st.round, live: st.live, eirClauses, registry, projectKey: key, today: new Date().toISOString().slice(0, 10) });
+    model = summaryModel(snapshot, { version, versions: st.versions, ex: st.ex, round: st.round, live: st.live, eirClauses, eirNotFrozen, registry, projectKey: key, today: new Date().toISOString().slice(0, 10) });
     paper.replaceChildren(summarySheet(model, d));
     print.disabled = false;
   })().catch((e) => { paper.replaceChildren(h(d, "div", `color:${C.warn}`, `The summary could not be shown: ${e instanceof Error ? e.message : String(e)}`)); });

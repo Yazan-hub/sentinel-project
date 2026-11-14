@@ -21,6 +21,8 @@ describe("bep-start", () => {
     expect(isComprehensive(fresh)).toBe(true);
     expect(isComprehensive(doc())).toBe(false);
     expect(isComprehensive({ ...(fresh as object), template_id: "bep" } as never)).toBe(false);
+    expect(isComprehensive({ ...(fresh as object), template_id: "office-our-bep" } as never)).toBe(true); // review finding 4: a BEP made from an office template
+    expect(isComprehensive(doc({ template_id: "office-our-bep" } as never))).toBe(false); // no EIR response section, no start
     expect(isComprehensive({ ...(fresh as object), doc_type: "EIR" } as never)).toBe(false);
     expect(isComprehensive({ ...(fresh as object), template_id: null } as never)).toBe(false);
   });

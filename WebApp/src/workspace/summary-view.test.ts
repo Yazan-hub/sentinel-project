@@ -48,6 +48,9 @@ describe("summaryModel", () => {
     expect(m.open).toEqual(["EIR clause not answered: Security", "Needs a review: The EIR changed"]);
     const v = { version_no: 1, label: "Tender issue", revision: "P01", suitability: "S4", published_at: "2026-11-01T10:00:00Z", published_by: "x", id: "v", sha: null, stage: null };
     expect(summaryModel(snap([sec("s1", "A", { blocks: [link] })]), { ...input, version: v }).open).toEqual(["EIR clause not answered: Security"]);
+    // review finding 7: a version that answered an EIR with no published version lists no clauses (today's EIR is not what it answered) and says so
+    expect(summaryModel(snap([sec("s1", "A", { blocks: [link] })]), { ...input, version: v, eirClauses: null, eirNotFrozen: true }).open)
+      .toEqual(["EIR clauses are not listed: the EIR had no published version when this one was published."]);
   });
   it("a draft's head ends Draft, live data; a published version reads its frozen snapshot, never live", () => {
     const blocks = [{ id: "lv", kind: "live_view", title: "", data: { source: "midp", filter: { team: null, stage: null, register_part: null } } }];
