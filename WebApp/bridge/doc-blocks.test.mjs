@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BLOCK_KINDS, emptyData, validateBlock } from "./doc-blocks.mjs";
-import { textBlock, blocksOf, deriveBody, applyOldPanelBody, isWritten } from "./doc-blocks.mjs";
+import { textBlock, blocksOf, deriveBody, isWritten } from "./doc-blocks.mjs";
 const bad = (b) => { try { validateBlock(b); } catch (e) { return e; } throw new Error("accepted"); };
 
 describe("validateBlock — text, table, matrix, facts, live view", () => {
@@ -71,17 +71,6 @@ describe("derived body", () => {
     expect(deriveBody([textBlock("a", "x"), { kind: "table", data: null }, 5, null, textBlock("b", "y")])).toBe("a\n\nb"));
   it("a section with no blocks reads as one text block with a stable id", () =>
     expect(blocksOf({ id: "s1", body: "x" })).toEqual([{ id: "s1.t0", kind: "text", title: "", data: { markdown: "x" } }]));
-  it("old panel: replaces the one text block, or adds one", () => {
-    expect(applyOldPanelBody({ id: "s1", blocks: [textBlock("old", "s1.t0")] }, "new")).toEqual({ blocks: [textBlock("new", "s1.t0")], body: "new" });
-    expect(applyOldPanelBody({ id: "s1", blocks: [] }, "new").blocks).toEqual([textBlock("new", "s1.t0")]);
-  });
-  it("old panel: refuses a section with any other block, in words", () => {
-    const s = { id: "s1", blocks: [textBlock("a", "s1.t0"), textBlock("b", "b2")] };
-    let e; try { applyOldPanelBody(s, "x"); } catch (x) { e = x; }
-    expect(e).toMatchObject({ status: 422, message: "This section has tables or other parts; edit it in the workspace. Nothing was saved." });
-    const titled = { id: "s1", blocks: [{ ...textBlock("a", "s1.t0"), title: "Intro" }] };
-    expect(() => applyOldPanelBody(titled, "x")).toThrow("This section has tables or other parts");
-  });
 });
 
 describe("review fixes", () => {

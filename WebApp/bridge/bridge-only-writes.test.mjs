@@ -94,17 +94,17 @@ describe("a section write lands only on the document as it was read (0038: the b
   });
 
   it("the write names the document's project, wip or shared, and the updated_at it loaded", async () => {
-    await as("contributor", () => patchSection("demo", D, "s1", { body: "x", updated_at: AT }));
+    await as("contributor", () => patchSection("demo", D, "s1", { state: "shared", updated_at: AT }));
     const w = writes("bim_documents").at(-1);
     expect(w.method).toBe("PATCH");
     expect(decodeURIComponent(w.search)).toContain(`&project_id=eq.${P}&status=in.(wip,shared)&updated_at=eq.${AT}`);
-    expect(db.bim_documents[0].sections[0].body).toBe("x");
+    expect(db.bim_documents[0].sections[0].state).toBe("shared");
   });
 
   it("a write that lands on no row is a 409 in words, and nothing reaches the ledger", async () => {
     rest = fakePostgrest(db, { refuse: ["bim_documents"] });
     globalThis.fetch = vi.fn(rest.fetch);
-    await expect(as("contributor", () => patchSection("demo", D, "s1", { body: "x" })))
+    await expect(as("contributor", () => patchSection("demo", D, "s1", { state: "shared" })))
       .rejects.toMatchObject({ status: 409, message: "the document changed or was issued meanwhile — nothing was saved" });
     expect(writes("audit_log")).toEqual([]);
   });

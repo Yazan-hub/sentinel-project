@@ -79,38 +79,31 @@ beforeEach(() => {
 
 const { patchSection, validateSections, createDoc, createDocFromIngest } = await import("./bimdocs-store.mjs");
 const tableBlock = { id: "b2", kind: "table", title: "", data: { columns: [{ key: "e", label: "Event", type: "text", choices: [], choices_from: null }], rows: [], group_by_team: false } };
-describe("old panel save rule", () => {
-  it("a text-only section saves into its one text block and the body is derived", async () => {
-    doc.sections[0].blocks = [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }];
-    await patchSection("k", doc.id, "sec1", { body: "new text" });
-    const sent = sb.mock.calls.find(([, o]) => o?.method === "PATCH")[1].body.sections[0];
-    expect(sent).toMatchObject({ body: "new text", blocks: [{ id: "sec1.t0", kind: "text", data: { markdown: "new text" } }] });
-  });
-  it("a section with a table refuses a changed body with 422 and writes nothing", async () => {
-    doc.sections[0] = { ...doc.sections[0], body: "a", blocks: [{ id: "t", kind: "text", title: "", data: { markdown: "a" } }, tableBlock] };
-    await expect(patchSection("k", doc.id, "sec1", { body: "b" })).rejects.toMatchObject({ status: 422, message: "This section has tables or other parts; edit it in the workspace. Nothing was saved." });
+describe("a section's text is written in the workspace (R3)", () => {
+  it("PATCH …/section/:sid with a body is a 400 in words, whatever the section holds, and writes nothing", async () => {
+    for (const blocks of [undefined, [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }], [{ id: "t", kind: "text", title: "", data: { markdown: "a" } }, tableBlock]]) {
+      doc.sections[0] = { ...doc.sections[0], body: "a", blocks };
+      await expect(patchSection("k", doc.id, "sec1", { body: "b" })).rejects.toMatchObject({ status: 400, message: "Edit this section in the workspace." });
+      await expect(patchSection("k", doc.id, "sec1", { body: "a", owner: "lead@x", state: "shared" })).rejects.toMatchObject({ status: 400 });
+    }
     expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
+    expect(audit).not.toHaveBeenCalled();
   });
-  it("the same section saves a new section lead and state when the body is unchanged", async () => {
+  it("the section lead and state still save, and the blocks stay as they were", async () => {
     doc.sections[0] = { ...doc.sections[0], body: "a", blocks: [{ id: "t", kind: "text", title: "", data: { markdown: "a" } }, tableBlock] };
-    await patchSection("k", doc.id, "sec1", { body: "a", owner: "lead@x", state: "shared" });
+    await patchSection("k", doc.id, "sec1", { owner: "lead@x", state: "shared" });
     const sent = sb.mock.calls.find(([, o]) => o?.method === "PATCH")[1].body.sections[0];
-    expect(sent).toMatchObject({ owner: "lead@x", state: "shared", blocks: doc.sections[0].blocks });
-  });
-  it("a pre-migration section (no blocks) saves as one text block", async () => {
-    delete doc.sections[0].blocks;
-    await patchSection("k", doc.id, "sec1", { body: "x" });
-    expect(sb.mock.calls.find(([, o]) => o?.method === "PATCH")[1].body.sections[0].blocks).toEqual([{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "x" } }]);
+    expect(sent).toMatchObject({ owner: "lead@x", state: "shared", body: "a", blocks: doc.sections[0].blocks });
   });
   it("ingested sections arrive as one text block each", () =>
     expect(validateSections([{ heading: "H", body: "b" }])[0]).toMatchObject({ body: "b", blocks: [{ kind: "text", data: { markdown: "b" } }] }));
-  it("changing the section lead is a lead's; a contributor still edits the body with the owner unchanged", async () => {
+  it("changing the section lead is a lead's; a contributor still moves the state with the owner unchanged", async () => {
     globalThis.__testRole = "contributor";
     try {
       await expect(patchSection("k", doc.id, "sec1", { owner: "someone@x" })).rejects.toMatchObject({ status: 403 });
       expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
-      await patchSection("k", doc.id, "sec1", { body: "text", owner: null, state: "wip" });
-      expect(sb.mock.calls.find(([, o]) => o?.method === "PATCH")[1].body.sections[0].body).toBe("text");
+      await patchSection("k", doc.id, "sec1", { owner: null, state: "shared" });
+      expect(sb.mock.calls.find(([, o]) => o?.method === "PATCH")[1].body.sections[0].state).toBe("shared");
     } finally {
       globalThis.__testRole = undefined;
     }
@@ -268,10 +261,6 @@ describe("final review: the ledger row never throws after a write; over-long tex
     doc.sections[0] = { ...doc.sections[0], body: long, blocks: [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: long } }] };
     await addBlock("k", doc.id, "sec1", { kind: "text", data: { markdown: "more" } });
     expect(sentSections()[0].body).toBe(`${long}\n\nmore`);
-  });
-  it("the old panel refuses a body over 100,000 characters in words", async () => {
-    await expect(patchSection("k", doc.id, "sec1", { body: "x".repeat(100001) })).rejects.toMatchObject({ status: 422, message: "This section's text is longer than 100,000 characters. Nothing was saved." });
-    expect(patched()).toBe(false);
   });
   it("ingest refuses a section over 100,000 characters before any write", async () => {
     const sections = [{ heading: "Scope", body: "ok" }, { heading: "Appendix A", body: "x".repeat(100001) }];
@@ -711,7 +700,7 @@ describe("R2c section lead and document access", () => {
     await patchSection("k", doc.id, "sec1", { owner: "lead@x" });
     await patchSection("k", doc.id, "sec1", { owner: "inv@x" });
     doc.sections[0].owner = "legacy@gone.com";
-    await patchSection("k", doc.id, "sec1", { owner: "legacy@gone.com", body: "x" });
+    await patchSection("k", doc.id, "sec1", { owner: "legacy@gone.com", state: "shared" });
     await patchSection("k", doc.id, "sec1", { owner: null });
     expect(sb.mock.calls.filter(([, o]) => o?.method === "PATCH")).toHaveLength(4);
   });

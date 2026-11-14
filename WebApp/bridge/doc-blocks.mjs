@@ -289,18 +289,3 @@ const startFill = (b) => {
 /** Did the author write something here? A live view, project facts, or what a start inserted is not the author's content (R1b honest score). */
 export const isWritten = (section) => deriveBody(blocksOf(section ?? {}).filter((b) => b?.kind !== "live_view" && b?.kind !== "facts" && !startFill(b))).trim() !== "";
 
-/**
- * What the old panel's body save does to a text-only section (no blocks, or one text block with no title):
- * the body becomes that one text block. Any other section is refused, since a body save would flatten its parts.
- */
-export function applyOldPanelBody(section, body) {
-  const blocks = blocksOf(section);
-  if (blocks.length > 1 || (blocks.length === 1 && (blocks[0]?.kind !== "text" || blocks[0].title))) {
-    throw Object.assign(new Error("This section has tables or other parts; edit it in the workspace. Nothing was saved."), { status: 422 });
-  }
-  if (typeof body === "string" && body.length > LIMITS.markdownChars) {
-    throw Object.assign(new Error("This section's text is longer than 100,000 characters. Nothing was saved."), { status: 422 });
-  }
-  const block = validateBlock(textBlock(body, blocks[0]?.id ?? `${section.id}.t0`));
-  return { blocks: [block], body };
-}

@@ -9,7 +9,7 @@ import { recordRead } from "./doc-reads.mjs";
 import { addThread, listFlat, foldThreads, inDelivery, STORES } from "./comments-store.mjs";
 import { requireDocAccess, effectiveLevel, validateAccess } from "./doc-access.mjs";
 import { ROLE_RANK, listMembers, myMembership } from "./members-store.mjs";
-import { blocksOf, applyOldPanelBody, textBlock, validateBlock, emptyData, deriveBody, LIMITS, ASSUMPTIONS } from "./doc-blocks.mjs";
+import { blocksOf, textBlock, validateBlock, emptyData, deriveBody, LIMITS, ASSUMPTIONS } from "./doc-blocks.mjs";
 import { resolveActor, currentSub } from "./bridge-auth.mjs";
 import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
@@ -144,16 +144,16 @@ async function requireLeadMember(key, owner) {
 }
 
 export async function patchSection(key, docId, sectionId, { body, owner, state, updated_at, actor } = {}) {
+  // R3: a section's text is written in the workspace (block routes); this route moves the section lead and the section state only.
+  if (body !== undefined) throw err(400, "Edit this section in the workspace.");
   const doc = await openForWrite(key, docId, "edit", updated_at); // H0 (D4, ledger-1): editing a section is a contributor's
   const i = doc.sections.findIndex((s) => s.id === sectionId);
   if (i < 0) throw err(404, "section not found");
   const old = doc.sections[i];
   if (state !== undefined && state !== old.state && !validateTransition(old.state, state)) throw err(400, `invalid section transition ${old.state} → ${state}`);
-  // A section lead change is a lead's; an unchanged owner (the old panel sends it on every save) asks nothing more.
+  // A section lead change is a lead's; an unchanged owner asks nothing more.
   if (owner !== undefined && owner !== (old.owner ?? null)) { await requireDocAccess(key, doc, "govern"); await requireLeadMember(key, owner); }
-  // The old panel only saves text-only sections: the body goes into the one text block, else a 422 and nothing is written.
-  const text = body !== undefined && body !== old.body ? applyOldPanelBody({ ...old, blocks: blocksOf(old) }, body) : {};
-  const next = { ...old, ...text, ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
+  const next = { ...old, ...(owner !== undefined && { owner }), ...(state !== undefined && { state }) };
   const sections = doc.sections.map((s, j) => (j === i ? next : s));
   const facts = [{ section: old.heading, state: old.state, owner: old.owner, ...bodyFacts(old.body) },
     { section: next.heading, state: next.state, owner: next.owner, ...bodyFacts(next.body) }];

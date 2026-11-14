@@ -321,7 +321,7 @@ describe("a document write that lands on no row is answered in words — never a
     sb.mockImplementation(async (path, opts) => (opts?.method === "PATCH" ? [] : [doc]));
   });
   it.each([
-    ["patchSection", () => patchSection("k", doc.id, "d1", { body: "named: Ana" })],
+    ["patchSection", () => patchSection("k", doc.id, "d1", { state: "shared" })],
     ["setSectionBindings", () => setSectionBindings("k", doc.id, "m1", { bindings: { checks: [] } })],
     ["setSectionAnswer", () => setSectionAnswer("k", doc.id, "d1", { value: "yes" })],
     ["setSectionPlan", () => setSectionPlan("k", doc.id, "m1", { owner: "lead@x" })],
@@ -368,7 +368,7 @@ describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
     sb.mockImplementation(async () => [makeDoc()]);
     audit.mockClear();
     try {
-      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { body: "x" }))
+      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { state: "shared" }))
         .rejects.toMatchObject({ status: 403, message: "this action requires the contributor role" });
       expect(sb.mock.calls.some(([, o]) => o?.method === "PATCH")).toBe(false);
       expect(audit).not.toHaveBeenCalled();
@@ -383,7 +383,7 @@ describe("a section edit is a contributor's (H0 D4, ledger-1)", () => {
       // No document seeded for this id: a contributor passes requireMinRole and reaches docGet, which answers null —
       // a 404 "not found", never requireMinRole's 403. If the minimum were raised to lead by mistake, this would
       // 403 instead and catch it.
-      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { body: "x" }))
+      await expect(patchSection("k", "11111111-1111-4111-8111-111111111111", "d1", { state: "shared" }))
         .rejects.toMatchObject({ status: 404 });
     } finally { globalThis.__testRole = undefined; }
   });

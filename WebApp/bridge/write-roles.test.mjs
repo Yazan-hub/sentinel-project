@@ -1816,8 +1816,11 @@ describe("bimdocs structure routes (R1a)", () => {
     expect(r.body.sections[0].blocks.map((b) => b.id)).toEqual(["s1.part-e", "s1.checklist", "s1.t0"]);
     expect(writes("audit_log").filter((w) => w.body.action === "document_start_picked")).toHaveLength(1);
   });
-  it("the old PATCH still edits a text-only section", async () =>
-    expect((await call("PATCH", `${D}/section/s1`, "contributor", { body: "x" })).body.sections[0].body).toBe("x"));
+  it("PATCH …/section/:sid takes no body any more (400 in words); the state still saves", async () => {
+    const r = await call("PATCH", `${D}/section/s1`, "contributor", { body: "x" });
+    expect([r.status, r.body.message]).toEqual([400, "Edit this section in the workspace."]);
+    expect((await call("PATCH", `${D}/section/s1`, "contributor", { state: "shared" })).body.sections[0].state).toBe("shared");
+  });
 });
 
 describe("R1b: a viewer reads a version through the bridge's mask (spec section 10)", () => {

@@ -172,7 +172,7 @@ describe("currentRound", () => {
 
 describe("the lock: every writer is refused while a round is open", () => {
   const writers = {
-    patchSection: () => patchSection("k", DOC, "s1", { body: "x" }),
+    patchSection: () => patchSection("k", DOC, "s1", { state: "shared" }),
     addBlock: () => addBlock("k", DOC, "s1", { kind: "text" }),
     setSectionPlan: () => setSectionPlan("k", DOC, "s1", { due: "2030-01-01" }),
     setSectionBindings: () => setSectionBindings("k", DOC, "s1", { bindings: { checks: [] } }),
