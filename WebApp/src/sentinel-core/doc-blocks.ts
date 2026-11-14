@@ -25,14 +25,6 @@ export type MatrixMark = "produces" | "contributes" | "signs_off";
 export interface MatrixColumn { key: string; label: string; team: string | null }
 export interface MatrixRow { id: string; label: string; milestone: string | null; recipient: string | null; marks: Record<string, MatrixMark> }
 
-/** The bridge's text-only rule: no blocks, or exactly one text block with an empty title. */
-export const oldPanelEditable = (s: { blocks?: { kind: string; title?: string }[] }): boolean =>
-  !s.blocks || s.blocks.length === 0 || (s.blocks.length === 1 && s.blocks[0].kind === "text" && !s.blocks[0].title);
-/** The body the old panel sends on save: the text of a text-only section, nothing for any other (the bridge would refuse it). */
-export const oldPanelSaveBody = (s: { blocks?: { kind: string; title?: string }[] }, value: string): string | undefined =>
-  (oldPanelEditable(s) ? value : undefined);
-export const OLD_PANEL_NOTE = "This section has tables or other parts; edit it in the workspace.";
-
 // Web row types: what the bridge's /bimdocs routes return.
 export interface SectionRow { id: string; heading: string; guidance: string; body: string; state: string; owner: string | null;
   bindings: { checks?: { id: string; params?: Record<string, unknown> }[] }; blocks?: Block[]; template_key?: string;

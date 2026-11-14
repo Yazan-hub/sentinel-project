@@ -15,7 +15,7 @@ export interface SectionDiff { id: string; heading: string; change: Change; // h
   blocks: { id: string; kind: BlockKind; change: Change; before: Block | null; after: Block | null }[] }
 
 const CHANGE_WORDS: Record<Change, string> = { same: "Unchanged", added: "Added", removed: "Removed", changed: "Changed" };
-const NO_VERSION = "No version yet. Publish from the Documents tab.";
+const NO_VERSION = "No version yet. Publish from the Review tab.";
 const NEEDS_TWO = "Compare needs two published versions.";
 const UNREADABLE = "A version could not be read.";
 const DASH = "—";

@@ -16,16 +16,25 @@ describe("F-R1a-1: the Documents tab never shows the previous project's document
     expect(clear).toBeGreaterThan(-1); expect(clear).toBeLessThan(f.indexOf("await myRoleRead("));
   });
   it("every open view drops an answer that lands after a switch", () => {
-    for (const [name, n] of [["showEditor", 3], ["showReadinessEditor", 3], ["showVersions", 2], ["showDocView", 1]] as const) {
+    for (const [name, n] of [["showEditor", 2], ["showReadinessEditor", 3], ["showVersions", 2], ["showDocView", 1]] as const) {
       const f = fn(name);
       expect(f, name).toContain("const mine = seq;");
       expect(f.split("mine !== seq").length - 1, name).toBeGreaterThanOrEqual(n);
     }
   });
 });
-describe("R1b entry points in the old panel", () => {
-  it("Open workspace on each row and in both editor bars; a new BEP or EIR opens in the workspace", () => {
-    expect(src.split('btn("Open workspace")').length - 1).toBe(3);
+describe("R3: the panel is the Documents list", () => {
+  it("each row offers Open workspace, a READINESS row offers Open (its own editor), and no editor bar offers the workspace", () => {
+    expect(src.split('btn(readiness ? "Open" : "Open workspace")').length - 1).toBe(1);
+    expect(src.split('"Open workspace"').length - 1).toBe(1);
+    expect(src).toContain('row.onclick = () => (readiness ? showEditor(d.id) : opts.onOpenWorkspace?.(d.id));');
+  });
+  it("opening any document but a READINESS goes to the workspace; the section editor and its body save are gone", () => {
+    const f = fn("showEditor");
+    expect(f).toContain('if (doc.doc_type !== "READINESS") { opts.onOpenWorkspace?.(doc.id); return showList(); }');
+    for (const s of ["Save section", "oldPanel", "OLD_PANEL", "\"PATCH\"", "Strip test", "renderExecutability", "Executability"]) expect(src).not.toContain(s);
+  });
+  it("a new BEP or EIR opens in the workspace", () => {
     expect(fn("showCreate")).toContain('(t.doc_type === "BEP" || t.doc_type === "EIR") && opts.onOpenWorkspace');
     expect(fn("showCreate")).toContain("opts.onOpenWorkspace(doc.id)");
   });
@@ -36,9 +45,9 @@ describe("R1b entry points in the old panel", () => {
 });
 
 describe("R2d review: the status moves are hidden while a round is open", () => {
-  it("both editor bars take their moves from roundOf and offer none when it is open", () => {
-    expect(src.split("const moves = open ? [] : next[doc.status] || [];").length - 1).toBe(2);
-    expect(src.split("for (const to of moves.filter(").length - 1).toBe(2);
+  it("the READINESS editor bar (the only one left) takes its moves from roundOf and offers none when it is open", () => {
+    expect(src.split("const moves = open ? [] : next[doc.status] || [];").length - 1).toBe(1);
+    expect(src.split("for (const to of moves.filter(").length - 1).toBe(1);
     expect(src).not.toContain("hasChain");
   });
 });
@@ -46,7 +55,7 @@ describe("R2d review: the status moves are hidden while a round is open", () => 
 describe("R1b hand-over: the moved functions live only in the workspace", () => {
   it.each(["Compile to IDS", "Naming candidate", "Suggest bindings", "Check integrity", "Draft with AI", "Print / PDF", "showIngestReview", "showBindings",
     "showSuggestBindings", "w.document.write", "./ai-picker", "findNamingCandidate"])("%s is gone", (s) => expect(src).not.toContain(s));
-  it.each(["Strip test", "Publish…", "Open workspace", "showReadinessEditor", "showVersions", "commentThreadEl"])("%s stays", (s) => expect(src).toContain(s));
+  it.each(["Publish…", "Open workspace", "showReadinessEditor", "showVersions", "commentThreadEl"])("%s stays (READINESS keeps its own)", (s) => expect(src).toContain(s));
   it("the Document view renders section bodies as Markdown, through the DOM", () => {
     expect(src).toContain('import { renderMarkdown } from "../workspace/markdown";');
     expect(src).toMatch(/renderMarkdown\(s\.body, document\)/);
@@ -62,8 +71,6 @@ describe("R1b carried reviews", () => {
     expect(f.slice(c, from)).toContain("mine !== seq");
     expect(f.indexOf("mine !== seq", c)).toBeLessThan(call);
   });
-  it("the strip note says a bound section that is not yet written is not scored either", () =>
-    expect(src).toContain("bound to a planned check, or bound but not yet written — not scored"));
 });
 
 describe("F3: an ingest read while the project switched is not committed into the new project", () => {

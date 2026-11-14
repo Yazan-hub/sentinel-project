@@ -110,7 +110,7 @@ describe("workspace page: READINESS and TIDP", () => {
     await p.el.open("d1");
     await tick();
     const t = textOf(p.centre);
-    expect(t).toContain("Answer the questions and plan in the Documents tab.");
+    expect(t).toContain("Answer the questions and plan in the Documents tab: Open, on this document's row.");
     expect(t).toContain("Standards: Measured 0 met");
     expect(t).toContain("Is there a training plan?");
   });

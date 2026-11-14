@@ -82,6 +82,6 @@ describe("HTML sinks — one escaper", () => {
     const src = source("docs-panel.ts");
     expect(src).toContain('import { escapeHtml as esc, pathSegment } from "./escape-html";');
     expect([...src.matchAll(/\/section\/\$\{(?!pathSegment\()[^}]*\}/g)].map((m) => m[0])).toEqual([]);
-    expect(src.match(/\/section\/\$\{pathSegment\(/g)).toHaveLength(4);
+    expect(src.match(/\/section\/\$\{pathSegment\(/g)).toHaveLength(3); // the READINESS answer, its plan and a comment; the body save went with the section editor (R3)
   });
 });

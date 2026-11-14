@@ -4,7 +4,8 @@
 // Every word is textContent, in the plain words of spec §17; no ids or JSON are shown.
 import { C, btn, h } from "./dom";
 import { pathSegment } from "../setups/escape-html";
-import { askYesNo } from "../setups/ask";
+import { askText, askYesNo } from "../setups/ask";
+import { canGovernRole } from "../setups/my-role";
 import { incorporatedWords } from "./versions-view";
 import type { RoundView } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page";
@@ -25,6 +26,10 @@ export function codeChoices(stage: string, docType = "BEP"): { key: "shared" | "
     : [shared, { key: "accept", label: "Acceptance code", options: ["A1", "A2", "A3"], def: "A1" }];
 }
 
+/** The moves a document with no review chain makes by status (the bridge's own table), and what each button and question says. */
+const NEXT: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
+const MOVE_WORDS: Record<string, string> = { shared: "Share", published: "Publish…", wip: "Back to draft", archived: "Archive" };
+const MOVE_QUESTION: Record<string, string> = { shared: "Share this document with the project?", wip: "Take this document back to draft?", archived: "Archive this document? It leaves the editor; its versions stay." };
 const SOFT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
 const MUTED = `color:${C.muted};font:11px system-ui;line-height:1.4;margin:0 0 .4rem`;
 const HEAD = "color:#fff;font:700 12px system-ui;margin:.7rem 0 .3rem";
@@ -174,7 +179,33 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
     const row = h(d, "div", "display:flex;gap:.3rem;margin-top:.5rem");
     row.append(see, send);
     box.append(row);
-  } else if (!round && !cur.chain) box.append(h(d, "p", MUTED, "This document is not sent for review in rounds. Share and publish from the Documents tab."));
+  } else if (!round && !cur.chain) {
+    box.append(h(d, "p", MUTED, "This document is not sent for review in rounds."));
+    // R3: with no review chain a lead shares, publishes, takes back to draft and archives here (the Documents tab is only the list).
+    const moves = canGovernRole(st.role) ? NEXT[doc.status] ?? [] : [];
+    if (moves.length) {
+      box.append(h(d, "div", HEAD, "Status"));
+      const row = h(d, "div", "display:flex;gap:.3rem;flex-wrap:wrap;margin-top:.3rem");
+      if (moves.includes("published")) {
+        const see = btn(d, "See what will be frozen");
+        see.addEventListener("click", () => ctx.show("read")); // the draft Read is the freeze preview
+        row.append(see);
+      }
+      for (const to of moves) {
+        const b = btn(d, MOVE_WORDS[to], to === "published");
+        b.addEventListener("click", async () => {
+          note.textContent = "";
+          if (to === "published") {
+            const label = await askText("Version label for this publish. It freezes exactly what the Read view shows.", { placeholder: "e.g. P01, issued for review (empty = the version number)", ok: "Publish", doc: d });
+            if (label === null) return;
+            void act(ctx.ws.post(`${base}/publish`, { label }));
+          } else if (await askYesNo(MOVE_QUESTION[to], { doc: d })) void act(ctx.ws.post(`${base}/transition`, { to }));
+        });
+        row.append(b);
+      }
+      box.append(row);
+    }
+  }
   if (st.versions.length) {
     const done = st.versions.filter((v) => cur.incorporated?.[String(v.version_no)]);
     const published = st.versions.filter((v) => /^C/.test(v.revision ?? "")); // F-R2d-6: only a published (C) version is incorporated; the database refuses the rest

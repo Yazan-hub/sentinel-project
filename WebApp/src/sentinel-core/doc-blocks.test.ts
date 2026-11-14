@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { oldPanelEditable, oldPanelSaveBody, OLD_PANEL_NOTE, statusLine, blocksOf, BLOCK_NAMES } from "./doc-blocks";
+import { statusLine, blocksOf, BLOCK_NAMES } from "./doc-blocks";
 // @ts-ignore the bridge module is plain JS
 import { blocksOf as bridgeBlocksOf } from "../../bridge/doc-blocks.mjs";
 
@@ -14,27 +14,6 @@ describe("blocksOf (mirror of bridge/doc-blocks.mjs:231)", () => {
     expect(blocksOf({ id: "s", blocks: [null, 3, "x", [], ok] })).toEqual([ok]);
   });
   it("names every kind in plain words", () => expect(BLOCK_NAMES.matrix).toBe("Responsibility matrix"));
-});
-describe("oldPanelEditable", () => {
-  it("text-only sections stay editable in the old panel", () => {
-    expect(oldPanelEditable({})).toBe(true);
-    expect(oldPanelEditable({ blocks: [] })).toBe(true);
-    expect(oldPanelEditable({ blocks: [{ kind: "text" }] })).toBe(true);
-    expect(oldPanelEditable({ blocks: [{ kind: "text", title: "" }] })).toBe(true);
-  });
-  it("any other block makes it read-only there, with the bridge's words", () => {
-    expect(oldPanelEditable({ blocks: [{ kind: "text" }, { kind: "table" }] })).toBe(false);
-    expect(oldPanelEditable({ blocks: [{ kind: "naming" }] })).toBe(false);
-    expect(oldPanelEditable({ blocks: [{ kind: "text", title: "Intro" }] })).toBe(false);
-    expect(OLD_PANEL_NOTE).toBe("This section has tables or other parts; edit it in the workspace.");
-  });
-});
-describe("oldPanelSaveBody", () => {
-  it("sends the text of a text-only section and nothing for any other", () => {
-    expect(oldPanelSaveBody({ blocks: [{ kind: "text" }] }, "v")).toBe("v");
-    expect(oldPanelSaveBody({}, "v")).toBe("v");
-    expect(oldPanelSaveBody({ blocks: [{ kind: "text" }, { kind: "table" }] }, "v")).toBeUndefined();
-  });
 });
 describe("statusLine", () => {
   it("plain status words with the suitability after a comma", () => {

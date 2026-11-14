@@ -1,12 +1,12 @@
 // READINESS documents in the workspace: read-only. The measured numbers come from the bridge's report, the answers and
-// due dates from the document; answering and planning stay in the Documents tab. Everything goes in as text.
+// due dates from the document; answering and planning stay in the Documents tab (Open, on its row). Everything goes in as text.
 import type { DocRow } from "../sentinel-core/doc-blocks";
 import { pathSegment } from "../setups/escape-html";
 import { btn, C, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
 
 export const READ_ONLY_NOTE: Record<"READINESS" | "TIDP", string> = {
-  READINESS: "Answer the questions and plan in the Documents tab.",
+  READINESS: "Answer the questions and plan in the Documents tab: Open, on this document's row.",
   TIDP: "Old task team plans are read here; plan deliveries in Deliverables.",
 };
 export const VERSION_NOTE = "These are the answers as published. Measured results are not kept with a version: Back to the current document shows today's.";

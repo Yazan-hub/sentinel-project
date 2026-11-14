@@ -85,7 +85,7 @@ describe("versionsView", () => {
   });
   it("no versions says where to publish", () => {
     const { ctx } = ctxOf([]);
-    expect(textOf(versionsView(ctx))).toBe("No version yet. Publish from the Documents tab.");
+    expect(textOf(versionsView(ctx))).toBe("No version yet. Publish from the Review tab.");
   });
   it("Read views that version, then shows the Read view", async () => {
     const { ctx, viewed, shown } = ctxOf([ver(2), ver(1)]);

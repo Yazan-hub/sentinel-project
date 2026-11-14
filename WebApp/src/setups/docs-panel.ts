@@ -1,8 +1,8 @@
-// Documents panel — ISO 19650 project documents (BEP/EIR): create from template, edit sections,
-// manage states, publish immutable versions, read a document with its Markdown rendered (printing is the workspace's
-// Read view). Plain-DOM like files-panel.
-import { type Block, oldPanelEditable, oldPanelSaveBody, OLD_PANEL_NOTE } from "../sentinel-core/doc-blocks";
-import { askText, askYesNo } from "./ask";
+// Documents panel — the project's documents as a LIST (R3): create from a template (the shipped ones and the office's), ingest an
+// EIR/BEP, open a document in the workspace, and the READINESS document's own editor (answers, plan, its versions). Every other
+// document is edited, shared, published and archived in the workspace. Plain-DOM like files-panel.
+import type { Block } from "../sentinel-core/doc-blocks";
+import { askText } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
@@ -30,9 +30,6 @@ type Compliance = { document_id: string; generated_at: string; summary: Record<s
 
 type Comment = { id: string; section_id: string; author: string; text: string; created_at: string };
 
-type ExecSection = { section_id: string; heading: string; kind: "controlling" | "declared" | "narrative"; controlling_checks: string[]; declared_checks: string[]; unknown_checks: string[]; owner: string | null; has_body: boolean };
-type Executability = { document_id: string; title: string; doc_type: string; generated_at: string; score: number | null; reason?: string; summary: { sections: number; controlling: number; declared: number; narrative: number; unowned: number; empty: number }; strip: string[]; sections: ExecSection[] };
-
 type PillarScore = {
   measured: { met: number; violation: number; not_checkable: number; unbound: number; items: ReadinessItem[] };
   declared: { yes: number; partial: number; no: number; unanswered: number; items: ReadinessItem[] };
@@ -47,59 +44,6 @@ type Readiness = {
   plan: PlanRow[];
   sections: { section_id: string; heading: string; pillar: string | null; kind: string | null; results: CheckResult[] }[];
 };
-
-/** The strip test, rendered. Plain DOM — server text never reaches innerHTML. */
-function renderExecutability(out: HTMLElement, r: Executability) {
-  out.replaceChildren();
-  const box = document.createElement("div");
-  box.style.cssText = "border:1px solid #2a2a30;background:#1b1b21;border-radius:.4rem;padding:.6rem .8rem;margin:.4rem 0";
-
-  const head = document.createElement("div");
-  const pct = document.createElement("span");
-  pct.textContent = r.score === null ? "—" : `${r.score}%`;
-  pct.style.cssText = `font:700 22px system-ui;color:${r.score === null ? "#9ca3af" : r.score >= 60 ? "#22c55e" : r.score >= 30 ? "#eab308" : "#f87171"}`;
-  const cap = document.createElement("span");
-  cap.textContent = r.score === null ? (r.reason || "nothing to score") : " of this document actually controls the project";
-  cap.style.cssText = "color:#c9cfda;font:12px system-ui;margin-left:.4rem";
-  head.append(pct, cap);
-  box.append(head);
-
-  const line = (label: string, n: number, color: string, note?: string) => {
-    const d = document.createElement("div");
-    const b = document.createElement("span");
-    b.textContent = `${n}`;
-    b.style.cssText = `color:${color};font:700 12px system-ui;display:inline-block;min-width:1.6rem`;
-    const t = document.createElement("span");
-    t.textContent = note ? `${label} — ${note}` : label;
-    t.style.cssText = "color:#9ca3af;font:11.5px system-ui";
-    d.append(b, t);
-    d.style.cssText = "margin-top:.25rem";
-    return d;
-  };
-  box.append(
-    line("controlling clauses", r.summary.controlling, "#22c55e", "bound to a check that runs today"),
-    line("declared clauses", r.summary.declared, "#eab308", "bound to a planned check, or bound but not yet written — not scored"),
-    line("narrative clauses", r.summary.narrative, "#f87171", "control nothing Sentinel can observe"),
-  );
-  if (r.summary.unowned || r.summary.empty)
-    box.append(line("clauses with no owner", r.summary.unowned, "#9ca3af"), line("clauses with no text", r.summary.empty, "#9ca3af"));
-  out.append(box);
-
-  if (r.strip.length) {
-    const h = document.createElement("div");
-    h.textContent = `What the strip test removes (${r.strip.length}):`;
-    h.style.cssText = "color:#e5e7eb;font:600 11.5px system-ui;margin:.5rem 0 .2rem";
-    out.append(h);
-    const ul = document.createElement("div");
-    for (const heading of r.strip) {
-      const li = document.createElement("div");
-      li.textContent = `· ${heading}`;
-      li.style.cssText = "color:#9ca3af;font:11.5px system-ui;padding:.1rem 0 .1rem .4rem";
-      ul.append(li);
-    }
-    out.append(ul);
-  }
-}
 
 const STATUS_STYLE: Record<string, { color: string; icon: string }> = {
   met: { color: "#22c55e", icon: "✓" },
@@ -233,12 +177,11 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
         row.innerHTML = `<span style="font:700 10px system-ui;color:#93c5fd;border:1px solid #2c3a55;border-radius:.3rem;padding:.1rem .35rem">${esc(d.doc_type)}</span>
           <span style="flex:1;font:600 12px system-ui;color:#eee">${esc(d.title)}</span>
           ${chip(d.status)}<span style="color:#71717a">v${d.version_count}</span>`;
-        row.onclick = () => showEditor(d.id);
-        if (opts.onOpenWorkspace) {
-          const ow = btn("Open workspace");
-          ow.onclick = (e) => { e.stopPropagation(); opts.onOpenWorkspace!(d.id); };
-          row.append(ow);
-        }
+        const readiness = d.doc_type === "READINESS"; // its editor stays here; every other document opens in the workspace
+        row.onclick = () => (readiness ? showEditor(d.id) : opts.onOpenWorkspace?.(d.id));
+        const open = btn(readiness ? "Open" : "Open workspace");
+        open.onclick = (e) => { e.stopPropagation(); if (readiness) void showEditor(d.id); else opts.onOpenWorkspace?.(d.id); };
+        if (readiness || opts.onOpenWorkspace) row.append(open);
         body.append(row);
       }
     } catch (e: any) {
@@ -325,114 +268,18 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     return wrap;
   }
 
-  // ── Editor view ───────────────────────────────────────────────────────────
+  // ── Opening a document ────────────────────────────────────────────────────
+  // READINESS documents open in their own editor below; every other document is the workspace's (sections, strip, comments,
+  // sharing, publishing and archiving all live there, in the Review tab for a document with no review chain).
   async function showEditor(docId: string, fromRefresh = false) {
     const mine = seq; // a project switch (showList) while a read is in flight drops its answer
     let doc: Doc;
     try { doc = await api(`/${encodeURIComponent(pid())}/${docId}`); } catch (e: any) { if (mine !== seq) return; msg(e.message, true); return showList(); }
     if (mine !== seq) return;
     if (fromRefresh && doc.status === "archived") return showList(); // came back from the workspace: an archived document leaves the editor
+    if (doc.doc_type !== "READINESS") { opts.onOpenWorkspace?.(doc.id); return showList(); }
     openId = doc.id; onList = false;
-    if (doc.doc_type === "READINESS") return showReadinessEditor(doc);
-    bar.replaceChildren();
-    const back = btn("← Documents"); back.onclick = showList;
-    const title = document.createElement("span");
-    title.innerHTML = `<b style="color:#eee">${esc(doc.title)}</b> &nbsp;${chip(doc.status)}`;
-    title.style.flex = "1";
-    const viewBtn = btn("Document view"); viewBtn.onclick = () => showDocView(doc);
-    const versBtn = btn("Versions"); versBtn.onclick = () => showVersions(doc);
-    bar.append(back, title, viewBtn, versBtn);
-    if (opts.onOpenWorkspace) { const ow = btn("Open workspace"); ow.onclick = () => opts.onOpenWorkspace!(doc.id); bar.append(ow); }
-    // document-level transitions (governance)
-    if (canGovern()) {
-      const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
-      const { chain, open } = await roundOf(doc.id); // R2d: a document with a review chain is shared and published through a round, in the workspace
-      if (mine !== seq) return;
-      const moves = open ? [] : next[doc.status] || []; // while a round is open the document moves only through the round
-      if (chain && moves.some((to) => to === "shared" || to === "published")) bar.append(Object.assign(document.createElement("span"), { textContent: SEND_FROM_WORKSPACE, style: "color:#9ca3af;font:11px system-ui" }));
-      for (const to of moves.filter((t) => !chain || (t !== "shared" && t !== "published"))) {
-        const b = btn(to === "published" ? "Publish…" : doc.status === "published" && to === "wip" ? "→ wip (next revision)" : `→ ${to}`, to === "published");
-        b.onclick = async () => {
-          try {
-            if (to === "published") {
-              const label = await askText("Version label for this publish", { placeholder: "e.g. P01 — issued for review (empty = the version number)", ok: "Publish" });
-              if (label === null) return;
-              const { version_no } = await api(`/${encodeURIComponent(pid())}/${doc.id}/publish`, { method: "POST", body: JSON.stringify({ label, actor: await actor() }) });
-              msg(`Published v${version_no}`);
-            } else {
-              await api(`/${encodeURIComponent(pid())}/${doc.id}/transition`, { method: "POST", body: JSON.stringify({ to, actor: await actor() }) });
-            }
-            showEditor(doc.id);
-          } catch (e: any) { msg(e.message, true); }
-        };
-        bar.append(b);
-      }
-    }
-
-    body.replaceChildren();
-    const editable = (doc.status === "wip" || doc.status === "shared") && canEdit();
-    let compliance: Compliance | null = null;
-    try { compliance = await api(`/${encodeURIComponent(pid())}/${doc.id}/compliance`); } catch { /* compliance is optional; the editor must still open */ }
-    if (mine !== seq) return;
-    const resultsFor = (sid: string) => compliance?.sections.find((s) => s.section_id === sid)?.results ?? [];
-    let comments: Comment[] = [];
-    try { comments = await api(`/${encodeURIComponent(pid())}/${doc.id}/comments`); } catch { /* comments are optional; the editor must still open */ }
-    if (mine !== seq) return;
-    for (const s of doc.sections) {
-      const sec = document.createElement("details");
-      sec.style.cssText = "border:1px solid #2a2a30;border-radius:.4rem;margin-bottom:.4rem;background:#191920";
-      const sum = document.createElement("summary");
-      sum.style.cssText = "display:flex;align-items:center;gap:.5rem;padding:.45rem .6rem;cursor:pointer;list-style:none";
-      sum.innerHTML = `<span style="flex:1;font:600 12px system-ui;color:#eee">${esc(s.heading)}</span>${chip(s.state)}<span style="color:#71717a">${esc(s.owner || "")}</span>`;
-      const inner = document.createElement("div");
-      inner.style.cssText = "padding:.5rem .6rem;border-top:1px solid #2a2a30;display:flex;flex-direction:column;gap:.4rem";
-      const guide = document.createElement("div");
-      guide.textContent = s.guidance;
-      guide.style.cssText = "color:#8b93a3;font-style:italic";
-      const ta = document.createElement("textarea");
-      ta.value = s.body;
-      ta.defaultValue = ta.value; // the loaded value — dirty() compares against it
-      ta.disabled = !editable || !oldPanelEditable(s);
-      if (!oldPanelEditable(s)) ta.title = OLD_PANEL_NOTE; // the note below, also on the disabled field itself
-      ta.style.cssText = "min-height:110px;background:#1f1f27;border:1px solid #2c2c34;color:#e5e7eb;border-radius:.35rem;padding:.45rem;font:12px/1.5 ui-monospace,monospace;resize:vertical";
-      const noteEl = document.createElement("div");
-      noteEl.textContent = OLD_PANEL_NOTE;
-      noteEl.style.cssText = "color:#8b93a3;font-size:11px";
-      const rowEl = document.createElement("div");
-      rowEl.style.cssText = "display:flex;gap:.4rem;align-items:center";
-      const ownerIn = document.createElement("input");
-      ownerIn.placeholder = "owner (email)";
-      ownerIn.value = s.owner || "";
-      ownerIn.defaultValue = ownerIn.value;
-      ownerIn.disabled = !editable || !canGovern();
-      if (editable && !canGovern()) ownerIn.title = "A lead or the owner names the section lead.";
-      ownerIn.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem .4rem;width:180px";
-      const stateSel = document.createElement("select");
-      stateSel.disabled = !editable;
-      stateSel.style.cssText = "background:#1f1f27;border:1px solid #2c2c34;color:#c9cfda;border-radius:.35rem;padding:.3rem";
-      for (const st of ["wip", "shared", "published", "archived"]) {
-        const o = document.createElement("option"); o.value = st; o.textContent = st; o.selected = st === s.state; stateSel.append(o);
-      }
-      const save = btn("Save section", true);
-      save.disabled = !editable;
-      save.onclick = async (ev) => {
-        ev.preventDefault();
-        const doSave = async (force = false) =>
-          api(`/${encodeURIComponent(pid())}/${doc.id}/section/${pathSegment(s.id)}`, {
-            method: "PATCH",
-            body: JSON.stringify({ body: oldPanelSaveBody(s, ta.value), owner: ownerIn.value || null, state: stateSel.value, updated_at: force ? undefined : doc.updated_at, actor: await actor() }),
-          });
-        try { await doSave(); showEditor(doc.id); }
-        catch (e: any) {
-          if (e.status === 409 && (await askYesNo(`${e.message}\n\nOverwrite with your version?`, { ok: "Overwrite" }))) { await doSave(true).catch((e2) => msg(e2.message, true)); showEditor(doc.id); }
-          else msg(e.message, true);
-        }
-      };
-      rowEl.append(ownerIn, stateSel, save);
-      inner.append(guide, ta, ...(oldPanelEditable(s) ? [] : [noteEl]), complianceStrip(resultsFor(s.id)), rowEl, commentThreadEl(doc, s.id, comments));
-      sec.append(sum, inner);
-      body.append(sec);
-    }
+    return showReadinessEditor(doc);
   }
 
   // ── READINESS documents: three numbers per pillar, measured items with their check, declared items with a
@@ -490,7 +337,6 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     const planBtn = btn("Plan");
     planBtn.onclick = () => { showPlan = !showPlan; renderPlan(); };
     bar.append(back, title, versBtn, reportBtn, planBtn);
-    if (opts.onOpenWorkspace) { const ow = btn("Open workspace"); ow.onclick = () => opts.onOpenWorkspace!(doc.id); bar.append(ow); }
     if (canGovern()) {
       const next: Record<string, string[]> = { wip: ["shared"], shared: ["wip", "published"], published: ["wip", "archived"], archived: ["wip"] };
       const { chain, open } = await roundOf(doc.id); // R2d: a document with a review chain is shared and published through a round, in the workspace
@@ -799,27 +645,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
     const mine = seq;
     bar.replaceChildren();
     const back = btn("← Editor"); back.onclick = () => showEditor(doc.id); bar.append(back);
-    const stripBtn = btn("Strip test");
-    bar.append(stripBtn);
     body.replaceChildren();
-    const stripOut = document.createElement("div");   // the strip test's result renders here, transient
-    stripBtn.onclick = async () => {
-      stripBtn.disabled = true;
-      stripBtn.textContent = "Scoring…";
-      stripOut.replaceChildren();
-      try {
-        renderExecutability(stripOut, await api(`/${encodeURIComponent(pid())}/${doc.id}/executability`));
-      } catch (e) {
-        const d = document.createElement("div");
-        d.textContent = `Strip test failed: ${(e as Error).message}`;
-        d.style.cssText = "padding:.4rem .6rem;border-radius:.35rem;background:#3b1113;color:#fca5a5;margin:.4rem 0";
-        stripOut.append(d);
-      } finally {
-        stripBtn.disabled = false;
-        stripBtn.textContent = "Strip test";
-      }
-    };
-    body.append(stripOut);
     const page = document.createElement("div");
     page.className = "bimdoc-print";
     page.style.cssText = "max-width:760px;margin:0 auto;background:#fff;color:#111;border-radius:.4rem;padding:2rem;font:13px/1.6 Georgia,serif";

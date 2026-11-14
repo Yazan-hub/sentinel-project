@@ -3,12 +3,12 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 const yes = { v: true };
-vi.mock("../setups/ask", () => ({ askYesNo: vi.fn(async () => yes.v) }));
+vi.mock("../setups/ask", () => ({ askYesNo: vi.fn(async () => yes.v), askText: vi.fn(async () => "P01") }));
 
 import { reviewTab, codeChoices, decisionLine, DECISION_WORDS } from "./review-tab";
 import { emptyState, type RoundCurrent, type RoundView } from "./workspace-state";
 import { fakeDocument, findAll, textOf, click } from "./fake-dom";
-import { askYesNo } from "../setups/ask";
+import { askText, askYesNo } from "../setups/ask";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const all = (el: any, tag: string): any[] => findAll(el, tag);
 
@@ -101,9 +101,50 @@ describe("no round", () => {
     click(by(el, "Send")[0]); await tick();
     expect(textOf(el)).toContain("Team STR has nobody who can decide."); expect(c.ws.reload).not.toHaveBeenCalled();
   });
-  it("someone who cannot send gets no form; a document with no chain says it is shared and published from the Documents tab", () => {
-    const t = textOf(run(ctx(cur({ can_send: false, chain: false }))));
-    expect(t).not.toContain("Send for review"); expect(t).toContain("Documents tab");
+  it("someone who cannot send gets no form; a document with no chain says it is not sent for review, and a viewer gets no buttons", () => {
+    const el = run(ctx(cur({ can_send: false, chain: false })));
+    const t = textOf(el);
+    expect(t).not.toContain("Send for review"); expect(t).toContain("This document is not sent for review in rounds."); expect(t).not.toContain("Documents tab");
+    for (const b of ["Share", "Publish…", "Back to draft", "Archive"]) expect(by(el, b)).toHaveLength(0);
+  });
+  describe("R3: a document with no review chain is moved from here, by a lead", () => {
+    const chainless = (status: string, role = "lead", post: unknown = undefined) => { const c = ctx(cur({ can_send: false, chain: false, doc_status: status }), post ? { post } : {}); (c.st as any).role = role; (c.st.doc as any).status = status; return c; };
+    it("buttons by status", () => {
+      for (const [status, want] of [["wip", ["Share"]], ["shared", ["Back to draft", "Publish…"]], ["published", ["Back to draft", "Archive"]], ["archived", ["Back to draft"]]] as const) {
+        const el = run(chainless(status));
+        const got = all(el, "button").map((b) => textOf(b)).filter((t) => ["Share", "Publish…", "Back to draft", "Archive"].includes(t));
+        expect(got.sort()).toEqual([...want].sort());
+      }
+      expect(by(run(chainless("shared", "owner")), "Publish…")).toHaveLength(1);
+      for (const role of ["contributor", "viewer"]) expect(by(run(chainless("shared", role)), "Publish…")).toHaveLength(0);
+    });
+    it("Share asks, then posts the transition and reloads; No posts nothing", async () => {
+      yes.v = true;
+      const c = chainless("wip"), el = run(c);
+      click(by(el, "Share")[0]); await tick();
+      expect(askYesNo).toHaveBeenCalled();
+      expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/d1/transition", { to: "shared" });
+      expect(c.ws.reload).toHaveBeenCalled();
+      yes.v = false;
+      const n = chainless("published"), el2 = run(n);
+      click(by(el2, "Archive")[0]); await tick();
+      expect(n.ws.post).not.toHaveBeenCalled();
+      yes.v = true;
+    });
+    it("Publish… offers the freeze preview, asks the label, and posts the publish; cancelling the label posts nothing", async () => {
+      const c = chainless("shared"), el = run(c);
+      click(by(el, "See what will be frozen")[0]); expect(c.show).toHaveBeenCalledWith("read");
+      click(by(el, "Publish…")[0]); await tick();
+      expect(askText).toHaveBeenCalled();
+      expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/d1/publish", { label: "P01" });
+      vi.mocked(askText).mockResolvedValueOnce(null as never);
+      const n = chainless("shared"); click(by(run(n), "Publish…")[0]); await tick();
+      expect(n.ws.post).not.toHaveBeenCalled();
+    });
+    it("a refusal shows the bridge's words and does not reload", async () => {
+      const c = chainless("wip", "lead", async () => null); click(by(run(c), "Share")[0]); await tick();
+      expect(c.ws.reload).not.toHaveBeenCalled();
+    });
   });
 });
 
