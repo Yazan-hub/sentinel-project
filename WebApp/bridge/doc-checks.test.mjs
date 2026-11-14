@@ -22,6 +22,10 @@ describe("people.nominated", () => {
     expect(classifyNominated(bep([{ id: "b", kind: "table", title: "T", data: { columns: [{ key: "a", label: "A", type: "text" }], rows: [{ id: "r", cells: { a: "x" } }] } }]), members).status).toBe("not_checkable");
     expect(classifyNominated([], members).status).toBe("not_checkable");
   });
+  it("is not checkable when the members' e-mails could not be read (the list falls back to ids), never 'not a member' for everyone", () => {
+    expect(classifyNominated(people("a@x.com"), [{ email: "6f1c0c1e-0000-4000-8000-000000000001", state: "active" }]))
+      .toMatchObject({ status: "not_checkable", reason: "The members' e-mail addresses could not be read just now. Try again in a minute." });
+  });
 });
 
 describe("roles.one_producer", () => {
@@ -46,13 +50,16 @@ describe("roles.one_producer", () => {
 });
 
 describe("docs.suitability", () => {
-  it("flags a missing, S0 or disallowed code on the latest version", () => {
+  it("flags a disallowed code on the latest version; a version with no code (published with no review chain) is not judged", () => {
     const r = classifyDocSuitability([
       { title: "A", latest: { version_no: 2, suitability: null } }, { title: "B", latest: { version_no: 1, suitability: "S0" } },
       { title: "C", latest: { version_no: 3, suitability: "S9" } }, { title: "D", latest: { version_no: 1, suitability: "A1" } }, { title: "E", latest: null },
     ]);
-    expect([r.status, r.count]).toEqual(["violations", 3]);
-    expect(r.evidence.map((e) => e.detail)).toEqual(["A v2 has no suitability code", "B v1 has no suitability code", "C v3 is S9, which is not an allowed code"]);
+    expect([r.status, r.count]).toEqual(["violations", 1]);
+    expect(r.evidence.map((e) => e.detail)).toEqual(["C v3 is S9, which is not an allowed code"]);
+    expect(r.summary).toBe("1 of 2 issued documents without an allowed suitability code.");
+    expect(classifyDocSuitability([{ title: "A", latest: { version_no: 1, suitability: null } }, { title: "B", latest: { version_no: 1, suitability: "S0" } }]))
+      .toMatchObject({ status: "not_checkable", reason: "No document has been issued through a review round yet: a suitability code is given when a round issues a version." });
   });
   it("honours params.allowed; not checkable with nothing issued", () => {
     expect(classifyDocSuitability([{ title: "D", latest: { version_no: 1, suitability: "A1" } }], ["S3"]).status).toBe("violations");

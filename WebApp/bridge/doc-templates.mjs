@@ -1,6 +1,6 @@
 // Office document templates (R3, Task 5; design 2026-10-24 §4 Templates): the templates an office keeps for its BEPs and EIRs, as ONE office
 // artefact, doc_templates@n — every template of the office in the disk-template shape, so instantiateTemplate runs unchanged. A document made
-// from one records template_id "office:<id>" and the artefact's version. Pure: no I/O and no store imports (artefact-store validates through
+// from one records template_id "office-<id>" and the artefact's version. Pure: no I/O and no store imports (artefact-store validates through
 // this file, so it must not reach back into the stores); the stores compose these.
 import { validateBlock, blocksOf, emptyData, LIMITS } from "./doc-blocks.mjs";
 
@@ -122,16 +122,17 @@ export function templateFromDocument(doc, sourceTemplate, { id, name, when_to_us
   return { id, doc_type: doc.doc_type, name, when_to_use, variant, sections, ...(starts ? { starts } : {}) };
 }
 
-/** The office's templates in the disk-template shape, ready for instantiateTemplate and pickStart: template_id "office:<id>", the artefact's
- *  version, `office: true`. `art`: the stored artefact ({body, version}) or resolveArtefact's answer ({body, ref}); one that does not
- *  validate gives none (a template list never throws). */
+/** The office's templates in the disk-template shape, ready for instantiateTemplate and pickStart: template_id "office-<id>", the artefact's
+ *  version, `office: true`. `art`: the stored artefact ({body, version}) or resolveArtefact's answer ({body, ref}). A template that no
+ *  longer validates (a check id a later release dropped) is left out alone — the others stay; a template list never throws.
+ *  The id has a dash, not a colon: bim_documents.template_id allows only lower-case words joined by dashes (0049), and no shipped
+ *  template's file name starts with "office-" (bimdocs-templates.test.mjs holds that). */
 export function officeTemplates(art) {
   if (!art?.body) return [];
-  let body;
-  try { body = validateDocTemplates(art.body); } catch { return []; }
+  const one = (t) => { try { return validateDocTemplates({ templates: [t] }).templates; } catch { return []; } };
   const version = art.version ?? (Number(String(art.ref ?? "").split("@")[1]) || 1);
-  return body.templates.map((t) => ({
-    template_id: `office:${t.id}`, doc_type: t.doc_type, title: t.name, name: t.name, variant: t.variant, when_to_use: t.when_to_use,
+  return (Array.isArray(art.body.templates) ? art.body.templates : []).flatMap(one).map((t) => ({
+    template_id: `office-${t.id}`, doc_type: t.doc_type, title: t.name, name: t.name, variant: t.variant, when_to_use: t.when_to_use,
     default: false, office: true, version, sections: t.sections, starts: t.starts ?? {},
   }));
 }

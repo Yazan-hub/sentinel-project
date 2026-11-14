@@ -1,7 +1,7 @@
 // AI drafting + integrity analysis — the I/O half. Assembles the grounding pack from existing
 // stores, makes ONE chat() call per operation, and gates the reply through bimdocs-ai-logic.
-// WRITES NOTHING: no DB write, no audit row. An accepted draft is saved by the human through the
-// existing patchSection route, which audits it as a normal section edit.
+// WRITES NOTHING: no DB write, no audit row. An accepted draft is saved by the human as a text block in the
+// workspace (the block routes), which audit it as a normal edit.
 import { chat as realChat, PROVIDERS } from "./ai-gateway.mjs";
 import * as members from "./members-store.mjs";
 import * as access from "./doc-access.mjs";

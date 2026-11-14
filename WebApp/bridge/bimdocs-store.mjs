@@ -56,14 +56,16 @@ const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc
 
 /** The office's document templates in force for `key` (its own office's, or an office's own), in the disk-template shape. */
 const officeTemplatesOf = async (key) => officeTemplates(await resolveArtefact(key, "doc_templates"));
-const isOffice = (id) => String(id ?? "").startsWith("office:");
+/** For the start list only: the office's templates, or none when they cannot be read (the shipped ones are still offered). */
+const officeTemplatesOrNone = (key) => officeTemplatesOf(key).catch(() => []);
+const isOffice = (id) => String(id ?? "").startsWith("office-");
 /** The template a document was made from: a shipped one, or its office's (null when it is no longer there). */
 const templateOf = async (key, doc) => (isOffice(doc.template_id) ? (await officeTemplatesOf(key)).find((t) => t.template_id === doc.template_id) : loadTemplates().find((t) => t.template_id === doc.template_id)) ?? null;
 
 /** The templates a new document can start from: the shipped ones, then — when `key` is given — the office's (R3). */
 export const listTemplates = async (key) => [
   ...loadTemplates().map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: t.default })),
-  ...(key === undefined ? [] : (await officeTemplatesOf(key)).map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: false, office: true, version: t.version }))),
+  ...(key === undefined ? [] : (await officeTemplatesOrNone(key)).map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: false, office: true, version: t.version }))),
 ];
 
 export const LOCKED = "This document is out for review: it changes only through the round. Withdraw it first.";
@@ -253,7 +255,7 @@ export async function saveAsTemplate(key, docId, { id, name, when_to_use, varian
   const entry = templateFromDocument(doc, await templateOf(key, doc).catch(() => null), { id: tid, name: name.trim(), when_to_use: when_to_use ?? "", variant: variant ?? null, keep_content: keep_content === true });
   const next = { templates: templates.some((t) => t.id === tid) ? templates.map((t) => (t.id === tid ? entry : t)) : [...templates, entry] };
   const pointer = await putArtefact(officeKey, "doc_templates", next, { actor, ifMatch: cur.sha256 ?? "none" });
-  const template_id = `office:${tid}`;
+  const template_id = `office-${tid}`;
   await audit(doc.project_id, "bim_document", doc.id, "document_saved_as_template", actor || "web", null, { document_id: doc.id, template_id, office_version: pointer.version });
   return { template_id, office_version: pointer.version };
 }

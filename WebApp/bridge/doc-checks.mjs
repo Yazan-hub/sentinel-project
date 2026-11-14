@@ -39,6 +39,8 @@ function blocksOfKind(beps, kind) {
  *  (case and spaces ignored; an invited member does not count). `members`: listMembers's rows. */
 export function classifyNominated(beps, members) {
   const id = "people.nominated", label = "Nominated people are project members";
+  // The member list falls back to a person's id when the sign-in service cannot be asked: then nobody would match, so say so instead.
+  if ((members || []).some((m) => !String(m.email ?? "").includes("@"))) return result(id, label, "not_checkable", { reason: "The members' e-mail addresses could not be read just now. Try again in a minute." });
   const byEmail = new Map((members || []).map((m) => [norm(m.email), m]));
   const seen = new Map(); // person → where first named
   for (const { where, block } of blocksOfKind(beps, "table")) {
@@ -87,17 +89,20 @@ export function classifyOneProducer(beps, teams) {
 
 export const SUITABILITY_ALLOWED = ["S1", "S2", "S3", "S4", "S5", "A1", "A2", "A3"];
 
-/** Document suitability: the latest version of each BEP carries an allowed code. `docs`: bepsWithLatestVersion's rows. */
+/** Document suitability: the latest version of each BEP that a review round issued carries an allowed code. A version published with no
+ *  review chain carries no code (S0 or none) and nobody can give it one, so it is not judged. `docs`: bepsWithLatestVersion's rows. */
 export function classifyDocSuitability(docs, allowed) {
   const id = "docs.suitability", label = "Document suitability";
   const ok = new Set(allowed && allowed.length ? allowed : SUITABILITY_ALLOWED);
-  const issued = (docs || []).filter((d) => d.latest);
-  if (!issued.length) return result(id, label, "not_checkable", { reason: "No document has been issued or published yet." });
+  const coded = (d) => d.latest?.suitability && d.latest.suitability !== "S0";
+  const issued = (docs || []).filter(coded);
+  if (!issued.length) return result(id, label, "not_checkable", { reason: (docs || []).some((d) => d.latest)
+    ? "No document has been issued through a review round yet: a suitability code is given when a round issues a version."
+    : "No document has been issued or published yet." });
   const bad = [];
   for (const d of issued) {
     const code = d.latest.suitability, at = `${d.title} v${d.latest.version_no}`;
-    if (!code || code === "S0") bad.push({ label: at, detail: `${at} has no suitability code` });
-    else if (!ok.has(code)) bad.push({ label: at, detail: `${at} is ${code}, which is not an allowed code` });
+    if (!ok.has(code)) bad.push({ label: at, detail: `${at} is ${code}, which is not an allowed code` });
   }
   return bad.length
     ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${issued.length} issued ${plural(issued.length, "document", "documents")} without an allowed suitability code.` })

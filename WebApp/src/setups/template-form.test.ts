@@ -150,7 +150,7 @@ describe("saving", () => {
 
 describe("the start picker", () => {
   it("lists an office template as Create BEP — name (office template, n sections), a shipped one without the note", () => {
-    expect(createLine({ template_id: "office:our-bep", doc_type: "BEP", name: "Our BEP", sections: 5 })).toBe("Create BEP — Our BEP (office template, 5 sections)");
+    expect(createLine({ template_id: "office-our-bep", doc_type: "BEP", name: "Our BEP", sections: 5 })).toBe("Create BEP — Our BEP (office template, 5 sections)");
     expect(createLine({ template_id: "bep-comprehensive", doc_type: "BEP", title: "BIM Execution Plan", sections: 14 })).toBe("Create BEP — BIM Execution Plan (14 sections)");
   });
   it("the Documents panel reads the project's list and posts the template id as listed; the office settings mount the templates", () => {

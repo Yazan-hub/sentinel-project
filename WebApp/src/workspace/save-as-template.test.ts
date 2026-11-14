@@ -9,7 +9,7 @@ import { emptyState } from "./workspace-state";
 import { click, fakeDocument, findAll, textOf } from "./fake-dom";
 
 const flush = async () => { for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0)); };
-function ctxOf(role: string, docType = "BEP", post: unknown = { template_id: "office:our-bep", office_version: 2 }) {
+function ctxOf(role: string, docType = "BEP", post: unknown = { template_id: "office-our-bep", office_version: 2 }) {
   const st = { ...emptyState("k"), role, doc: { id: "d1", doc_type: docType, title: "T", status: "published", sections: [] } as any, versions: [] };
   const posts: [string, unknown][] = [];
   const ws = { state: () => st, post: async (p: string, b: unknown) => { posts.push([p, b]); return post; } };

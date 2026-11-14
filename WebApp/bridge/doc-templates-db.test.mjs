@@ -32,6 +32,13 @@ describe("doc_templates rows: only the bridge writes them", () => {
   it("a project's own lead is refused a write of the project's row too (templates are the office's)", () => as(db, projectLead, async (tx) => {
     expect(await refused(tx, () => tx.query("insert into public.bridge_docs(store, project_id, doc_id, data) values ('artefact', $1, 'doc_templates@1', $2)", [P, BODY]))).toMatch(/row-level security/);
   }));
+  it("a document made from an office template is stored: its template id has a dash, the colon form is refused (0049's rule)", async () => {
+    const { officeTemplates } = await import("./doc-templates.mjs");
+    const id = officeTemplates({ version: 1, body: { templates: [{ id: "our-bep", doc_type: "BEP", name: "Our BEP", sections: [{ key: "a", heading: "A" }] }] } })[0].template_id;
+    const ins = (tid) => db.query("insert into public.bim_documents(project_id, doc_type, title, sections, template_id, template_version) values ($1, 'BEP', 'B', '[]', $2, 1) returning template_id", [P, tid]);
+    expect((await ins(id)).rows[0].template_id).toBe("office-our-bep");
+    await expect(ins("office:our-bep")).rejects.toThrow(/check constraint/);
+  });
   it("a member of the office reads the templates", () => as(db, contributor, async (tx) => {
     expect((await tx.query("select count(*)::int n from public.bridge_docs where project_id = $1 and doc_id = 'doc_templates@1'", [O])).rows[0].n).toBe(1);
   }));

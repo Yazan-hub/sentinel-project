@@ -102,9 +102,9 @@ describe("templateFromDocument", () => {
   it("round trip: a document made from the office template has the same headings, guidance, kinds, order, titles, columns and bindings as its source", () => {
     const src = source(), e = entry(src);
     const [t] = officeTemplates(art(e));
-    expect(t).toMatchObject({ template_id: "office:my-bep", version: 3, office: true, doc_type: "BEP", variant: "full", title: "Our BEP", when_to_use: "Every job", default: false });
+    expect(t).toMatchObject({ template_id: "office-my-bep", version: 3, office: true, doc_type: "BEP", variant: "full", title: "Our BEP", when_to_use: "Every job", default: false });
     const made = instantiateTemplate(t, { title: "From office", actor: "a" });
-    expect(made).toMatchObject({ template_id: "office:my-bep", template_version: 3, doc_type: "BEP", status: "wip" });
+    expect(made).toMatchObject({ template_id: "office-my-bep", template_version: 3, doc_type: "BEP", status: "wip" });
     expect(shape(made)).toEqual(shape(src));
   });
   it("keys: from the document's template key, else its heading; unique; and a section made by hand is fine", () => {
@@ -155,6 +155,16 @@ describe("putArtefact doc_templates: the office's standard, never a project's", 
     expect(p.version).toBe(1);
     const seen = await resolveArtefact("proj-a", "doc_templates", d);
     expect([seen.source, seen.ref]).toEqual(["office", "doc_templates@1"]);
-    expect(officeTemplates(seen)[0]).toMatchObject({ template_id: "office:my-bep", version: 1 });
+    expect(officeTemplates(seen)[0]).toMatchObject({ template_id: "office-my-bep", version: 1 });
+  });
+  it("a template that no longer validates is left out alone: the others are still listed", () => {
+    const good = entry(source()), gone = { ...good, id: "old-one", sections: [{ ...good.sections[0], bindings: { checks: [{ id: "check.that.left", params: {} }] } }] };
+    expect(officeTemplates({ body: { templates: [gone, good] }, version: 4 }).map((t) => t.template_id)).toEqual(["office-my-bep"]);
+    expect(officeTemplates({ body: { templates: "nonsense" }, version: 4 })).toEqual([]);
+  });
+  it("a direct install names only checks that exist, even when nothing else has loaded the registry", async () => {
+    const { putArtefact } = await import("./artefact-store.mjs");
+    const good = entry(source()), odd = { ...good, sections: [{ ...good.sections[0], bindings: { checks: [{ id: "not.a.check", params: {} }] } }] };
+    await expect(putArtefact("office1", "doc_templates", { templates: [odd] }, { actor: "x" }, mem())).rejects.toMatchObject({ status: 400, message: /unknown check id 'not.a.check'/ });
   });
 });

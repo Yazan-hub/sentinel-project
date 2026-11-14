@@ -428,9 +428,10 @@ export function loinToIds(rows, { current = null, title = null } = {}) {
     const key = Object.keys(CATEGORY_ENTITY).find((k) => k.toLowerCase() === element.toLowerCase());
     const entity = key ? CATEGORY_ENTITY[key] : PLAIN_CLASS.test(element) ? element.toUpperCase() : firstMatch(ENTITY_VOCAB, element);
     if (!entity || !IDS_CLASSES.has(entity)) return say(`No IFC class is known for "${element}".`);
-    const dot = property.indexOf(".");
     let pset, name;
-    if (dot > 0 && dot < property.length - 1) { pset = property.slice(0, dot); name = property.slice(dot + 1); }
+    // "Pset_X.Name" only when the part before the dot reads as a set's name (one word): "e.g. fire rating" or "approx. 30" is not a property set.
+    const m = /^([A-Za-z][A-Za-z0-9_]+)\.(\S.*)$/.exec(property); // a set name of two letters or more, the name straight after the dot
+    if (m) { pset = m[1]; name = m[2]; }
     else {
       const std = STANDARD_PSETS[entity] ?? {}, k = Object.keys(std).find((x) => x.toLowerCase() === property.toLowerCase());
       if (!k) return say(`No standard property set holds "${property}" for ${entity} — name it as Pset_X.${property}.`);

@@ -6,6 +6,12 @@ import { loinIds, putArtefact, validateArtefact } from "./artefact-store.mjs";
 const row = (o) => ({ id: "r", element: "Walls", milestone: "Stage 3", property: "Pset_WallCommon.FireRating", value: "REI 60", used_by: "", why: "Fire strategy", ...o });
 
 describe("loinToIds", () => {
+  it("words with a dot are not read as a property set", () => {
+    const r = loinToIds([row({ property: "e.g. fire rating" })]);
+    expect(r.ids.specifications).toEqual([]);
+    expect(r.unmatched[0]).toMatchObject({ row: 1 });
+    expect(r.unmatched[0].reason).toMatch(/No standard property set holds "e.g. fire rating"/);
+  });
   it("maps a category and a qualified property, with its value, milestone name and source sentence", () => {
     const r = loinToIds([row()]);
     expect(r.added).toBe(1);

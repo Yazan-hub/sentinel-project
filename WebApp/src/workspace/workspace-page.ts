@@ -257,7 +257,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     renderAll();
   };
 
-  // Shown again: a document held is read again once (a publish in the Documents tab may have changed it; open editors are
+  // Shown again: a document held is read again once (a publish in another tab or by someone else may have changed it; open editors are
   // carried), else the activity-bar icon shows the page with no document and this project's last one is reopened.
   let shown = false;
   if (typeof ResizeObserver !== "undefined")

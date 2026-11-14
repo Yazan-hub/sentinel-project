@@ -554,6 +554,9 @@ export async function putArtefact(key, kind, body, { actor, source, ifMatch } = 
   if (kind === "evidence_pack") throw err(400, "evidence packs change only through the evidence routes; nothing was saved");
   // MA-8-13 (D13): a recipe's body is a verified run's and its approvals are the bridge's rows — it changes only through the recipe routes.
   if (kind === "recipe") throw err(400, "recipes change only through the recipe routes (draft, approve) — nothing was saved");
+  // R3: a template's bindings name check ids — the registry must have told doc-templates which exist before this install is judged
+  // (it cannot be imported at the top: it imports this file). Right after a start nothing else may have loaded it yet.
+  if (kind === "doc_templates") await import("./check-registry.mjs");
   validateArtefact(kind, body);
   if (kind === "contract" && !PLAIN_NAME.test(body.contract_key))
     throw bad(kind, "contract_key", "must be a plain name (letters, digits, . _ @ -), up to 100 characters");

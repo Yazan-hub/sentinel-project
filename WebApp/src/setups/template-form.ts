@@ -30,7 +30,7 @@ export interface Choice { template_id: string; doc_type: string; title?: string;
 /** "Create BEP — Our BEP (office template, 5 sections)"; a shipped one has no note about where it came from. */
 export function createLine(t: Choice): string {
   const n = Array.isArray(t.sections) ? t.sections.length : t.sections;
-  return `Create ${t.doc_type} — ${t.name || t.title || t.template_id} (${t.office || t.template_id.startsWith("office:") ? "office template, " : ""}${n} sections)`;
+  return `Create ${t.doc_type} — ${t.name || t.title || t.template_id} (${t.office || t.template_id.startsWith("office-") ? "office template, " : ""}${n} sections)`;
 }
 
 const BLANK: Record<BlockKind, () => unknown> = {

@@ -2193,7 +2193,7 @@ async function handleRequest(req, res) {
   //   GET  /bimdocs/templates (shipped only) · GET /bimdocs/:key/templates (shipped + the office's) · POST /bimdocs/compile-ids { text } (prose → proposed IDS, installs nothing)
   //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, template_id?, title }
   //   GET  /bimdocs/:key/:docId
-  //   PATCH /bimdocs/:key/:docId/section/:sectionId { body?, owner?, state?, updated_at }
+  //   PATCH /bimdocs/:key/:docId/section/:sectionId { owner?, state?, updated_at }   (R3: a body is refused — sections are written as blocks in the workspace)
   //   POST /bimdocs/:key/:docId/section/:sectionId/draft { provider?, model? } · POST /bimdocs/:key/:docId/integrity { provider?, model? }
   //   POST /bimdocs/:key/:docId/transition { to } · POST /bimdocs/:key/:docId/publish { label }
   //   GET  /bimdocs/:key/:docId/executability  (the strip test — how much of the doc controls anything)
