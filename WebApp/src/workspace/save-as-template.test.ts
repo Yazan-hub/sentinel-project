@@ -15,6 +15,7 @@ function ctxOf(role: string, docType = "BEP", post: unknown = { template_id: "of
   const ws = { state: () => st, post: async (p: string, b: unknown) => { posts.push([p, b]); return post; }, get: async () => list };
   return { ctx: { ws, st, doc: fakeDocument(), base: "http://b", show: vi.fn() } as any, posts };
 }
+const lastAsk = (): string => { const c = vi.mocked(askYesNo).mock.calls; return c[c.length - 1][0]; };
 const button = (el: HTMLElement) => findAll(el, "button").find((b) => textOf(b) === "Save as office template…");
 
 describe("Save as office template…", () => {
@@ -31,7 +32,7 @@ describe("Save as office template…", () => {
     const { ctx, posts } = ctxOf("lead"), el = versionsView(ctx);
     click(button(el)!); await flush();
     expect(posts).toEqual([["/bimdocs/k/d1/save-as-template", { name: "Our BEP", when_to_use: "For small jobs.", variant: "full", keep_content: false }]]);
-    expect(vi.mocked(askYesNo).mock.calls.at(-1)![0]).toBe("Save \"Our BEP\" as an office template? Every member of every project of this office will be able to read it.");
+    expect(lastAsk()).toBe("Save \"Our BEP\" as an office template? Every member of every project of this office will be able to read it.");
     expect(textOf(el)).toContain('Saved as office template "Our BEP" (version 2).');
   });
   it("a minimal variant with its text and rows; neither variant posts null", async () => {
@@ -39,7 +40,7 @@ describe("Save as office template…", () => {
     vi.mocked(askYesNo).mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true).mockResolvedValueOnce(true).mockResolvedValueOnce(true); // not full; minimal; with text; save
     const one = ctxOf("lead"); click(button(versionsView(one.ctx))!); await flush();
     expect(one.posts[0][1]).toEqual({ name: "A", when_to_use: "", variant: "minimal", keep_content: true });
-    expect(vi.mocked(askYesNo).mock.calls.at(-1)![0]).toContain("with the text, names and rows this document holds."); // review finding 6: who will read it
+    expect(lastAsk()).toContain("with the text, names and rows this document holds."); // review finding 6: who will read it
     vi.mocked(askText).mockResolvedValueOnce("B").mockResolvedValueOnce("");
     vi.mocked(askYesNo).mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const two = ctxOf("lead"); click(button(versionsView(two.ctx))!); await flush();
@@ -65,7 +66,7 @@ describe("Save as office template…", () => {
     vi.mocked(askText).mockResolvedValueOnce(" our bep ").mockResolvedValueOnce("");
     vi.mocked(askYesNo).mockReset().mockResolvedValueOnce(true).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const b = ctxOf("lead", "BEP", undefined, list); click(button(versionsView(b.ctx))!); await flush();
-    expect(vi.mocked(askYesNo).mock.calls.at(-1)![0]).toMatch(/^An office template named "Our BEP" already exists\. Replace it\? /);
+    expect(lastAsk()).toMatch(/^An office template named "Our BEP" already exists\. Replace it\? /);
     expect(b.posts[0][1]).toEqual({ id: "our-bep", name: "our bep", when_to_use: "", variant: "full", keep_content: false });
   });
 });

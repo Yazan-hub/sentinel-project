@@ -109,7 +109,7 @@ describe("no round", () => {
   });
   it("review finding 3: with a review chain a lead still starts the next revision of a published document and archives; never while a round is open", () => {
     const LABELS = ["Share", "Publish…", "Back to draft", "Back to draft (next revision)", "Archive"];
-    const chained = (status: string, round: unknown = undefined) => { const c = ctx(cur({ can_send: status === "wip", chain: true, doc_status: status, ...(round === undefined ? {} : { round }) })); (c.st as any).role = "lead"; (c.st.doc as any).status = status; return c; };
+    const chained = (status: string, round?: RoundView | null) => { const c = ctx(cur({ can_send: status === "wip", chain: true, doc_status: status, ...(round === undefined ? {} : { round }) })); (c.st as any).role = "lead"; (c.st.doc as any).status = status; return c; };
     const got = (c: ReturnType<typeof chained>) => all(run(c), "button").map((b) => textOf(b)).filter((t) => LABELS.includes(t)).sort();
     expect(got(chained("published"))).toEqual(["Archive", "Back to draft (next revision)"]);
     expect(got(chained("archived"))).toEqual(["Back to draft"]);
