@@ -144,6 +144,14 @@ describe("F1: a full redraw keeps the unsaved text of open editors", () => {
     expect(textOf(p.centre)).toContain("Renamed");
     expect(areaOf(p.centre, "a1")?.value).toBe("typed, not saved");
   });
+  it("the Summary view is offered after Read and draws the one-page summary", async () => {
+    const p = await openTyped();
+    expect(textOf(header(p)).indexOf("Summary")).toBeGreaterThan(textOf(header(p)).indexOf("Read"));
+    answers["/bimdocs/checks"] = { checks: [], planned: [] };
+    press(header(p), "Summary"); await tick(); await tick();
+    expect(textOf(p.centre)).toContain("Who sends what, when, to whom");
+    expect(textOf(p.centre)).toContain("Still open");
+  });
   it("(c) Edit, Read, Edit: the editor is open again with the typed text", async () => {
     const p = await openTyped();
     press(header(p), "Read"); await tick();

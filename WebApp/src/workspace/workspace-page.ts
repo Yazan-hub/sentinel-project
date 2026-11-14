@@ -22,9 +22,10 @@ import { reviewTab } from "./review-tab";
 import { readinessView, READ_ONLY_NOTE } from "./readiness-view";
 import { readView } from "./read-view";
 import { startStrip } from "./start-strip";
+import { summaryView } from "./summary-view";
 import { compareView, versionsView } from "./versions-view";
 
-export type View = "edit" | "read" | "compare" | "versions";
+export type View = "edit" | "read" | "summary" | "compare" | "versions";
 export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; base: string; canEdit: boolean; canGovern: boolean;
   focused: string | null; focus(sectionId: string): void; show(view: View): void; refresh(part: "outline" | "side" | "all"): void; showTab(tab: keyof typeof SIDE_TABS): void;
   openDoc(docId: string): Promise<void> /* the page's own open: view reset, remembered as this project's last document */;
@@ -37,7 +38,7 @@ export interface PaneCtx { ws: Workspace; st: WorkspaceState; doc: Document; bas
 export type WorkspaceEl = HTMLElement & { open(docId: string, at?: { section?: string; view?: View; tab?: keyof typeof SIDE_TABS }): Promise<void>; openIngest(p: IngestProposal): void };
 
 // Every view marks each section node with dataset.section = its id (PaneCtx.focus scrolls to it).
-export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPane, read: readView, compare: compareView, versions: versionsView };
+export const VIEWS: Record<View, (ctx: PaneCtx) => HTMLElement> = { edit: editPane, read: readView, summary: summaryView, compare: compareView, versions: versionsView };
 
 const SIDE_TEXT = `color:${C.soft};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`;
 export const SIDE_TABS: Record<"quality" | "review" | "comments" | "people", (ctx: PaneCtx) => HTMLElement> = {
@@ -64,7 +65,7 @@ const TAB_NAMES: [keyof typeof SIDE_TABS, string][] = [["quality", "Quality"], [
 
 export const OUTLINE: { pane: (ctx: PaneCtx) => HTMLElement } = { pane: outlinePane };
 
-const VIEW_NAMES: [View, string][] = [["edit", "Edit"], ["read", "Read"], ["compare", "Compare"], ["versions", "Versions"]];
+const VIEW_NAMES: [View, string][] = [["edit", "Edit"], ["read", "Read"], ["summary", "Summary"], ["compare", "Compare"], ["versions", "Versions"]];
 
 export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLeave?: () => void; onOpenReview?: () => void; doc?: Document }): WorkspaceEl {
   const d = opts.doc ?? document;
