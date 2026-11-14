@@ -4152,3 +4152,19 @@ Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 10 to 19
 | 19 | The setting is not switched off under an EIR round waiting on the Client (#3725); the round is withdrawn (#3726) | ✅ |
 
 Findings: F-R2d-8 (a skip line named the skipper as of the skipped team), F-R2d-9 (an EIR's send form asked a tender-issue code), F-R2d-11 (an outside line showed neither the reason nor where the evidence is kept), F-R2d-12 (a rejection recorded outside filed no issue): fixed in ca8889a9, each with a test. F-R2d-10 (an EIR showed the BEP's stage words): hidden on the founder's "Yes, hide it" (web 1.0.121). Not driven on screen: a confirmed BEP accepted outside, an EIR whose chain gives the Client the issue, the published app.
+
+## Session R2d-3 — what was still open after R2d-2: the version label of an accepted EIR, a confirmed BEP accepted outside Sentinel, an EIR issued by the Client, a rejection with its reason and its issue, an EIR on a project with a Client (2026-11-14, 13:15–13:45 UTC; master be96bf29 with web 1.0.121; migration 0056 applied on the founder's "do it"; the scratch project and snowdon-lifecycle; Chrome signed in by the founder as hotmail, user4, gmail and hotmail; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 20 to 29).
+
+| Row | What | Result |
+|---|---|---|
+| 20 | 0056 applied; the live function identical to the file; "PROBE 0056: 3 of 3" rolled back: an EIR's published version is "Accepted C0n", a BEP's labels are unchanged | ✅ |
+| 21 | The skip line names the skipper alone (F-R2d-8 seen fixed) (#3745–#3747) | ✅ |
+| 22 | The scratch chain is changed (the Client issues an EIR); the confirmed BEP and EIR B are sent (#3750–#3752) | ✅ |
+| 23 | user4 confirms the BEP for team STR (#3753) | ✅ |
+| 24, 25 | user4 sends an EIR on snowdon-lifecycle, which has a Client; gmail issues it (#3754–#3756) | ✅ |
+| 26 | gmail signs off the confirmed BEP and records the Client's acceptance outside Sentinel → Accepted, A1, v2 Confirmed C01, sha of what was sent (#3757–#3759) | ✅ |
+| 27 | EIR B with the Client at step 1: a rejection recorded outside shows its reason and files one issue (F-R2d-11, F-R2d-12 seen fixed) (#3760–#3762) | ✅ |
+| 28 | hotmail records the Client's issue and accepts → Accepted, A1, "v1, Accepted C01" (#3763–#3765) | ✅ |
+| 29 | hotmail, as the Client, accepts the snowdon EIR in Sentinel → Accepted, A1, "v1, Accepted C01" (#3766, #3767) | ✅ |
