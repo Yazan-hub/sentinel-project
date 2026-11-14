@@ -15,6 +15,8 @@ import { executability } from "./executability.mjs";
 import { readiness, readinessPlan, ANSWERS } from "./readiness-logic.mjs";
 import { getSnapshot, getScan } from "./office-store.mjs";
 import { roundView, ROUND_COLS, DECISION_COLS } from "./rounds-logic.mjs";
+import { resolveArtefact, putArtefact } from "./artefact-store.mjs";
+import { officeTemplates, templateFromDocument, templateIdFor, ONLY_BEP_EIR } from "./doc-templates.mjs";
 
 const one = (rows) => (Array.isArray(rows) ? rows[0] : rows);
 const err = (status, message) => Object.assign(new Error(message), { status });
@@ -52,8 +54,17 @@ function patchSections(doc, sections) {
 /** A status write: the document in the status and at the updated_at it was read with. */
 const writeStatus = (doc, status) => writeDoc(doc, { status }, `&status=eq.${enc(doc.status)}&updated_at=eq.${enc(doc.updated_at)}`);
 
-export const listTemplates = () =>
-  loadTemplates().map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: t.default }));
+/** The office's document templates in force for `key` (its own office's, or an office's own), in the disk-template shape. */
+const officeTemplatesOf = async (key) => officeTemplates(await resolveArtefact(key, "doc_templates"));
+const isOffice = (id) => String(id ?? "").startsWith("office:");
+/** The template a document was made from: a shipped one, or its office's (null when it is no longer there). */
+const templateOf = async (key, doc) => (isOffice(doc.template_id) ? (await officeTemplatesOf(key)).find((t) => t.template_id === doc.template_id) : loadTemplates().find((t) => t.template_id === doc.template_id)) ?? null;
+
+/** The templates a new document can start from: the shipped ones, then — when `key` is given — the office's (R3). */
+export const listTemplates = async (key) => [
+  ...loadTemplates().map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: t.default })),
+  ...(key === undefined ? [] : (await officeTemplatesOf(key)).map((t) => ({ template_id: t.template_id, doc_type: t.doc_type, title: t.title, sections: t.sections.length, variant: t.variant, when_to_use: t.when_to_use, default: false, office: true, version: t.version }))),
+];
 
 export const LOCKED = "This document is out for review: it changes only through the round. Withdraw it first.";
 /** R2d: refuse a write while a review round is open on the document (0053's trigger refuses the same write even with the service key).
@@ -93,11 +104,18 @@ const checkText = (v, what) => {
   if (v != null && (typeof v !== "string" || v.length > LIMITS.titleChars)) throw err(400, `${what} must be text of at most ${LIMITS.titleChars} characters`);
 };
 
+/** An office template of this doc_type: 400 in words for one that is not there (as pickTemplate's). */
+async function pickOffice(key, doc_type, template_id) {
+  const t = (await officeTemplatesOf(key)).find((x) => x.template_id === template_id && x.doc_type === doc_type);
+  if (!t) throw err(400, `unknown template '${template_id}' for ${doc_type}`);
+  return t;
+}
+
 export async function createDoc(key, { doc_type, template_id, title, actor } = {}) {
   checkText(title, "a document title");
   const proj = await ensureProject(key);
   await requireDocAccess(key, null, "edit");
-  const tpl = pickTemplate(doc_type, template_id);
+  const tpl = isOffice(template_id) ? await pickOffice(key, doc_type, template_id) : pickTemplate(doc_type, template_id);
   // created_by is the signed-in caller's verified identity, never the body's name (bimdocs-3); the machine credential keeps its label.
   const body = { ...instantiateTemplate(tpl, { title, actor: resolveActor(actor, "web") }), project_id: proj.id };
   if (tooLarge(body.sections)) throw err(422, TOO_LARGE);
@@ -216,6 +234,28 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   }
   await audit(doc.project_id, "bim_document", docId, "published", actor || "web", null, { version_no, label: label || `v${version_no}` });
   return { version_no };
+}
+
+/** R3: save a document's structure as an office template — one entry of the office's doc_templates@n (a new version of the artefact), by a lead of the office.
+ *  `id` names an existing template to replace; without it a new one is made from the name. keep_content: its text and rows travel too.
+ *  Ledger: the office's artefact_installed row (putArtefact) and this project's document_saved_as_template. → {template_id, office_version}. */
+export async function saveAsTemplate(key, docId, { id, name, when_to_use, variant, keep_content, actor } = {}) {
+  const doc = await getDoc(key, docId);
+  await requireDocAccess(key, doc, "read");
+  if (doc.doc_type !== "BEP" && doc.doc_type !== "EIR") throw err(400, ONLY_BEP_EIR);
+  if (typeof name !== "string" || !name.trim()) throw err(400, "A template needs a name.");
+  const officeKey = await (await import("./office-scope.mjs")).officeKeyOf(key);
+  if (!officeKey) throw err(409, "This project belongs to no office, so there is nowhere to keep an office template.");
+  await (await import("./members-store.mjs")).requireOfficeLead(officeKey, undefined, "Only a lead of the office saves an office template.");
+  const cur = await resolveArtefact(officeKey, "doc_templates");
+  const templates = Array.isArray(cur.body?.templates) ? cur.body.templates : [];
+  const tid = id ?? templateIdFor(name, new Set(templates.map((t) => t.id)));
+  const entry = templateFromDocument(doc, await templateOf(key, doc).catch(() => null), { id: tid, name: name.trim(), when_to_use: when_to_use ?? "", variant: variant ?? null, keep_content: keep_content === true });
+  const next = { templates: templates.some((t) => t.id === tid) ? templates.map((t) => (t.id === tid ? entry : t)) : [...templates, entry] };
+  const pointer = await putArtefact(officeKey, "doc_templates", next, { actor, ifMatch: cur.sha256 ?? "none" });
+  const template_id = `office:${tid}`;
+  await audit(doc.project_id, "bim_document", doc.id, "document_saved_as_template", actor || "web", null, { document_id: doc.id, template_id, office_version: pointer.version });
+  return { template_id, office_version: pointer.version };
 }
 
 export async function listVersions(key, docId) {
@@ -552,10 +592,12 @@ const START_REFUSED = (why) => err(422, `${why} Nothing was saved.`);
 export async function pickStart(key, docId, { start, eir_id, updated_at, actor } = {}) {
   if (start !== "eir_received" && start !== "no_eir") throw err(400, "start must be eir_received or no_eir");
   const doc = await openForWrite(key, docId, "govern", updated_at);
-  const tpl = loadTemplates().find((t) => t.template_id === doc.template_id);
+  const tpl = await templateOf(key, doc);
+  if (isOffice(doc.template_id) && !tpl) throw err(409, "The template this document was made from is no longer in the office's list, so a start cannot be picked.");
   const startBlocks = tpl?.starts?.no_eir?.blocks;
-  // A BEP stored with the old template id 'bep' (no file any more) is refused here in words, never thrown on.
-  if (!String(doc.template_id ?? "").startsWith("bep-comprehensive") || !startBlocks) throw START_REFUSED("Only a BEP made from the comprehensive template has a start.");
+  // A BEP stored with the old template id 'bep' (no file any more) is refused here in words, never thrown on. An office template has a start when it
+  // was saved from the comprehensive one (it carries that template's starts).
+  if ((!isOffice(doc.template_id) && !String(doc.template_id ?? "").startsWith("bep-comprehensive")) || !startBlocks) throw START_REFUSED("Only a BEP made from the comprehensive template has a start.");
   const sections = Array.isArray(doc.sections) ? doc.sections : [];
   const si = sections.findIndex((s) => s?.template_key === "eir-response");
   if (si < 0) throw START_REFUSED("This BEP has no EIR response section from the template, so it has no start.");
@@ -717,7 +759,7 @@ export async function executabilityReport(key, docId) {
   return {
     ...executability(doc, CHECKS.map((c) => c.id), PLANNED_CHECKS.map((p) => p.id)),
     generated_at: new Date().toISOString(),
-    variant: loadTemplates().find((t) => t.template_id === doc.template_id)?.variant ?? null,
+    variant: (await templateOf(key, doc).catch(() => null))?.variant ?? null,
   };
 }
 

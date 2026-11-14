@@ -12,6 +12,7 @@ import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, 
 import { refLabel, resolveArtefact } from "./artefact-store.mjs";
 import { measureGate, readGateInputs } from "./stage-gate.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
+import { knowChecks } from "./doc-templates.mjs";
 import { projectBeps, bepsWithLatestVersion, classifyNominated, classifyOneProducer, classifyDocSuitability, classifyLoin, SUITABILITY_ALLOWED } from "./doc-checks.mjs";
 
 let _core;
@@ -614,6 +615,7 @@ export const PLANNED_CHECKS = [
 ];
 
 const BY_ID = new Map(CHECKS.map((c) => [c.id, c]));
+knowChecks([...CHECKS, ...PLANNED_CHECKS].map((c) => c.id)); // an office template's bindings may name these (artefact-store cannot import this file)
 export const getCheck = (id) => BY_ID.get(id);
 export const listChecks = () => ({
   checks: CHECKS.map(({ id, label, description, params_schema }) => ({ id, label, description, params_schema })),

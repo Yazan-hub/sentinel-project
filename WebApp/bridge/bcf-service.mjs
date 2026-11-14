@@ -2190,7 +2190,7 @@ async function handleRequest(req, res) {
   }
 
   // ── BIM Documents (BEP/EIR) — structured ISO 19650 documents, versioned & audited ──
-  //   GET  /bimdocs/templates · POST /bimdocs/compile-ids { text } (prose → proposed IDS, installs nothing)
+  //   GET  /bimdocs/templates (shipped only) · GET /bimdocs/:key/templates (shipped + the office's) · POST /bimdocs/compile-ids { text } (prose → proposed IDS, installs nothing)
   //   GET  /bimdocs/:key · POST /bimdocs/:key { doc_type, template_id?, title }
   //   GET  /bimdocs/:key/:docId
   //   PATCH /bimdocs/:key/:docId/section/:sectionId { body?, owner?, state?, updated_at }
@@ -2251,7 +2251,7 @@ async function handleRequest(req, res) {
         return res.end(buf);
       }
 
-      if (p1 === "templates" && req.method === "GET") return send(res, 200, bimdocs.listTemplates());
+      if (p1 === "templates" && req.method === "GET") return send(res, 200, await bimdocs.listTemplates());
       // POST /bimdocs/compile-ids { text } → proposed IDS specifications compiled from requirement prose.
       // Deterministic and READ-ONLY: it installs nothing. The caller reviews `specifications` against
       // each `source_sentence`, and reads `unmatched` — those requirements are in the document and
@@ -2349,6 +2349,9 @@ async function handleRequest(req, res) {
       if (p1 && p2 === "rounds" && p3 && p4 === "skip" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).skipStep(p1, p3, body));
       if (p1 && p2 && p3 === "incorporated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).incorporated(p1, p2, body));
       if (p1 && p2 && p3 === "review-needed" && p4 === "dismiss" && !seg[5] && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).dismissReview(p1, p2, body, actor));
+      // R3: GET /bimdocs/:key/templates → the shipped templates, then the office's ({office: true, version}); POST /bimdocs/:key/:docId/save-as-template {id?, name, when_to_use?, variant?, keep_content?} → {template_id, office_version} (a lead of the office)
+      if (p1 && p2 === "templates" && !p3 && req.method === "GET") return send(res, 200, await bimdocs.listTemplates(p1));
+      if (p1 && p2 && p3 === "save-as-template" && !p4 && req.method === "POST") return send(res, 200, await bimdocs.saveAsTemplate(p1, p2, { ...body, actor }));
       if (p1 && !p2 && req.method === "GET") return send(res, 200, await bimdocs.listDocs(p1));
       if (p1 && !p2 && req.method === "POST") return send(res, 201, await bimdocs.createDoc(p1, { ...body, actor }));
       // R1c: the facts the editor offers, and the live values of a document (the freeze preview: exactly what a publish would freeze).

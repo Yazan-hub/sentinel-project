@@ -1276,7 +1276,9 @@ const RESERVED_ACTIONS = ["verdict:", "gate:", "roi:", "state:", "hold:", "revie
   // R2c: per-document access and the comment rows are the bridge's own (verified actor and uid), never a note.
   "document_access_changed", "comment_added", "comment_resolved", "comment_assigned", "team_thread_changed",
   // R2d-2: the client outside Sentinel, a skipped or outside-recorded step, Incorporated in appointment, a dismissed review trigger are the functions' and the bridge's rows.
-  "client_outside_sentinel_changed", "review_step_recorded_outside", "review_step_skipped", "document_incorporated", "revision_trigger_dismissed"];
+  "client_outside_sentinel_changed", "review_step_recorded_outside", "review_step_skipped", "document_incorporated", "revision_trigger_dismissed",
+  // R3: saving a document as an office template is the bridge's row (the verified actor), never a note.
+  "document_saved_as_template"];
 // Issue sign-offs (2026-10-21): bcf_topic rows are topic-ledger.mjs's — written with the topic change itself, never through this route.
 const RESERVED_TYPES = ["stage_gate", "hold", "delivery_gate", "review", "platform_gate", "evidence", "attestation", "edit_cost", "recipe", "splat", "ledger_anchor", "bcf_topic", "annex", "doc_team_thread"];
 

@@ -677,8 +677,8 @@ describe("R1b: shipped templates instantiate cleanly, and the list says which to
       for (const b of t.starts?.no_eir?.blocks ?? []) expect(() => validateBlock({ ...b, id: `x.${b.id_suffix}` })).not.toThrow();
     }
   });
-  it("listTemplates names the template, its variant, when to use it and the default", () => {
-    expect(listTemplates().find((t) => t.template_id === "bep-comprehensive-minimal")).toEqual({ template_id: "bep-comprehensive-minimal", doc_type: "BEP",
+  it("listTemplates names the template, its variant, when to use it and the default", async () => {
+    expect((await listTemplates()).find((t) => t.template_id === "bep-comprehensive-minimal")).toEqual({ template_id: "bep-comprehensive-minimal", doc_type: "BEP",
       title: "BIM Execution Plan, minimal", sections: 8, variant: "minimal", default: false,
       when_to_use: "The eight sections a tender needs. Use it for a small project or a quick bid; add sections later." });
   });

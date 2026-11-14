@@ -10,9 +10,10 @@ import { resolveActor } from "./bridge-auth.mjs";
 import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matrix reader (src/sentinel-core/lod-matrix.ts)
 import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack validator (pure, no cycle)
 import { validateRecipe } from "./recipe-logic.mjs"; // MA-8-13: the recipe validator (pure, no cycle)
+import { validateDocTemplates } from "./doc-templates.mjs"; // R3: the office's document templates (pure, no cycle)
 
 export const STORE = "artefact";
-export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe", "protection", "ai_policy"];
+export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe", "protection", "ai_policy", "doc_templates"];
 // MA-8-6 (P1-11): the data types the Revit 2027 IFC exporter's DefaultUserDefinedParameterSets.txt lists (read on this PC). The add-in
 // writes that file's format from an ifc_export body, so a type the exporter does not know never installs. SentinelAddin/Engine/IfcExportMapping.cs mirrors this.
 export const IFC_EXPORT_TYPES = ["Acceleration", "AngularVelocity", "Area", "AreaDensity", "Boolean", "ClassificationReference", "ColorTemperature", "Count", "Currency",
@@ -387,6 +388,7 @@ export function validateArtefact(kind, body) {
     body.worksets.forEach((w, i) => { if (typeof w !== "string" || !w.trim() || w.length > 120) throw bad(kind, `worksets[${i}]`, "must be a workset name or pattern (* matches any run of characters) of 1 to 120 characters"); });
     if (typeof body.structural_hosts !== "boolean") throw bad(kind, "structural_hosts", "must be true or false");
   }
+  if (kind === "doc_templates") validateDocTemplates(body); // R3: the office's BEP and EIR templates — checked as the stores read them
   if (kind === "ai_policy") {
     // AI privacy (spec 2026-10-20): an office's or project's two switches, read by ai-policy.mjs (office OR project). Exactly
     // two booleans: a stray key is refused, not kept — a reader that skipped it would enforce a policy nobody can see.
@@ -562,6 +564,8 @@ export async function putArtefact(key, kind, body, { actor, source, ifMatch } = 
   const d = await wire(deps);
   await d.requireMinRole(key, "lead");
   const proj = await d.ensureProject(key);
+  // R3: document templates are the office's standard — kept on the office, read by its projects (resolveArtefact), never a project's own.
+  if (kind === "doc_templates" && proj.kind !== "office") throw err(400, "Document templates belong to the office — open the office, not a project; nothing was saved.");
   // Human-error guards §2: If-Match is the sha of the artefact in force for `key` as the client read it, or "none" — another install
   // since (here or on its office) is a 412 naming who and when. None sent is written as before (scripts, the MCP server, older add-ins).
   const want = ifMatchValue(ifMatch);
