@@ -27,7 +27,12 @@ function resultText(r: Record<string, unknown> | undefined): string {
   const summary = String(r.summary ?? "");
   switch (r.status) {
     case "met": return "met";
-    case "violations": { const n = Number(r.count) || 0; return n === 1 ? "1 problem" : `${n} problems`; }
+    case "violations": {
+      const n = Number(r.count) || 0, words = n === 1 ? "1 problem" : `${n} problems`;
+      // R3 drill (F-R3-1): the first two are named, so the person knows what to fix without leaving the tab.
+      const named = list(r.evidence).map((e) => String(obj(e)?.detail ?? "")).filter(Boolean);
+      return named.length ? `${words}: ${named.slice(0, 2).join("; ")}${named.length > 2 ? `; and ${named.length - 2} more` : ""}` : words;
+    }
     case "not_checkable": return `not checkable: ${r.reason || summary}`;
     case "error": return `error: ${summary}`;
     default: return "not run";

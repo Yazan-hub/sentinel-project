@@ -46,6 +46,13 @@ describe("qualityModel", () => {
     const e = qualityModel(ex, { sections: [{ section_id: "s3", results: [{ id: "cde.states", status: "error", summary: "boom" }] }] }, { checks: [], planned: [] });
     expect(e.bound[1].lines).toEqual(["cde.states: error: boom"]);
   });
+  it("F-R3-1: problems that carry a detail are named on the line, the first two and how many more", () => {
+    const ev = (...d: string[]) => d.map((detail) => ({ label: "BEP — Team", detail }));
+    const line = (evidence: unknown[]) => qualityModel(ex, { sections: [{ section_id: "s1", results: [{ id: "roles.responsibility", status: "violations", count: evidence.length, summary: "", evidence }] }] }, checks).bound[0].lines[0];
+    expect(line(ev("Sam is not a member of this project"))).toBe("Every role has a responsibility: 1 problem: Sam is not a member of this project");
+    expect(line(ev("A", "B", "C", "D"))).toBe("Every role has a responsibility: 4 problems: A; B; and 2 more");
+    expect(line([{ container: "x" }, "plain"])).toBe("Every role has a responsibility: 2 problems"); // older checks' evidence has no detail: the count alone
+  });
 });
 
 describe("bindingsBody", () => {

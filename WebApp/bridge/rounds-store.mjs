@@ -161,9 +161,11 @@ export async function incorporated(key, docId, { version_no, parties } = {}) {
 
 /** "Needs a review": the reasons now standing for the document, from the project's ledger since its last round started. */
 async function reasonsFor(key, doc, lastRound) {
-  const v = await sb(`bim_document_versions?document_id=eq.${enc(doc.id)}&select=version_no&limit=1`);
+  const v = await sb(`bim_document_versions?document_id=eq.${enc(doc.id)}&select=version_no,published_at&order=version_no.desc&limit=1`);
   if (!Array.isArray(v) || !v.length) return []; // F-R2d-1: never issued or published, so there is nothing agreed to review again
-  const since = lastRound?.sent_at ?? doc.created_at;
+  // What was agreed last: the round's send, or — for a document that never went through a round — its latest publish (F-R3-3: a
+  // standard installed before that publish was already in it, so it is no reason to review the version just published).
+  const since = lastRound?.sent_at ?? v[0].published_at ?? doc.created_at;
   const rows = await auditAll(key, since ? { since } : {});
   return revisionReasons(doc, lastRound, rows ?? []);
 }

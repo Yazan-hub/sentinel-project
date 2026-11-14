@@ -47,7 +47,7 @@ beforeEach(() => {
   newTopicObject.mockImplementation((k, b) => ({ guid: "g1", project_id: k, ...b }));
   sb.mockImplementation(async (path, opts = {}) => {
     if (path.startsWith("bim_documents?id=")) return [doc];
-    if (path.startsWith("bim_document_versions?") && path.endsWith("select=version_no&limit=1")) return versioned ? [{ version_no: 1 }] : [];
+    if (path.startsWith("bim_document_versions?") && path.endsWith("select=version_no,published_at&order=version_no.desc&limit=1")) return versioned ? [{ version_no: 1, published_at: "2026-11-05T00:00:00Z" }] : [];
     if (path.startsWith("rpc/doc_review_chain")) return chain;
     if (path.startsWith("doc_rounds?document_id=eq.") && path.includes("status=eq.open")) return open ? [{ id: RND, document_id: DOC, status: "open" }] : [];
     if (path.startsWith("doc_rounds?id=")) return [roundRow()];
@@ -273,7 +273,7 @@ describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () =
       ? [{ action: "document_incorporated", at: "2026-11-11T00:00:00Z", actor: "l@x", new_value: { version_no: 1, sha: "s1", parties: ["Firm A"] } }] : [stage]));
     const r = await runWithAuth(jwt("lead2"), () => currentRound("k", DOC));
     expect(r).toMatchObject({ needs_review: ["the project moved to the coordination stage"], can_dismiss: true, can_incorporate: true, incorporated: { 1: { parties: ["Firm A"] } } });
-    expect(auditAll.mock.calls[0][1]).toEqual({ since: "2026-11-01T00:00:00Z" });
+    expect(auditAll.mock.calls[0][1]).toEqual({ since: "2026-11-05T00:00:00Z" }); // F-R3-3: no round was ever sent, so the latest publish is what was agreed, not the document's creation
     me = { role: "contributor" };
     expect(await runWithAuth(jwt("lead2"), () => currentRound("k", DOC))).toMatchObject({ can_dismiss: false, can_incorporate: false });
     me = { role: "lead" };
