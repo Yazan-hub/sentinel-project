@@ -13,7 +13,7 @@
 --   - set_client_outside_sentinel: the setting is not switched off under an open EIR round sent without a Client while its Client step is still to come.
 --
 -- Dry-run: PGlite with every migration (bridge/migration-0055.test.mjs). Probe: probes/0055_probe.sql.
--- NOT APPLIED. Applied live only on the founder's OK, then probed.
+-- APPLIED 2026-11-14 ~12:05 UTC on the founder's "Yes, apply 0055" (Supabase migration 0055_eir_outside). The three live function bodies match this file (md5). Probe: part 1 all true, "PROBE 0055: 9 of 9 as expected."
 -- Rollback (never run casually): re-run 0054's set_client_outside_sentinel, doc_round_record_outside and doc_round_start bodies.
 
 begin;
