@@ -94,7 +94,7 @@ describe("a document made from an office template", () => {
     doc = makeDoc({ template_id: "office-our-bep" });
     await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 422 });
     office.current = validateDocTemplates({ templates: [] });
-    await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 409, message: "The template this document was made from is no longer in the office's list, so a start cannot be picked." });
+    await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 422, message: "The template this document was made from is no longer in the office's list, so a start cannot be picked. Nothing was saved." });
     expect(patches()).toHaveLength(0);
     expect((await executabilityReport("k", doc.id)).variant).toBeNull(); // opens, scores
   });

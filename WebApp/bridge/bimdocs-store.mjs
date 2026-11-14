@@ -595,7 +595,8 @@ export async function pickStart(key, docId, { start, eir_id, updated_at, actor }
   if (start !== "eir_received" && start !== "no_eir") throw err(400, "start must be eir_received or no_eir");
   const doc = await openForWrite(key, docId, "govern", updated_at);
   const tpl = await templateOf(key, doc);
-  if (isOffice(doc.template_id) && !tpl) throw err(409, "The template this document was made from is no longer in the office's list, so a start cannot be picked.");
+  // 422, as every start refusal: the workspace reads a 409 on a write as "published or archived meanwhile" and would hide these words (F-R3-4).
+  if (isOffice(doc.template_id) && !tpl) throw START_REFUSED("The template this document was made from is no longer in the office's list, so a start cannot be picked.");
   const startBlocks = tpl?.starts?.no_eir?.blocks;
   // A BEP stored with the old template id 'bep' (no file any more) is refused here in words, never thrown on. An office template has a start when it
   // was saved from the comprehensive one (it carries that template's starts).
