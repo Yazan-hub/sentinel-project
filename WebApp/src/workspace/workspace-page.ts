@@ -99,7 +99,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
   const keyEl = h(d, "span", `color:${C.muted};font:11px ui-monospace,monospace;flex:0 0 auto`);
   const titleEl = h(d, "span", "font:600 14px system-ui;color:#fff;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap");
   const statusEl = h(d, "span", `color:${C.soft};font:11px system-ui;flex:0 0 auto`);
-  const workBtn = btn(d, "My work (0)"); // R2c: the same list as the Dashboard's, as a drop-down under the header
+  const workBtn = btn(d, "My work"); // R2c: the same list as the Dashboard's, as a drop-down under the header; no count until it is read
   workBtn.style.flex = "0 0 auto";
   left.append(back, keyEl, titleEl, statusEl, workBtn);
   const viewBar = h(d, "div", "display:flex;gap:.3rem;justify-content:flex-end");
@@ -115,10 +115,10 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
   root.style.position = "relative";
   root.append(header, msgEl, grid, workDrop); // the drop-down last: the grid stays the third child
 
-  let work: MyWork | null = null, workKey = "", workShown = false, workRead = false;
+  let work: MyWork | null = null, workKey = "", workShown = false, workRead = false, workSeq = 0;
   function drawWork(): void {
     if (workKey !== activePid()) { work = null; workRead = false; } // another project: its list is not this one's
-    workBtn.textContent = `My work (${myWorkTotal(work)})`;
+    workBtn.textContent = work ? `My work (${myWorkTotal(work)})` : "My work"; // F-R2d-7: an unread list is not "(0)"
     workDrop.style.display = workShown ? "" : "none";
     const close = (): void => { workShown = false; drawWork(); };
     workDrop.replaceChildren(...(!workShown ? [] : [work
@@ -126,9 +126,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
       : h(d, "div", `color:${C.muted};font:12px system-ui`, workRead ? "My work could not be read." : "Reading…")]));
   }
   async function loadWork(): Promise<void> {
-    const key = activePid();
+    const key = activePid(), seq = ++workSeq;
     const w = await loadMyWork(base, key);
-    if (key !== activePid()) return; // another project meanwhile
+    if (key !== activePid() || seq !== workSeq) return; // another project, or a later read (a sign-in change) meanwhile
     work = w; workKey = key; workRead = true; drawWork();
   }
   workBtn.addEventListener("click", () => { workShown = !workShown; drawWork(); if (workShown) void loadWork(); });

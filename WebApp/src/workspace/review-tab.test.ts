@@ -220,9 +220,10 @@ describe("R2d-2: the client outside Sentinel, skipped steps, Needs a review, Inc
   });
   it("Incorporated in appointment: the recorded versions with their parties, and a lead's form", async () => {
     const c = ctx(cur({ incorporated: { "1": { parties: ["Firm A", "Firm B"], sha: "s", at: "t", by: "l@x" } }, can_incorporate: true }));
-    c.st.versions = [{ version_no: 1, label: "Tender issue P01" }, { version_no: 2, label: "Confirmed C01" }] as never;
+    c.st.versions = [{ version_no: 1, label: "Confirmed C01", revision: "C01" }, { version_no: 2, label: "Confirmed C02", revision: "C02" }, { version_no: 3, label: "Tender issue P01", revision: "P01" }] as never;
     const el = run(c);
     expect(textOf(el)).toContain("v1 · Incorporated in appointment: Firm A, Firm B");
+    expect(all(all(el, "select").slice(-1)[0], "option").map((o) => o.value)).toEqual(["1", "2"]); // F-R2d-6: a tender (P) version is never offered
     click(by(el, "Record")[0]); await tick();
     expect(c.ws.post).not.toHaveBeenCalled(); expect(textOf(el)).toContain("Name the parties");
     const sels = all(el, "select"), which = sels[sels.length - 1];
@@ -236,5 +237,11 @@ describe("R2d-2: the client outside Sentinel, skipped steps, Needs a review, Inc
     const el = run(c);
     expect(textOf(el)).toContain("Incorporated in appointment: Firm A"); expect(by(el, "Record")).toEqual([]);
     expect(textOf(run(ctx(cur({ can_incorporate: true }))))).not.toContain("Incorporated in appointment");
+    const tender = ctx(cur({ can_incorporate: true })); tender.st.versions = [{ version_no: 1, label: "Tender issue P01", revision: "P01" }] as never;
+    expect(textOf(run(tender))).not.toContain("Incorporated in appointment"); // only a tender version: nothing to record yet
+  });
+  it("F-R2d-2: a required appointment note says so in its own box", () => {
+    const el = run(ctx(cur({ appointment: { can: true, needs_note: true } })));
+    expect(all(el, "textarea")[0].getAttribute("placeholder")).toContain("required");
   });
 });

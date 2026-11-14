@@ -40,6 +40,15 @@ describe("readView", () => {
     expect(calls).toEqual(["/bimdocs/k/d1/versions/2"]);
     expect(textOf(el)).toContain("Version v2, v2: printed exactly as published."); expect(textOf(el)).toContain("frozen text");
   });
+  it("F-R2d-4/5: under a review chain Send freezes it; out for review says the reviewers decide the sent copy; the sent copy is not called published", async () => {
+    const chained = { ...emptyState("k"), doc: doc(), round: { chain: true, round: null } as never };
+    expect(textOf(readView(ctxOf(chained).ctx))).toContain("Sending it for review freezes exactly what you see.");
+    const out = { ...emptyState("k"), doc: doc({ status: "shared" }), round: { chain: true, round: { status: "open" } } as never };
+    expect(textOf(readView(ctxOf(out).ctx))).toContain("Out for review: this is the live document."); expect(textOf(readView(ctxOf(out).ctx))).not.toContain("Publishing now");
+    const sent = { ...emptyState("k"), doc: doc(), viewing: { ...ver(0), label: "Sent for review", document_id: "d1", snapshot: frozen } };
+    const el = readView(ctxOf(sent).ctx); await flush();
+    expect(textOf(el)).toContain("What was sent for review: printed exactly as it was sent."); expect(textOf(el)).not.toContain("as published");
+  });
   it("a viewed version shows Back, which clears it", async () => {
     const { ctx, back } = ctxOf({ ...emptyState("k"), doc: doc({ status: "published" }), versions: [ver(1)], viewing: { ...ver(1), document_id: "d1", snapshot: frozen } });
     const el = readView(ctx); await flush();

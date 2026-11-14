@@ -46,7 +46,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
     if (await sent) await ctx.ws.reload();
     else note.textContent = ctx.ws.state().message;
   };
-  const noteBox = (): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", "A note (optional)"); t.value = ""; return t; };
+  const noteBox = (placeholder = "A note (optional)"): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", placeholder); t.value = ""; return t; };
   const round = cur.round;
   const area = (placeholder: string): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", placeholder); t.value = ""; return t; };
   const input = (type: string, placeholder = ""): HTMLInputElement => { const i = h(d, "input", `${FIELD};margin:.2rem 0`); i.setAttribute("type", type); if (placeholder) i.setAttribute("placeholder", placeholder); i.value = ""; return i; };
@@ -140,7 +140,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
 
   if (cur.appointment.can) {
     box.append(h(d, "div", HEAD, "Appointment"));
-    const nb = cur.appointment.needs_note ? noteBox() : null;
+    const nb = cur.appointment.needs_note ? noteBox("A note (required): no tender was selected in Sentinel") : null;
     if (nb) box.append(h(d, "div", MUTED, "A note is required here."), nb);
     const b = btn(d, "Appointment indicated: open confirmation", true);
     b.addEventListener("click", () => {
@@ -175,12 +175,14 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
   } else if (!round && !cur.chain) box.append(h(d, "p", MUTED, "This document is not sent for review in rounds. Share and publish from the Documents tab."));
   if (st.versions.length) {
     const done = st.versions.filter((v) => cur.incorporated?.[String(v.version_no)]);
-    if (done.length || cur.can_incorporate) box.append(h(d, "div", HEAD, "Incorporated in appointment"));
+    const published = st.versions.filter((v) => /^C/.test(v.revision ?? "")); // F-R2d-6: only a published (C) version is incorporated; the database refuses the rest
+    const canRecord = !!cur.can_incorporate && published.length > 0;
+    if (done.length || canRecord) box.append(h(d, "div", HEAD, "Incorporated in appointment"));
     for (const v of done) box.append(h(d, "div", SOFT, `v${v.version_no} · ${incorporatedWords(cur.incorporated![String(v.version_no)].parties)}`));
-    if (cur.can_incorporate) {
+    if (canRecord) {
       box.append(h(d, "div", MUTED, "After an appointment is signed, record which version it includes and whose appointments include it."));
       const which = h(d, "select", `${FIELD};width:auto;margin:.2rem 0`);
-      for (const v of st.versions) { const op = h(d, "option", "", `v${v.version_no}${v.label ? ` · ${v.label}` : ""}`); op.value = String(v.version_no); which.append(op); }
+      for (const v of published) { const op = h(d, "option", "", `v${v.version_no}${v.label ? ` · ${v.label}` : ""}`); op.value = String(v.version_no); which.append(op); }
       const parties = input("text", "Whose appointments include it (separate with commas)");
       const rec = btn(d, "Record");
       rec.addEventListener("click", () => {

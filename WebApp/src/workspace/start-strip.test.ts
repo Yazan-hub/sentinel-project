@@ -13,7 +13,7 @@ const bep = (o: Record<string, unknown> = {}) => ({ id: "d1", doc_type: "BEP", t
   sections: [{ id: "s1", heading: "1", owner: null, blocks: [t0("s1")] }, { id: "s2", heading: "2", owner: "a@x", template_key: "eir-response", blocks: [t0("s2")] }], ...o }) as any;
 const ex = (written: number, sections: number) => ({ summary: { written, sections } }) as any;
 const START = "Pick a start: EIR received, or no EIR received.", LEADS = "Name a section lead for every section.",
-  WRITE = "Write each section. Publishing stays in the Documents tab until review rounds arrive.";
+  WRITE = "Write each section, then send it for review in the Review tab (or publish it from the Documents tab when documents do not go through review).";
 
 describe("nextSteps", () => {
   it("a new comprehensive BEP has three open lines", () =>

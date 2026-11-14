@@ -80,6 +80,7 @@ describe("R2c: My work in the workspace header", () => {
     answers["/bimdocs/k/d9"] = row("BEP", [{ id: "s4", heading: "4. Roles", guidance: "", body: "", state: "wip", owner: null, bindings: {} }]);
     const opened: string[] = [];
     const el = workspacePage({ baseUrl: "http://b", onBack: () => {}, onOpenReview: () => opened.push("review"), doc: fakeDocument() }) as any;
+    expect(textOf(findAll(el.childNodes[0], "button").find((b) => textOf(b).startsWith("My work"))!)).toBe("My work"); // F-R2d-7: no count before it is read
     await el.open("d1"); await tick();
     const header = el.childNodes[0], btn = findAll(header, "button").find((b) => textOf(b).startsWith("My work"))!;
     expect(textOf(btn)).toBe("My work (2)");

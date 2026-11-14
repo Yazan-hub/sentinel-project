@@ -33,7 +33,7 @@ const { transitionDoc, publishDoc, patchSection, addBlock, setSectionPlan, setSe
 const DOC = "11111111-1111-4111-8111-111111111111", RND = "22222222-2222-4222-8222-222222222222";
 const jwt = (sub) => `x.${Buffer.from(JSON.stringify({ sub, email: `${sub}@x.com` })).toString("base64url")}.y`;
 const BEP = [{ name: "Task teams", role: "contributor", kind: "task_teams" }, { name: "Lead firm", role: "lead", party: "lead_appointed" }, { name: "Client", role: "viewer", party: "appointing" }];
-let doc, chain, open, refusal;
+let doc, chain, open, refusal, versioned;
 const calls = (re) => sb.mock.calls.filter(([p]) => re.test(p));
 const roundRow = (o = {}) => ({ id: RND, document_id: DOC, doc_type: "BEP", stage: "pre_appointment", steps: BEP, teams_owed: ["ARC"], codes: { issue: "S4" }, status: "open",
   roster: [{ uid: "lead2", email: "l2@x", party: "lead_appointed", role: "lead" }], sent_by: "owner1", issued_version: null, ...o });
@@ -42,11 +42,12 @@ beforeEach(() => {
   audit.mockReset(); auditAll.mockReset(); auditAll.mockResolvedValue([]); sb.mockReset(); newTopicObject.mockReset(); bcfCreateTopic.mockReset(); resolveLive.mockClear();
   doc = { id: DOC, project_id: "proj1", doc_type: "BEP", status: "wip", stage: "pre_appointment", suitability: "S0", title: "Our BEP", updated_at: "u1",
     sections: [{ id: "s1", heading: "H", body: "", state: "wip", owner: null, bindings: {}, blocks: [{ id: "b1", kind: "text", title: "", data: { text: "" } }] }] };
-  chain = BEP; open = false; refusal = null;
+  chain = BEP; open = false; refusal = null; versioned = true;
   me = { role: "lead", party: "lead_appointed", task_team: null, state: "active" };
   newTopicObject.mockImplementation((k, b) => ({ guid: "g1", project_id: k, ...b }));
   sb.mockImplementation(async (path, opts = {}) => {
     if (path.startsWith("bim_documents?id=")) return [doc];
+    if (path.startsWith("bim_document_versions?") && path.endsWith("select=version_no&limit=1")) return versioned ? [{ version_no: 1 }] : [];
     if (path.startsWith("rpc/doc_review_chain")) return chain;
     if (path.startsWith("doc_rounds?document_id=eq.") && path.includes("status=eq.open")) return open ? [{ id: RND, document_id: DOC, status: "open" }] : [];
     if (path.startsWith("doc_rounds?id=")) return [roundRow()];
@@ -270,6 +271,9 @@ describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () =
     me = { role: "contributor" };
     expect(await runWithAuth(jwt("lead2"), () => currentRound("k", DOC))).toMatchObject({ can_dismiss: false, can_incorporate: false });
     me = { role: "lead" };
+    versioned = false; // F-R2d-1: a first draft with no version has nothing to review again
+    expect(await runWithAuth(jwt("lead2"), () => currentRound("k", DOC))).toMatchObject({ needs_review: [], can_dismiss: false });
+    versioned = true;
     open = true;
     sb.mockImplementation(async (path) => (path.startsWith("bim_documents?id=") ? [doc] : path.startsWith("rpc/doc_review_chain") ? chain : path.startsWith("doc_rounds?document_id=") ? [roundRow()] : []));
     expect(await runWithAuth(jwt("lead2"), () => currentRound("k", DOC))).toMatchObject({ needs_review: [], can_dismiss: false });

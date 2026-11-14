@@ -14,6 +14,10 @@ import type { PaneCtx } from "./workspace-page";
 import { containerIdReasons, pickPrintSource, POPUP_BLOCKED, printDocument, PAPER_CSS, liveWord, renderPrintable, type PrintInput } from "./print-render";
 
 export const DRAFT_BANNER = "Draft, live data. Publishing now freezes exactly what you see.";
+// F-R2d-4: under a review chain a document is frozen by Send, and while out for review the reviewers decide the copy that was sent.
+const draftBanner = (st: WorkspaceState): string => st.round?.round?.status === "open"
+  ? "Out for review: this is the live document. The reviewers decide the copy that was sent (Review ▸ Read what was sent)."
+  : st.round?.chain ? "Draft, live data. Sending it for review freezes exactly what you see." : DRAFT_BANNER;
 const LOADING = "Loading the published version…";
 const UNREADABLE_VERSION = "The published version could not be read.";
 const RULE_UNREADABLE = "The naming rule could not be read, so the container ID was not checked. Nothing was printed.";
@@ -54,6 +58,7 @@ async function loadInput(ctx: PaneCtx, containerId: string | null): Promise<Prin
 
 const sourceLine = (st: WorkspaceState): string => {
   const src = pickPrintSource(st);
+  if (src.kind === "version" && src.n === 0) return "What was sent for review: printed exactly as it was sent."; // F-R2d-5: the round's frozen copy is not a published version
   if (src.kind === "version") { const v = st.viewing?.version_no === src.n ? st.viewing : st.versions.find((x) => x.version_no === src.n); return `Version v${src.n}${v ? `, ${v.label}` : ""}: printed exactly as published.`; }
   return st.doc?.status === "published" ? UNREADABLE_VERSION : `${liveWord(st.doc?.status)}, live data: this is the document as it is now.`;
 };
@@ -77,7 +82,7 @@ export function readView(ctx: PaneCtx): HTMLElement {
   const paper = h(d, "div", "border-radius:.3rem;overflow:hidden");
   const css = h(d, "style", "", PAPER_CSS);
   const installs = h(d, "div", "margin-top:.8rem");
-  root.append(bar, ...(draftNow ? [h(d, "div", `color:${C.warn};font:12px system-ui;margin:0 0 .6rem`, DRAFT_BANNER)] : []), msg, css, paper, installs);
+  root.append(bar, ...(draftNow ? [h(d, "div", `color:${C.warn};font:12px system-ui;margin:0 0 .6rem`, draftBanner(st))] : []), msg, css, paper, installs);
 
   paper.append(h(d, "div", `color:${C.muted}`, LOADING));
   const show = (text: string): void => paper.replaceChildren(h(d, "div", `color:${C.warn}`, text));

@@ -13,7 +13,7 @@ export function nextSteps(doc: DocRow, ex: Executability | null): { label: strin
   const sections = Array.isArray(doc.sections) ? doc.sections.filter(Boolean) : [];
   const steps = [
     { label: "Name a section lead for every section.", done: sections.every((s) => String(s.owner ?? "").trim() !== "") },
-    { label: "Write each section. Publishing stays in the Documents tab until review rounds arrive.", done: ex !== null && ex.summary?.written === ex.summary?.sections },
+    { label: "Write each section, then send it for review in the Review tab (or publish it from the Documents tab when documents do not go through review).", done: ex !== null && ex.summary?.written === ex.summary?.sections },
   ];
   return isComprehensive(doc) ? [{ label: "Pick a start: EIR received, or no EIR received.", done: hasStart(doc) }, ...steps] : steps;
 }

@@ -159,6 +159,8 @@ export async function incorporated(key, docId, { version_no, parties } = {}) {
 
 /** "Needs a review": the reasons now standing for the document, from the project's ledger since its last round started. */
 async function reasonsFor(key, doc, lastRound) {
+  const v = await sb(`bim_document_versions?document_id=eq.${enc(doc.id)}&select=version_no&limit=1`);
+  if (!Array.isArray(v) || !v.length) return []; // F-R2d-1: never issued or published, so there is nothing agreed to review again
   const since = lastRound?.sent_at ?? doc.created_at;
   const rows = await auditAll(key, since ? { since } : {});
   return revisionReasons(doc, lastRound, rows ?? []);
