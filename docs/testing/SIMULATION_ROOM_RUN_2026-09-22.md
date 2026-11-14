@@ -4133,3 +4133,22 @@ Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md. Plan: docs/su
 | 8 | The Client accepts → "Accepted, A1", v2 C01, its sha equal to the round's and to the sha-256 of the stored copy (#3681, #3682) | ✅ |
 
 Findings: F-R2d-1 to F-R2d-7 (wording on a first draft, the appointment note, the start strip, the Read banners, a tender version offered for "Incorporated in appointment", "My work (0)" before the list is read), all fixed (482a51da). Not driven on screen: the client outside Sentinel, a skipped step, a rejection, an EIR round (probes and tests cover the first three). Founder's decision ("Yes, same as BEP"): an EIR's Client step is recorded outside Sentinel as a BEP's is — migration 0055 applied on "Yes, apply 0055", live function bodies identical to the file (md5), "PROBE 0055: 9 of 9" rolled back (row 9).
+
+## Session R2d-2 — the client outside Sentinel, on screen: a tender skip, the Client's evaluation, an EIR accepted and an EIR rejected outside Sentinel, Incorporated in appointment (2026-11-14, 12:20–12:40 UTC; master bd11440d with migration 0055 live; a new scratch project r2d-client-outside-scratch under Snowdon Office with no Client member; Chrome signed in by the founder as hotmail, gmail and hotmail; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 10 to 19).
+
+| Row | What | Result |
+|---|---|---|
+| 10 | hotmail sets the project up from the screens: review@1 with document review, gmail invited as a second lead, "The client is not in Sentinel" on, team STR with no member, one BEP and two EIRs (#3698–#3707) | ✅ |
+| 11 | A send with only an invited second lead is refused: "Invite a second lead: the sender never decides the Lead firm step" | ✅ |
+| 12 | gmail (active on sign-in, #3708) sends the tender BEP and skips the team with no member, with a reason (#3709, #3710) | ✅ |
+| 13 | gmail sends two EIRs with no Client member (0055) (#3711, #3712) | ✅ |
+| 14 | hotmail signs off → P01, S4; records "Selected outside Sentinel on 14 November 2026 by Jane Client; recorded in Sentinel by …" → Submitted (#3713–#3716) | ✅ |
+| 15 | EIR A: issued, then the Client's acceptance recorded outside → Accepted, A1, C01 with the sha of what was sent (#3717–#3719) | ✅ |
+| 16 | Incorporated in appointment recorded on C01 (#3720) | ✅ |
+| 17 | EIR B: issued, then the Client's rejection recorded outside, with its reason → Rejected, back to draft (#3721–#3723) | ✅ |
+| 18 | Appointment indicated → confirmed (#3724); the confirmed send is refused while team STR has no member | ✅ |
+| 19 | The setting is not switched off under an EIR round waiting on the Client (#3725); the round is withdrawn (#3726) | ✅ |
+
+Findings: F-R2d-8 (a skip line named the skipper as of the skipped team), F-R2d-9 (an EIR's send form asked a tender-issue code), F-R2d-11 (an outside line showed neither the reason nor where the evidence is kept), F-R2d-12 (a rejection recorded outside filed no issue): fixed in ca8889a9, each with a test. F-R2d-10 (an EIR shows the BEP's stage words) is the founder's to decide. Not driven on screen: a confirmed BEP accepted outside, an EIR whose chain gives the Client the issue, the published app.
