@@ -14,6 +14,11 @@ describe("export (spec section 9)", () => {
     expect(coverLines(input({}), "2026-10-25")).toEqual(["SNW Pre-appointment BEP", "Project: snowdon-lifecycle", "Container ID: not assigned", "Stage: Pre-appointment (tender)", "Revision: —", "Suitability: S0", "Version: Draft", "Date: 2026-10-25", "Draft, live data"]));
   it("the cover of a version names it", () =>
     expect(coverLines(input({ version: v(2), containerId: "SNW_ARC_ZZ_XX_BP_A_0001" }), "2026-10-25")).toEqual(["SNW Pre-appointment BEP", "Project: snowdon-lifecycle", "Container ID: SNW_ARC_ZZ_XX_BP_A_0001", "Stage: Pre-appointment (tender)", "Revision: P02", "Suitability: S1", "Version: v2, Pre-appointment (tender)", "Date: 2026-10-22"]));
+  it("F-R2d-10: an EIR's cover has no Stage line, as a draft and as a version", () => {
+    const eir = row("live text", { doc_type: "EIR", title: "SNW EIR" });
+    expect(coverLines(input({ row: eir }), "2026-10-25")).toEqual(["SNW EIR", "Project: snowdon-lifecycle", "Container ID: not assigned", "Revision: —", "Suitability: S0", "Version: Draft", "Date: 2026-10-25", "Draft, live data"]);
+    expect(coverLines(input({ row: eir, version: v(2) }), "2026-10-25").some((l) => l.startsWith("Stage:"))).toBe(false);
+  });
   it("a version recorded before 0049 (no stage or suitability anywhere) prints a dash, never 'undefined'", () => {
     const { stage, suitability, ...old } = row("frozen");
     const lines = coverLines(input({ row: old, version: { ...v(1), stage: null, suitability: null, sha: null } }), "2026-10-25");

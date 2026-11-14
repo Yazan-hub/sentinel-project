@@ -1,7 +1,7 @@
 // The left-hand outline: the document's head, filters, one row per section (chips, section lead) and, for a lead,
 // the section operations. A viewer sees the same outline and no action.
 import type { CommentRow, DocRow, Executability, SectionRow, Snapshot } from "../sentinel-core/doc-blocks";
-import { STAGE_WORDS, statusLine } from "../sentinel-core/doc-blocks";
+import { STAGE_WORDS, showsStage, statusLine } from "../sentinel-core/doc-blocks";
 import { askText, askYesNo } from "../setups/ask";
 import { leadStatus } from "./people-tab";
 import { pathSegment } from "../setups/escape-html";
@@ -84,10 +84,10 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
 
   const head = (): HTMLElement => {
     const box = h(d, "div", `margin:0 0 .6rem;padding:0 .2rem .5rem;border-bottom:1px solid ${C.line}`);
-    const stage = STAGE_WORDS[doc.stage] ?? doc.stage;
+    const stage = showsStage(doc.doc_type) ? ` · ${STAGE_WORDS[doc.stage] ?? doc.stage}` : "";
     box.append(
       h(d, "div", "font:600 13px system-ui;color:#fff;overflow-wrap:anywhere", doc.title),
-      h(d, "div", `color:${C.soft};font:11px system-ui;margin-top:.15rem`, `${st.round?.words || statusLine(doc)} · ${stage}`),
+      h(d, "div", `color:${C.soft};font:11px system-ui;margin-top:.15rem`, `${st.round?.words || statusLine(doc)}${stage}`),
       h(d, "div", `color:${C.muted};font:11px system-ui`, latest ? `v${latest.version_no}, ${latest.label}` : "No version yet"),
     );
     const answers = answersLine(doc, st.respondsTo);

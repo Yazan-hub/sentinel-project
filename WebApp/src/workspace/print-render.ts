@@ -3,7 +3,7 @@
 // so never an in-frame print and never markup (document text reaches the page only as textContent).
 import type { NamingRuleset } from "../sentinel-core/naming";
 import { validateContainerName } from "../sentinel-core/naming";
-import { STAGE_WORDS, type LiveSet, type Snapshot, type VersionListRow } from "../sentinel-core/doc-blocks";
+import { STAGE_WORDS, showsStage, type LiveSet, type Snapshot, type VersionListRow } from "../sentinel-core/doc-blocks";
 import type { WorkspaceState } from "./workspace-state";
 import { renderSectionBody, type RenderCtx } from "./block-render";
 import { CELL, TABLE } from "./markdown";
@@ -37,7 +37,7 @@ export function coverLines(input: PrintInput, today: string): string[] {
   const { row, version } = input;
   const stage = own(STAGE_WORDS, version?.stage ?? row.stage) ?? DASH;
   return [
-    row.title, `Project: ${input.projectKey}`, `Container ID: ${input.containerId || "not assigned"}`, `Stage: ${stage}`,
+    row.title, `Project: ${input.projectKey}`, `Container ID: ${input.containerId || "not assigned"}`, ...(showsStage(row.doc_type) ? [`Stage: ${stage}`] : []),
     `Revision: ${version?.revision ?? DASH}`, `Suitability: ${version?.suitability ?? row.suitability ?? DASH}`,
     `Version: ${version ? `v${version.version_no}, ${version.label}` : liveWord(row.status)}`, `Date: ${version ? String(version.published_at).slice(0, 10) : today}`,
     ...(version ? [] : [`${liveWord(row.status)}, live data`]),

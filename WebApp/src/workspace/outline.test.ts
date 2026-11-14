@@ -105,6 +105,10 @@ describe("outlinePane", () => {
     const t = textOf(outlinePane(ctx(true, { versions: [version(1), version(2)] })));
     expect(t).toContain("Pre-appointment (tender)"); expect(t).toContain("v2, Label 2"); expect(t).toContain("Answers: no EIR linked");
   });
+  it("F-R2d-10: an EIR's head names no stage (an EIR never changes stage)", () => {
+    const t = textOf(outlinePane(ctx(true, { d: doc({ doc_type: "EIR", title: "SNW EIR" }) })));
+    expect(t).toContain("Draft, S0"); expect(t).not.toContain("Pre-appointment"); expect(t).not.toContain("Draft, S0 ·");
+  });
   it("Add with nothing focused appends; Move up sends the order; Remove confirms the bound checks", async () => {
     expect(await press(live(null), "Add section")).toHaveBeenCalledWith("POST", "/section", { heading: "New heading" });
     expect(await press(live("s2"), "Move up")).toHaveBeenCalledWith("PUT", "/outline", { order: ["s2", "s1"] });

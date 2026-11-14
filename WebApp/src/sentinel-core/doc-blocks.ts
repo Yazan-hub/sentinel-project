@@ -56,6 +56,8 @@ export interface Executability { score: number | null; reason?: string; headline
   strip: string[]; sections: ExSection[] }
 export const STATUS_WORDS: Record<string, string> = { wip: "Draft", shared: "Shared", published: "Published", archived: "Archived" };
 export const STAGE_WORDS: Record<string, string> = { pre_appointment: "Pre-appointment (tender)", confirmed: "Confirmed", revision: "Revision" };
+/** An EIR never changes stage (Appointment indicated is a BEP's), so it shows none on screen or on paper (founder 2026-11-14, F-R2d-10). */
+export const showsStage = (docType: unknown): boolean => String(docType ?? "").toUpperCase() !== "EIR";
 /** "Draft, S0": the status in plain words, the suitability after a comma; an unknown status shown as stored. */
 export const statusLine = (d: { status: string; suitability?: string | null }): string =>
   [STATUS_WORDS[d.status] ?? d.status, d.suitability].filter(Boolean).join(", ");
