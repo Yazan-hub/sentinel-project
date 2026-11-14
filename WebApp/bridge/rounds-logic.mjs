@@ -89,7 +89,8 @@ export function roundView(round, decisions = [], me = {}) {
       ...(task && { owed: teams.map((team) => ({ team, decided_by: mine.find((d) => ACCEPTS.includes(d.decision) && low(d.task_team) === low(team))?.email ?? null,
         skipped: mine.some((d) => d.decision === "skipped" && low(d.task_team) === low(team)) })) }),
       decisions: mine.map((d) => ({ who: d.email ?? null, party_words: partyOf(d.party, d.task_team), decision: d.decision, note: d.note ?? null, at: d.at ?? null, ledger_id: d.ledger_id ?? null,
-        outside: !!d.outside, words: d.outside ? outsideWords(d) : d.decision === "skipped" ? `Skipped${d.task_team ? ` (Team ${d.task_team})` : ""}: ${d.note ?? ""}` : null })),
+        outside: !!d.outside, words: d.outside ? outsideWords(d) : d.decision === "skipped" ? `Skipped${d.task_team ? ` (Team ${d.task_team})` : ""}: ${d.note ?? ""}` : null,
+        ...(d.outside && { evidence: d.evidence_ref ?? null }) })), // F-R2d-11: where the outside decision is kept
       complete: stepDone(round, ds, n),
     };
   });

@@ -27,7 +27,7 @@ export interface WorkspaceState { key: string; doc: DocRow | null; versions: Ver
   round: RoundCurrent | null /* R2d: GET …/rounds/current, null when not read */ }
 /** R2d: the document round on screen (the bridge's roundView) and what the caller may do about it. */
 export interface RoundStep { n: number; name: string; party_words: string; owed?: { team: string; decided_by: string | null; skipped?: boolean }[];
-  decisions: { who: string; party_words: string; decision: string; note?: string | null; at: string; ledger_id: number | string; outside?: boolean; words?: string | null }[]; complete: boolean }
+  decisions: { who: string; party_words: string; decision: string; note?: string | null; at: string; ledger_id: number | string; outside?: boolean; words?: string | null; evidence?: string | null }[]; complete: boolean }
 export interface RoundView { round_id: string; stage: string; status: string; status_words: string; codes: { shared?: string; issue?: string; accept?: string } | null; deadline: string | null;
   sent_by_email: string | null; sent_at: string | null; steps: RoundStep[]; current: number; can_decide: boolean; why_not: string | null; choices: string[]; can_withdraw: boolean;
   issued_version: number | null; outcome: string | null;

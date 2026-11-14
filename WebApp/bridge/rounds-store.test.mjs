@@ -51,7 +51,7 @@ beforeEach(() => {
     if (path.startsWith("rpc/doc_review_chain")) return chain;
     if (path.startsWith("doc_rounds?document_id=eq.") && path.includes("status=eq.open")) return open ? [{ id: RND, document_id: DOC, status: "open" }] : [];
     if (path.startsWith("doc_rounds?id=")) return [roundRow()];
-    if (path.startsWith("rpc/doc_round_")) { if (refusal) throw refusal; return { ok: true, step: 1, decision: opts.body?.p_decision, ledger_id: 7 }; }
+    if (path.startsWith("rpc/doc_round_")) { if (refusal) throw refusal; return { ok: true, step: 1, decision: opts.body?.p_decision ?? opts.body?.p_outcome, ledger_id: 7 }; }
     if (path.startsWith("rpc/doc_appointment")) return { document_id: DOC, stage: "confirmed", ledger_id: 8 };
     return [];
   });
@@ -227,6 +227,12 @@ describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () =
     await runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { outcome: "accept", date: "2026-11-03", name: "Jane Client", evidence_ref: "mail" }));
     expect(calls(/^rpc\/doc_round_record_outside/)[0][1].body).toEqual({ p_round: RND, p_outcome: "accept", p_date: "2026-11-03", p_name: "Jane Client", p_evidence_ref: "mail" });
     expect(calls(/^rpc\/doc_round_record_outside/)[0][1].service).toBeUndefined();
+    expect(bcfCreateTopic).not.toHaveBeenCalled(); // an acceptance recorded outside files nothing
+    // F-R2d-12: a rejection recorded outside files the one issue, as a rejection decided in Sentinel does
+    const rej = await runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { outcome: "reject", date: "2026-11-03", name: "Jane Client", evidence_ref: "milestones missing" }));
+    expect(rej.bcf).toEqual({ guid: "g1" });
+    expect(bcfCreateTopic).toHaveBeenCalledTimes(1);
+    expect(bcfCreateTopic.mock.calls[0][0].title).toContain("milestones missing");
     await runWithAuth(jwt("lead2"), () => skipStep("k", RND, { step: 3, reason: "no client account" }));
     expect(calls(/^rpc\/doc_round_skip/)[0][1].body).toEqual({ p_round: RND, p_step: 3, p_reason: "no client account" });
     const n = sb.mock.calls.length;

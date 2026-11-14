@@ -16,10 +16,11 @@ export const DECISION_WORDS: Record<string, string> = {
 };
 export const NOTE_REQUIRED = new Set(["reject", "clarification"]);
 
-/** The codes a send form offers at a stage: shared S1-S3 (default S3); before the appointment an issue code S4/S5 (default S4); after it an acceptance code A1-A3 (default A1). */
-export function codeChoices(stage: string): { key: "shared" | "issue" | "accept"; label: string; options: string[]; def: string }[] {
+/** The codes a send form offers at a stage: shared S1-S3 (default S3); before the appointment an issue code S4/S5 (default S4); after it an acceptance code A1-A3 (default A1).
+ *  An EIR is never issued for tender: it is accepted, so it takes the acceptance code at any stage (F-R2d-9). */
+export function codeChoices(stage: string, docType = "BEP"): { key: "shared" | "issue" | "accept"; label: string; options: string[]; def: string }[] {
   const shared = { key: "shared" as const, label: "Suitability while it is out for review", options: ["S1", "S2", "S3"], def: "S3" };
-  return stage === "pre_appointment"
+  return stage === "pre_appointment" && docType.toUpperCase() !== "EIR"
     ? [shared, { key: "issue", label: "Suitability when it is issued", options: ["S4", "S5"], def: "S4" }]
     : [shared, { key: "accept", label: "Acceptance code", options: ["A1", "A2", "A3"], def: "A1" }];
 }
@@ -32,8 +33,9 @@ const when = (at: string): string => String(at ?? "").slice(0, 16).replace("T", 
 
 /** One decision on a line: who, their party, the decision in words, the note, when, ledger #n. */
 export const decisionLine = (x: RoundView["steps"][number]["decisions"][number]): string =>
-  x.outside && x.words ? `${x.words} · ${when(x.at)} · ledger #${x.ledger_id}` // "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by ..."
-  : x.words ? `${x.who} (${x.party_words}) · ${x.words} · ${when(x.at)} · ledger #${x.ledger_id}`
+  // "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by ...", then the reason of a rejection or where it is kept (F-R2d-11)
+  x.outside && x.words ? `${x.words}${x.note ? `: ${x.note}` : x.evidence ? ` (${x.evidence})` : ""} · ${when(x.at)} · ledger #${x.ledger_id}`
+  : x.words ? `${x.who} · ${x.words} · ${when(x.at)} · ledger #${x.ledger_id}` // a skipped step: the skipper is not of the skipped team or party (F-R2d-8)
   : `${x.who} (${x.party_words}) · ${DECISION_WORDS[x.decision] ?? x.decision}${x.note ? `: ${x.note}` : ""} · ${when(x.at)} · ledger #${x.ledger_id}`;
 
 export function reviewTab(ctx: PaneCtx): HTMLElement {
@@ -156,7 +158,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
     const deadline = h(d, "input", `${FIELD};width:auto`); deadline.setAttribute("type", "date");
     box.append(h(d, "label", MUTED, "Decide by (optional)"), deadline);
     const picks: Record<string, HTMLSelectElement> = {};
-    for (const c of codeChoices(cur.stage)) {
+    for (const c of codeChoices(cur.stage, doc.doc_type)) {
       const sel = h(d, "select", `${FIELD};width:auto;margin:.2rem 0`);
       for (const o of c.options) { const op = h(d, "option", "", o); op.value = o; sel.append(op); }
       sel.value = c.def; picks[c.key] = sel;

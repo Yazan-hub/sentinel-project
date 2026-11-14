@@ -95,7 +95,10 @@ describe("R2d-2: the client outside Sentinel and the skip rule", () => {
     const d = { outside: true, decision: "accept", outside_date: "2026-11-03", outside_name: "Jane Client", email: "sam@lead.test" };
     expect(outsideWords(d)).toBe("Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by sam@lead.test");
     const v = roundView(round({ stage: "confirmed", roster: noClient }), [arc, str, lead2dec, { ...dec(4, 3, "lead2", "l2@x", "appointing", null, "accept"), ...d }], { uid: "lead2", rank: 3, outside: true });
-    expect(v.steps[2].decisions[0]).toMatchObject({ outside: true, words: "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by sam@lead.test" });
+    expect(v.steps[2].decisions[0]).toMatchObject({ outside: true, evidence: null, words: "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by sam@lead.test" });
+    const kept = roundView(round({ stage: "confirmed", roster: noClient }), [arc, str, lead2dec, { ...dec(4, 3, "lead2", "l2@x", "appointing", null, "accept"), ...d, evidence_ref: "signed letter" }], { uid: "lead2", rank: 3, outside: true });
+    expect(kept.steps[2].decisions[0].evidence).toBe("signed letter"); // F-R2d-11: where it is kept reaches the screen
+    expect(kept.steps[0].decisions[0]).not.toHaveProperty("evidence"); // only an outside decision carries it
   });
   it("outside.can: a lead, the setting on, the Client's step waiting, no Client on the roster, not the sender", () => {
     const at3 = [arc, str, lead2dec], r = (o = {}) => round({ stage: "confirmed", roster: noClient, ...o });

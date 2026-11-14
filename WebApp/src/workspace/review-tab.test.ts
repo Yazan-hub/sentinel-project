@@ -41,9 +41,19 @@ describe("words", () => {
     expect(codeChoices("pre_appointment").map((c) => [c.key, c.options, c.def])).toEqual([["shared", ["S1", "S2", "S3"], "S3"], ["issue", ["S4", "S5"], "S4"]]);
     expect(codeChoices("confirmed").map((c) => [c.key, c.options, c.def])).toEqual([["shared", ["S1", "S2", "S3"], "S3"], ["accept", ["A1", "A2", "A3"], "A1"]]);
     expect(codeChoices("revision").map((c) => c.key)).toEqual(["shared", "accept"]);
+    expect(codeChoices("pre_appointment", "EIR").map((c) => c.key)).toEqual(["shared", "accept"]); // F-R2d-9: an EIR is accepted, never issued for tender
+    expect(codeChoices("pre_appointment", "BEP").map((c) => c.key)).toEqual(["shared", "issue"]);
   });
   it("a decision line: who, party, words, note, when, ledger #", () => {
     expect(decisionLine(view().steps[0].decisions[0])).toBe("arc@x (Firm · Team ARC) · Accept with comments: mind the grid · 2026-11-14 10:05 · ledger #41");
+  });
+  it("F-R2d-8/11: a skipped line names the skipper without a party; an outside line carries the reason, or where it is kept", () => {
+    const base = { who: "sam@lead", party_words: "Firm · Team STR", at: "2026-11-14T12:29:00Z", ledger_id: 9 };
+    expect(decisionLine({ ...base, decision: "skipped", words: "Skipped (Team STR): no engineer yet" })).toBe("sam@lead · Skipped (Team STR): no engineer yet · 2026-11-14 12:29 · ledger #9");
+    const out = { ...base, party_words: "Client", outside: true, words: "Rejected outside Sentinel on 14 November 2026 by Jane Client; recorded in Sentinel by sam@lead" };
+    expect(decisionLine({ ...out, decision: "reject", note: "milestones missing", evidence: "milestones missing" })).toBe(`${out.words}: milestones missing · 2026-11-14 12:29 · ledger #9`);
+    expect(decisionLine({ ...out, decision: "accept", evidence: "signed letter" })).toBe(`${out.words} (signed letter) · 2026-11-14 12:29 · ledger #9`);
+    expect(decisionLine({ ...out, decision: "accept", evidence: null })).toBe(`${out.words} · 2026-11-14 12:29 · ledger #9`);
   });
 });
 

@@ -76,19 +76,20 @@ export async function decide(key, roundId, { decision, note } = {}) {
   const text = noteOf(note, "the note");
   const round = await roundRow(key, roundId);
   const r = await callFn("doc_round_decide", { p_round: roundId, p_decision: decision, p_note: text });
-  let bcf = null;
-  if (r.decision === "reject") {
-    try {
-      const doc = await getDoc(key, round.document_id);
-      const step = round.steps[r.step - 1] ?? {};
-      const topic = newTopicObject(key, { ...rejectionTopic({ container_name: doc.title, step: r.step, of: round.steps.length, name: step.name, role: step.role ?? "viewer", id: r.ledger_id, hash: null }, text),
-        topic_type: "Issue", priority: "High" }, new Date().toISOString());
-      topic.description = `Step ${r.step} of ${round.steps.length} (${step.name}) rejected ${doc.title}: ${String(text ?? "").trim()}. The document is back to a draft (ledger #${r.ledger_id}); sending it for review again starts a new round.`;
-      await bcfCreateTopic(topic);
-      bcf = { guid: topic.guid };
-    } catch (e) { bcf = { error: String(e?.message || e) }; }
-  }
-  return { ...r, bcf };
+  return { ...r, bcf: r.decision === "reject" ? await rejectionIssue(key, round, r, text) : null };
+}
+
+/** The one issue a rejection raises, whether it was decided in Sentinel or recorded outside it (best-effort: {guid} or {error}). */
+async function rejectionIssue(key, round, r, text) {
+  try {
+    const doc = await getDoc(key, round.document_id);
+    const step = round.steps[r.step - 1] ?? {};
+    const topic = newTopicObject(key, { ...rejectionTopic({ container_name: doc.title, step: r.step, of: round.steps.length, name: step.name, role: step.role ?? "viewer", id: r.ledger_id, hash: null }, text),
+      topic_type: "Issue", priority: "High" }, new Date().toISOString());
+    topic.description = `Step ${r.step} of ${round.steps.length} (${step.name}) rejected ${doc.title}: ${String(text ?? "").trim()}. The document is back to a draft (ledger #${r.ledger_id}); sending it for review again starts a new round.`;
+    await bcfCreateTopic(topic);
+    return { guid: topic.guid };
+  } catch (e) { return { error: String(e?.message || e) }; }
 }
 
 export async function withdraw(key, roundId, { note } = {}) {
@@ -117,8 +118,9 @@ export async function recordOutside(key, roundId, { outcome, date, name, evidenc
   if (typeof outcome !== "string" || !outcome) throw err(400, "outcome is required");
   if (typeof date !== "string" || !OUTCOME_DATE.test(date)) throw err(400, "Say on which day it was given: a date (YYYY-MM-DD).");
   if (typeof name !== "string" || !name.trim()) throw err(400, "Say who at the client gave it.");
-  await roundRow(key, roundId);
-  return callFn("doc_round_record_outside", { p_round: roundId, p_outcome: outcome, p_date: date, p_name: shortText(name, "the name", 200), p_evidence_ref: shortText(evidence_ref, "the evidence reference", 500) });
+  const round = await roundRow(key, roundId);
+  const r = await callFn("doc_round_record_outside", { p_round: roundId, p_outcome: outcome, p_date: date, p_name: shortText(name, "the name", 200), p_evidence_ref: shortText(evidence_ref, "the evidence reference", 500) });
+  return { ...r, bcf: r.decision === "reject" ? await rejectionIssue(key, round, r, evidence_ref) : null }; // F-R2d-12: as a rejection decided in Sentinel
 }
 
 /** A lead skips a tender step nobody can decide (a team with no member, or the Client's step with no Client), with a reason. */
