@@ -724,6 +724,16 @@ export async function eirIds(key, { text, title } = {}, deps) {
   return { ...compiled, ...out, current: current.ref ? refLabel(current) : null, xml, xml_skipped: skipped };
 }
 
+/** POST /cde/:key/artefacts/ids/loin {rows, title} — a BEP's LOIN rows (loinToIds) merged into the IDS in force: other origins stay, the
+ *  last LOIN compile's are replaced. A proposal, as eirIds. → loinToIds's answer + {current, xml, xml_skipped}. */
+export async function loinIds(key, { rows, title } = {}, deps) {
+  const { loinToIds, idsToXml } = await import("./ids-compile.mjs");
+  const current = await resolveArtefact(key, "ids", deps);
+  const out = loinToIds(rows, { current: current.body, title });
+  const { xml, skipped } = idsToXml(out.ids, { ifcSchema: (await resolveArtefact(key, "contract", deps)).body?.ifc_schema });
+  return { ...out, current: current.ref ? refLabel(current) : null, xml, xml_skipped: skipped };
+}
+
 /**
  * The IDS a judge must use for `key`: project → office (resolveArtefact) → client → none. Returns the spec
  * and its provenance; `client_ids_ignored` is true when a client sent one but an installed artefact outranked it.

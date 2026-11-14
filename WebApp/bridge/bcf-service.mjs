@@ -1679,6 +1679,8 @@ async function handleRequest(req, res) {
         // POST /cde/:key/artefacts/ids/eir {text, title} — an EIR compiled and merged into the IDS in force (a proposal; PUT …/ids installs it).
         // compileIds runs synchronously over the whole text: the prompt-sized cap, as /bimdocs/compile-ids.
         if (p3 === "ids" && p4 === "eir" && req.method === "POST") return send(res, 200, await art.eirIds(p1, (await readBody(req, { max: SMALL_JSON })) || {}));
+        // POST /cde/:key/artefacts/ids/loin {rows, title} — a BEP's LOIN table compiled and merged into the IDS in force (a proposal; PUT …/ids installs it).
+        if (p3 === "ids" && p4 === "loin" && req.method === "POST") return send(res, 200, await art.loinIds(p1, (await readBody(req, { max: SMALL_JSON })) || {}));
         if (p3 && !p4 && req.method === "GET") {
           const r = await art.artefactReply(p1, p3, req.headers["if-none-match"]);
           return send(res, r.status, r.body, r.etag && { ETag: r.etag });

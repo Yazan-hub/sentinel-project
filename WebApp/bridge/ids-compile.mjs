@@ -412,6 +412,47 @@ export function eirToIds(compiled, { current = null } = {}) {
   };
 }
 
+/** R3 (Task 2): a BEP's level-of-information-need rows ({element, milestone, property, value, why}) as IDS specifications beside
+ *  the EIR's and the generated ones: one per row that can be mapped, origin "loin", named "<element> at <milestone>", its `why` the
+ *  source sentence. `element` is an IFC class or a Revit category the map knows (Walls → IFCWALL); `property` is "Pset_X.Name" or a
+ *  bare name held by the class's standard set. A row that cannot be mapped is returned in `unmatched` {row (1-based), reason} —
+ *  never dropped silently. Earlier loin specifications are replaced; every other one stays, as eirToIds. A proposal, never an install.
+ *  → {ids, added, kept, skipped: [], unmatched}. */
+export function loinToIds(rows, { current = null, title = null } = {}) {
+  const specs = [], unmatched = [];
+  (Array.isArray(rows) ? rows : []).forEach((r, i) => {
+    const n = i + 1, say = (reason) => unmatched.push({ row: n, reason });
+    const element = String(r?.element ?? "").trim(), property = String(r?.property ?? "").trim(), milestone = String(r?.milestone ?? "").trim();
+    if (!element) return say("no element is named");
+    if (!property) return say("no property is named");
+    const key = Object.keys(CATEGORY_ENTITY).find((k) => k.toLowerCase() === element.toLowerCase());
+    const entity = key ? CATEGORY_ENTITY[key] : PLAIN_CLASS.test(element) ? element.toUpperCase() : firstMatch(ENTITY_VOCAB, element);
+    if (!entity || !IDS_CLASSES.has(entity)) return say(`No IFC class is known for "${element}".`);
+    const dot = property.indexOf(".");
+    let pset, name;
+    if (dot > 0 && dot < property.length - 1) { pset = property.slice(0, dot); name = property.slice(dot + 1); }
+    else {
+      const std = STANDARD_PSETS[entity] ?? {}, k = Object.keys(std).find((x) => x.toLowerCase() === property.toLowerCase());
+      if (!k) return say(`No standard property set holds "${property}" for ${entity} — name it as Pset_X.${property}.`);
+      pset = std[k]; name = k;
+    }
+    const value = String(r?.value ?? "").trim();
+    specs.push({
+      name: `${element} at ${milestone || "any stage"}`, origin: "loin", ...(r?.why ? { source_sentence: String(r.why) } : {}),
+      applicability: { entity }, requirements: { properties: [{ pset, name, cardinality: "required", ...(value ? { value } : {}) }], attributes: [] },
+    });
+  });
+  const kept = (current?.specifications ?? []).filter((s) => s?.origin !== "loin");
+  return {
+    ids: {
+      title: current?.title ?? title ?? "Level of information need", ...(current && "enforce" in current ? { enforce: current.enforce } : {}),
+      specifications: [...kept, ...specs], ...(current?.eir_skipped ? { eir_skipped: current.eir_skipped } : {}),
+      ...(current?.generated_from ? { generated_from: current.generated_from } : {}),
+    },
+    added: specs.length, kept: kept.length, skipped: [], unmatched,
+  };
+}
+
 // ── The JSON spec → buildingSMART IDS 1.0 XML (for IfcTester, and for a consultant who wants the .ids file) ─────────────
 const xmlEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
