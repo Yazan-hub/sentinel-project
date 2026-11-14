@@ -105,16 +105,18 @@ export function roundView(round, decisions = [], me = {}) {
         && !(round.roster || []).some((r) => low(r.task_team) === low(t) && (RANK[r.role] || 0) >= (RANK[at.role ?? "contributor"] || 0)
              && r.uid !== round.sent_by && (!me?.activeUids || me.activeUids.includes(r.uid))))
     : [];
-  const clientStep = open && !!at && low(round.doc_type) === "bep" && current === nSteps && at.party === "appointing" && !clientIn;
+  // 0055: the Client's step of an EIR too, wherever its chain puts the Client; a BEP's is its last step. An EIR step is never skipped.
+  const bep = low(round.doc_type) === "bep", eir = low(round.doc_type) === "eir";
+  const clientStep = open && !!at && at.party === "appointing" && !clientIn && (eir || (bep && current === nSteps));
   const canOutside = clientStep && lead && !!me?.outside && me.uid !== round.sent_by;
-  const canSkip = open && lead && round.stage === "pre_appointment" && (teamsLeft.length > 0 || clientStep);
+  const canSkip = open && lead && round.stage === "pre_appointment" && (teamsLeft.length > 0 || (clientStep && bep));
   return {
     round_id: round.id, stage: round.stage, status: round.status, status_words: roundWords(round),
     codes: round.codes ?? null, deadline: round.deadline ?? null, sent_by_email: round.sent_by_email ?? null, sent_at: round.sent_at ?? null,
     steps, current, can_decide: why_not === null, why_not,
     choices: why_not === null ? choicesAt(round, current) : [],
     can_withdraw: open && lead,
-    outside: { can: canOutside, choices: canOutside ? choicesAt(round, current) : [] },
+    outside: { can: canOutside, choices: !canOutside ? [] : eir ? ["accept", "reject"] : choicesAt(round, current) },
     skip: { can: canSkip, step: canSkip ? current : null, teams: teamsLeft,
       words: !canSkip ? null : teamsLeft.length ? `No one can confirm for ${teamsLeft.map(teamWord).join(", ")}: skip step ${current} for them, with a reason.` : "There is no Client to evaluate the tender: skip this step, with a reason." },
     issued_version: round.issued_version ?? null, outcome: round.outcome ?? null,

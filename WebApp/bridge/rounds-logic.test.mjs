@@ -107,6 +107,19 @@ describe("R2d-2: the client outside Sentinel and the skip rule", () => {
     expect(roundView(r(), [arc, str], { uid: "lead2", rank: 3, outside: true }).outside.can).toBe(false);
     expect(roundView(round({ stage: "confirmed" }), at3, { uid: "lead2", rank: 3, outside: true }).outside.can).toBe(false);
   });
+  it("0055: an EIR's Client step is recorded outside at either place in its chain, as accept or reject, and is never skipped", () => {
+    const leads = roster.filter((r) => r.party === "lead_appointed");
+    const eir = (steps, o = {}) => round({ doc_type: "EIR", steps, teams_owed: [], roster: leads, ...o });
+    const clientIssues = [{ name: "Issue", role: "viewer", party: "appointing" }, { name: "Accept", role: "lead", party: "lead_appointed" }];
+    const clientAccepts = [{ name: "Issue", role: "lead", party: "lead_appointed" }, { name: "Accept", role: "viewer", party: "appointing" }];
+    const me = { uid: "lead2", rank: 3, outside: true };
+    expect(roundView(eir(clientIssues), [], me)).toMatchObject({ current: 1, outside: { can: true, choices: ["accept", "reject"] }, skip: { can: false } });
+    expect(roundView(eir(clientAccepts), [], me).outside.can).toBe(false); // step 1 is the Lead firm's
+    expect(roundView(eir(clientAccepts), [dec(1, 1, "lead2", "l2@x", "lead_appointed", null, "accept")], me)).toMatchObject({ current: 2, outside: { can: true, choices: ["accept", "reject"] }, skip: { can: false } });
+    expect(roundView(eir(clientIssues), [], { ...me, outside: false }).outside.can).toBe(false);
+    expect(roundView(eir(clientIssues), [], { ...me, uid: "sender", rank: 4 }).outside.can).toBe(false);
+    expect(roundView(eir(clientIssues, { roster }), [], me).outside.can).toBe(false); // a Client on the roster decides in Sentinel
+  });
   it("skip.can: tender only; step 1 for a team with no member able to confirm, or the Client's step with no Client", () => {
     const r1 = round({ teams_owed: ["ARC", "STR", "MEP"], roster: noClient });
     expect(roundView(r1, [arc], { uid: "lead2", rank: 3 }).skip).toMatchObject({ can: true, step: 1, teams: ["MEP"] });
