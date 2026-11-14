@@ -4155,7 +4155,7 @@ Findings: F-R2d-8 (a skip line named the skipper as of the skipped team), F-R2d-
 
 ## Session R2d-3 — what was still open after R2d-2: the version label of an accepted EIR, a confirmed BEP accepted outside Sentinel, an EIR issued by the Client, a rejection with its reason and its issue, an EIR on a project with a Client (2026-11-14, 13:15–13:45 UTC; master be96bf29 with web 1.0.121; migration 0056 applied on the founder's "do it"; the scratch project and snowdon-lifecycle; Chrome signed in by the founder as hotmail, user4, gmail and hotmail; Claude driving)
 
-Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 20 to 29).
+Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 20 to 30).
 
 | Row | What | Result |
 |---|---|---|
@@ -4168,3 +4168,4 @@ Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 20 to 29
 | 27 | EIR B with the Client at step 1: a rejection recorded outside shows its reason and files one issue (F-R2d-11, F-R2d-12 seen fixed) (#3760–#3762) | ✅ |
 | 28 | hotmail records the Client's issue and accepts → Accepted, A1, "v1, Accepted C01" (#3763–#3765) | ✅ |
 | 29 | hotmail, as the Client, accepts the snowdon EIR in Sentinel → Accepted, A1, "v1, Accepted C01" (#3766, #3767) | ✅ |
+| 30 | The published app (Sentinel 1.0.121, sandboxed, through the public address): the same Review tab, "v1, Accepted C01", no stage on an EIR; a write through it (Incorporated in appointment, #3768); the scratch project archived (#3769) | ✅ |
