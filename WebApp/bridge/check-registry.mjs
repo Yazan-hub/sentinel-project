@@ -12,6 +12,7 @@ import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, 
 import { refLabel, resolveArtefact } from "./artefact-store.mjs";
 import { measureGate, readGateInputs } from "./stage-gate.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
+import { projectBeps, bepsWithLatestVersion, classifyNominated, classifyOneProducer, classifyDocSuitability, classifyLoin, SUITABILITY_ALLOWED } from "./doc-checks.mjs";
 
 let _core;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
@@ -564,6 +565,40 @@ export const CHECKS = [
       return classifyDistribution(files, transmittals);
     },
   },
+  {
+    id: "people.nominated",
+    label: "Nominated people are project members",
+    description: "Every person named in a BEP table's Person column is an active member of the project.",
+    params_schema: {},
+    async run(key) {
+      const [beps, members] = await Promise.all([projectBeps(key), import("./members-store.mjs").then((m) => m.listMembers(key))]);
+      return classifyNominated(beps, members);
+    },
+  },
+  {
+    id: "roles.one_producer",
+    label: "One responsible task team per element",
+    description: "Every row of a BEP responsibility matrix has one producing column, and that column names a declared task team.",
+    params_schema: {},
+    async run(key) {
+      const [beps, teams] = await Promise.all([projectBeps(key), import("./task-teams-store.mjs").then((m) => m.listTeams(key))]);
+      return classifyOneProducer(beps, teams);
+    },
+  },
+  {
+    id: "docs.suitability",
+    label: "Document suitability",
+    description: "The latest issued version of each BEP carries an allowed suitability code.",
+    params_schema: { allowed: { type: "string[]", default: SUITABILITY_ALLOWED } },
+    async run(key, params = {}) { return classifyDocSuitability(await bepsWithLatestVersion(key, await projectBeps(key)), params.allowed); },
+  },
+  {
+    id: "loin.levels",
+    label: "Level of information need",
+    description: "Every row of a BEP level-of-information-need table names an element, a milestone and a property, and maps to an IDS specification.",
+    params_schema: {},
+    async run(key) { return classifyLoin(await projectBeps(key)); },
+  },
   ...OFFICE_CHECKS,
 ];
 
@@ -573,8 +608,8 @@ export const CHECKS = [
  * an honest statement of coverage rather than a silent blank. Each names the phase that will deliver it.
  */
 export const PLANNED_CHECKS = [
-  { id: "loin.levels", label: "Level of information need", reason: "Level-of-information-need is not modelled per stage or discipline yet; the IDS spec is bridge-wide, not per-project." },
   { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted." },
+  { id: "exchanges.scheduled", label: "Exchanges made as scheduled", reason: "Exchanges are not compared with CDE uploads yet." },
   { id: "federation.breakdown", label: "Federation strategy", reason: "There is no declared expected-model list to check the federation against." },
 ];
 

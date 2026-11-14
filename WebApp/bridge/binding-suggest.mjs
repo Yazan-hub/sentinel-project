@@ -16,6 +16,9 @@ const VOCAB = [
   { id: "midp.milestones", terms: { "delivery milestone": 1.0, midp: 1.0, tidp: 1.0, "delivery date": 0.9, "information delivery": 0.7, milestone: 0.6 } },
   { id: "loin.levels", terms: { "level of information need": 1.0, loin: 1.0, "level of detail": 0.9, lod: 0.8, "geometric": 0.4 } },
   { id: "roles.responsibility", terms: { responsibilit: 1.0, roles: 0.9, raci: 1.0, "task team": 0.9, "appointing party": 0.7, authorities: 0.5 } },
+  { id: "people.nominated", terms: { nominated: 1.0, "appointed people": 1.0 } },
+  { id: "roles.one_producer", terms: { "responsibility matrix": 1.0, responsible: 0.9 } },
+  { id: "docs.suitability", terms: { suitability: 1.0 } },
   { id: "qa.scorecard", terms: { "model health": 1.0, scorecard: 1.0, "quality assurance": 0.7, "qa check": 0.8 } },
   { id: "federation.breakdown", terms: { federation: 1.0, "model breakdown": 1.0, "how models are split": 0.9, clash: 0.5 } },
 ];

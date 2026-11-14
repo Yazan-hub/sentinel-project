@@ -15,11 +15,11 @@ describe("suggestBindings", () => {
     expect(out.suggested.map((s) => s.id)).toContain("cde.states");
   });
 
-  it("suggests the planned LOIN gap for a level-of-information-need section", () => {
+  it("suggests the LOIN check (now a real one) for a level-of-information-need section", () => {
     const [out] = suggestBindings([sec("s3", "7. Level of information need (LOIN)", "What information is required per deliverable.")]);
     const loin = out.suggested.find((s) => s.id === "loin.levels");
     expect(loin).toBeTruthy();
-    expect(loin.planned).toBe(true);
+    expect(loin.planned).toBe(false);
   });
 
   it("suggests midp.milestones for a delivery-milestone section (now a real check, not planned)", () => {
