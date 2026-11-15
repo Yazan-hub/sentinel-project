@@ -4169,3 +4169,26 @@ Run log: docs/testing/snowdon-lifecycle/R2d/R2d-RUN_2026-11-14.md (rows 20 to 30
 | 28 | hotmail records the Client's issue and accepts → Accepted, A1, "v1, Accepted C01" (#3763–#3765) | ✅ |
 | 29 | hotmail, as the Client, accepts the snowdon EIR in Sentinel → Accepted, A1, "v1, Accepted C01" (#3766, #3767) | ✅ |
 | 30 | The published app (Sentinel 1.0.121, sandboxed, through the public address): the same Review tab, "v1, Accepted C01", no stage on an EIR; a write through it (Incorporated in appointment, #3768); the scratch project archived (#3769) | ✅ |
+
+## Session R3 — adoption and templates: office document templates made in a form and saved from a document, four new document checks, LOIN rows installed as IDS, the Summary, the Documents tab as the list (2026-11-14, about 16:30–17:15 UTC, and 2026-11-15, 12:00–12:10 UTC; branch claude/recursing-moser-a8fde0; no migration; snowdon-office, snowdon-towers and snowdon-lifecycle; Chrome signed in by the founder as hotmail, user4 and gmail; Claude driving)
+
+Run log: docs/testing/snowdon-lifecycle/R3/R3-RUN_2026-11-14.md (rows 1 to 21). Drill sentence, proven in row 20: "a template saved from the Snowdon BEP instantiates with every field."
+
+| Row | What | Result |
+|---|---|---|
+| 1 | The Documents tab is the list; a BEP or an EIR opens in the workspace | ✅ |
+| 2, 3 | An office template made and edited in the form (`doc_templates@1`, `@2`); Standards in force names where it is edited | ✅ |
+| 4 | The template is offered on another project of the office; a document made from it equals it field for field (`office-…`, version 2) | ✅ |
+| 5, 6 | The checks: nominated people are members (F-R3-1); the responsibility matrix | ✅ |
+| 7 | LOIN rows compiled ("2 added, 5 kept, 2 not mapped") and installed as `ids@3` on snowdon-towers, the earlier specifications kept (F-R3-2) | ✅ |
+| 8 | The Summary on screen and in the print window, for a draft and for a published version | ✅ |
+| 9 | With no review chain: Share, Publish, then "Back to draft (next revision)" and "Archive" (F-R3-3) | ✅ |
+| 10, 11 | Save as office template: structure only, the replace question, Cancel saves nothing, with text and rows; a document made from it equals it | ✅ |
+| 12, 13 | The shipped comprehensive BEP carries the new blocks and checks; a BEP from an office template saved from it still picks a start | ✅ |
+| 14, 15 | Removing a template asks first; a start on a document whose template was removed is refused in the right words (F-R3-4); the scratch documents archived | ✅ |
+| 16 | user4, a project lead who is not a lead of the office: "Only a lead of the office saves an office template."; nothing saved | ✅ |
+| 17, 18 | gmail: the list as the owner; a readiness document still edits in the panel; a reviewed, published BEP keeps "Back to draft (next revision)" and "Archive"; its Summary | ✅ |
+| 19, 20 | gmail saves the Snowdon BEP as an office template (versions 7 and 8) and makes a document from it: all ten sections equal in heading, guidance, blocks and text | ✅ |
+| 21 | The scratch document archived; the three scratch templates removed (`doc_templates@11`, no template) | ✅ |
+
+Findings F-R3-1 to F-R3-4, all fixed with tests (7703cf14, e06a7105). The review before the drill found 17; the blocker (a colon in the template id, refused by the database) and the important ones are fixed (f2de96e3, fb6ded1e). Left for the founder: whether "with its text and rows" should clear person cells. Left in data: `ids@3` on snowdon-towers with two LOIN specifications, six archived scratch documents, an empty `doc_templates@11` on snowdon-office.
