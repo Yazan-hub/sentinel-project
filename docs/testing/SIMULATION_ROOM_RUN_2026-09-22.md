@@ -4190,5 +4190,6 @@ Run log: docs/testing/snowdon-lifecycle/R3/R3-RUN_2026-11-14.md (rows 1 to 21). 
 | 17, 18 | gmail: the list as the owner; a readiness document still edits in the panel; a reviewed, published BEP keeps "Back to draft (next revision)" and "Archive"; its Summary | ✅ |
 | 19, 20 | gmail saves the Snowdon BEP as an office template (versions 7 and 8) and makes a document from it: all ten sections equal in heading, guidance, blocks and text | ✅ |
 | 21 | The scratch document archived; the three scratch templates removed (`doc_templates@11`, no template) | ✅ |
+| 22 | The published app (Sentinel 1.0.122, through the public address, gmail signed in by the founder): the same Documents list, Summary, "Save as office template…" and Review moves; nothing saved through it | ✅ |
 
 Findings F-R3-1 to F-R3-4, all fixed with tests (7703cf14, e06a7105). The review before the drill found 17; the blocker (a colon in the template id, refused by the database) and the important ones are fixed (f2de96e3, fb6ded1e). Decided by the founder on 2026-11-15 ("Keep as is"): a template saved with its text and rows keeps the person cells. Left in data: `ids@3` on snowdon-towers with two LOIN specifications, six archived scratch documents, an empty `doc_templates@11` on snowdon-office.
