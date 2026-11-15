@@ -127,6 +127,12 @@ describe("saveAsTemplate", () => {
     expect(r).toEqual({ template_id: "office-our-bep", office_version: 3 });
     expect(office.current.templates.map((t) => t.name)).toEqual(["Our BEP, renamed", "Our BEP"]);
   });
+  it("review finding 9: a new template never takes a retired id, and an id that names no template in the list is not kept", async () => {
+    office.current = { templates: [], retired: ["our-bep"] }; office.version = 4;
+    expect((await saveAsTemplate("k", doc.id, { name: "Our BEP" })).template_id).toBe("office-our-bep-2");
+    office.current = { templates: [], retired: ["our-bep"] };
+    expect((await saveAsTemplate("k", doc.id, { id: "our-bep", name: "Our BEP" })).template_id).toBe("office-our-bep-2");
+  });
   it("refuses in words, before anything is written: READINESS and TIDP, no name, no office, not a lead of the office", async () => {
     for (const doc_type of ["READINESS", "TIDP"]) {
       doc = makeDoc({ doc_type });

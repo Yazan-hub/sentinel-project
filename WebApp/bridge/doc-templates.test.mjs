@@ -157,6 +157,23 @@ describe("putArtefact doc_templates: the office's standard, never a project's", 
     expect([seen.source, seen.ref]).toEqual(["office", "doc_templates@1"]);
     expect(officeTemplates(seen)[0]).toMatchObject({ template_id: "office-my-bep", version: 1 });
   });
+  it("review finding 9: a removed template's id is retired with it and never given to another template", async () => {
+    const { putArtefact, resolveArtefact } = await import("./artefact-store.mjs");
+    const d = mem(), one = entry(source());
+    await putArtefact("office1", "doc_templates", { templates: [one] }, { actor: "x" }, d);
+    await putArtefact("office1", "doc_templates", { templates: [] }, { actor: "x" }, d); // removed
+    expect((await resolveArtefact("office1", "doc_templates", d)).body).toEqual({ templates: [], retired: ["my-bep"] });
+    // the same id comes back under a new template; what the caller says is retired is not read
+    await putArtefact("office1", "doc_templates", { templates: [one], retired: [] }, { actor: "x" }, d);
+    const body = (await resolveArtefact("office1", "doc_templates", d)).body;
+    expect(body.templates.map((t) => t.id)).toEqual(["our-bep"]);
+    expect(body.retired).toEqual(["my-bep"]);
+    // an edit that keeps the template keeps its id and retires nothing more
+    await putArtefact("office1", "doc_templates", { templates: [{ ...body.templates[0], name: "Our BEP, renamed" }] }, { actor: "x" }, d);
+    expect((await resolveArtefact("office1", "doc_templates", d)).body).toMatchObject({ templates: [{ id: "our-bep", name: "Our BEP, renamed" }], retired: ["my-bep"] });
+    expect(() => validateDocTemplates({ templates: [one], retired: ["my-bep"] })).toThrow(/names an id a template still uses \(my-bep\)/);
+    expect(() => validateDocTemplates({ templates: [], retired: ["Not An Id"] })).toThrow(/must be a list of at most 500 template ids/);
+  });
   it("a template that no longer validates is left out alone: the others are still listed", () => {
     const good = entry(source()), gone = { ...good, id: "old-one", sections: [{ ...good.sections[0], bindings: { checks: [{ id: "check.that.left", params: {} }] } }] };
     expect(officeTemplates({ body: { templates: [gone, good] }, version: 4 }).map((t) => t.template_id)).toEqual(["office-my-bep"]);

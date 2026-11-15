@@ -187,7 +187,7 @@ export async function templateForm(start: OfficeTemplate | null, o: FormOpts): P
 export async function mountTemplates(host: HTMLElement, o: FormOpts, note?: { text: string; bad?: boolean }): Promise<void> {
   const d = o.doc ?? document;
   host.replaceChildren(h(d, "div", `color:${C.muted};font:11.5px system-ui`, "Reading the office's templates…"));
-  let inForce: InForce<{ templates?: OfficeTemplate[] }> | null;
+  let inForce: InForce<{ templates?: OfficeTemplate[]; retired?: string[] }> | null;
   try { inForce = await artefactInForce(o.base, o.officeKey, "doc_templates"); } catch (e) {
     host.replaceChildren(h(d, "div", `color:${C.bad};font:11.5px system-ui`, `Document templates not read: ${(e as Error).message}`));
     return;
@@ -223,7 +223,7 @@ export async function mountTemplates(host: HTMLElement, o: FormOpts, note?: { te
       out.textContent = "";
       if (form.problems().length) return;
       const next = form.value();
-      const id = t?.id || templateId(next.name, templates.map((x) => x.id));
+      const id = t?.id || templateId(next.name, [...templates.map((x) => x.id), ...arr<string>(inForce?.body?.retired)]); // never a removed template's id (the bridge holds the rule)
       go.disabled = true;
       try { await save(t ? templates.map((x) => (x.id === t.id ? { ...next, id } : x)) : [...templates, { ...next, id }], `Saved "${next.name}"`); }
       catch (e) { go.disabled = false; out.textContent = `Not saved: ${(e as Error).message}`; }

@@ -10,7 +10,7 @@ import { resolveActor } from "./bridge-auth.mjs";
 import { parseLodMatrix } from "./sentinel-core.mjs"; // MA-2b: the one lod_matrix reader (src/sentinel-core/lod-matrix.ts)
 import { validatePack } from "./evidence-logic.mjs"; // MA-4a: the evidence_pack validator (pure, no cycle)
 import { validateRecipe } from "./recipe-logic.mjs"; // MA-8-13: the recipe validator (pure, no cycle)
-import { validateDocTemplates } from "./doc-templates.mjs"; // R3: the office's document templates (pure, no cycle)
+import { validateDocTemplates, retireTemplateIds } from "./doc-templates.mjs"; // R3: the office's document templates (pure, no cycle)
 
 export const STORE = "artefact";
 export const KINDS = ["ids", "ruleset", "naming", "contract", "guideline", "layers", "type_catalog", "publish", "roi", "review", "carbon_factors", "lod_matrix", "evidence_pack", "ifc_export", "recipe", "protection", "ai_policy", "doc_templates"];
@@ -585,6 +585,12 @@ export async function putArtefact(key, kind, body, { actor, source, ifMatch } = 
   const prev = await d.docGet(STORE, proj.id, kind);
   // review: an install that landed between the check and this read is a race, never a silent kind@n+2 over it
   if (checked != null && (prev?.version || 0) !== checked) throw err(409, RACE(kind));
+  // R3 review finding 9: an id that left the office's template list is retired with it, judged against the body in force until now.
+  if (kind === "doc_templates") {
+    const before = prev ? await d.docGet(STORE, proj.id, `${kind}@${prev.version}`) : null;
+    body = retireTemplateIds(body, before?.body ?? null);
+    validateArtefact(kind, body);
+  }
   return installVersion(d, proj, kind, body, prev, { actor, source });
 }
 

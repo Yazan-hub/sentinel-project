@@ -4,7 +4,7 @@
 // this file, so it must not reach back into the stores); the stores compose these.
 import { validateBlock, blocksOf, emptyData, LIMITS } from "./doc-blocks.mjs";
 
-export const MAX_TEMPLATES = 20, MAX_NAME = 120, MAX_WHEN = 400;
+export const MAX_TEMPLATES = 20, MAX_NAME = 120, MAX_WHEN = 400, MAX_RETIRED = 500;
 export const TEMPLATE_ID_RE = /^[a-z][a-z0-9-]{1,40}$/;
 const KEY_RE = /^[a-z0-9][a-z0-9-]{0,59}$/;
 const SUFFIX_RE = /^[a-z0-9-]{1,40}$/;
@@ -90,7 +90,13 @@ export function validateDocTemplates(body) {
     }
     return { id: t.id, doc_type: t.doc_type, name: t.name, when_to_use, variant, sections, ...(starts ? { starts } : {}) };
   });
-  return { templates };
+  // Review finding 9: the ids that left the list (retireTemplateIds writes them). None may name a template still in the list.
+  const retired = body.retired ?? [];
+  if (!Array.isArray(retired) || retired.length > MAX_RETIRED || retired.some((r) => typeof r !== "string" || !TEMPLATE_ID_RE.test(r)))
+    throw bad("retired", `must be a list of at most ${MAX_RETIRED} template ids`);
+  const clash = retired.find((r) => ids.has(r));
+  if (clash) throw bad("retired", `names an id a template still uses (${clash})`);
+  return { templates, ...(retired.length ? { retired: [...new Set(retired)] } : {}) };
 }
 
 /** "Structure only": a block's frame without what was written in it — table columns, matrix preset and columns, fact labels, live-list source
@@ -135,6 +141,27 @@ export function officeTemplates(art) {
     template_id: `office-${t.id}`, doc_type: t.doc_type, title: t.name, name: t.name, variant: t.variant, when_to_use: t.when_to_use,
     default: false, office: true, version, sections: t.sections, starts: t.starts ?? {},
   }));
+}
+
+/** Review finding 9, at the one install (artefact-store putArtefact): an id that left the office's list is retired with it and never
+ *  given to another template, so a document made from the removed one ("office-<id>") can never read a later template as its own.
+ *  `prevBody`: the body in force before this install, or null. A template arriving under a retired id gets a fresh one. `retired` is
+ *  the bridge's list: what the caller sent under that key is not read. → the body to store. */
+export function retireTemplateIds(next, prevBody) {
+  const was = (Array.isArray(prevBody?.templates) ? prevBody.templates : []).map((t) => t?.id).filter((id) => typeof id === "string");
+  const before = new Set(Array.isArray(prevBody?.retired) ? prevBody.retired : []);
+  const list = Array.isArray(next?.templates) ? next.templates : [];
+  const taken = new Set([...before, ...was, ...list.map((t) => t?.id)]);
+  const templates = list.map((t) => {
+    if (!before.has(t?.id)) return t;
+    const id = templateIdFor(t.name, taken);
+    taken.add(id);
+    return { ...t, id };
+  });
+  const now = new Set(templates.map((t) => t?.id));
+  const retired = [...new Set([...before, ...was.filter((id) => !now.has(id))])].slice(-MAX_RETIRED);
+  const { retired: _sent, ...rest } = next ?? {};
+  return { ...rest, templates, ...(retired.length ? { retired } : {}) };
 }
 
 /** A template id for a name: lower-case words joined by dashes, at most 41 characters, unique among `taken`. */

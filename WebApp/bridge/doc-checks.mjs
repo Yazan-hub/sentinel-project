@@ -14,10 +14,12 @@ const norm = (v) => String(v ?? "").trim().toLowerCase();
 const text = (v) => String(v ?? "").trim();
 const plural = (n, one, many) => (n === 1 ? one : many);
 
-/** The project's BEPs that are not archived, read with the caller's session → [{id, title, status, sections}]. */
-export async function projectBeps(key) {
+/** The project's BEPs that are not archived, read with the caller's session → [{id, title, status, sections}]. `documentId`: only that
+ *  BEP, whatever its status — a document scored for itself (complianceReport) is judged on its own tables, not on its neighbours'. */
+export async function projectBeps(key, documentId) {
   const proj = await ensureProject(key);
-  const rows = await sb(`bim_documents?project_id=eq.${enc(proj.id)}&doc_type=eq.BEP&status=neq.archived&order=updated_at.desc&select=id,title,status,sections`);
+  const which = documentId ? `&id=eq.${enc(documentId)}` : "&status=neq.archived";
+  const rows = await sb(`bim_documents?project_id=eq.${enc(proj.id)}&doc_type=eq.BEP${which}&order=updated_at.desc&select=id,title,status,sections`);
   return (rows || []).map((d) => ({ id: d.id, title: d.title, status: d.status, sections: Array.isArray(d.sections) ? d.sections : [] }));
 }
 

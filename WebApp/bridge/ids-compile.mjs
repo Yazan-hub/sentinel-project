@@ -417,9 +417,12 @@ export function eirToIds(compiled, { current = null } = {}) {
  *  source sentence. `element` is an IFC class or a Revit category the map knows (Walls → IFCWALL); `property` is "Pset_X.Name" or a
  *  bare name held by the class's standard set. A row that cannot be mapped is returned in `unmatched` {row (1-based), reason} —
  *  never dropped silently. Earlier loin specifications are replaced; every other one stays, as eirToIds. A proposal, never an install.
- *  → {ids, added, kept, skipped: [], unmatched}. */
+ *  A row the kept specifications already require (the same class, set, property and value — placeEir's rule) is named in `already`
+ *  {row, by} and not added: it would be checked twice. `replaced`: how many earlier loin specifications this proposal takes out, so a
+ *  table whose rows were all removed can still take its old specifications out of the IDS.
+ *  → {ids, added, kept, replaced, skipped: [], unmatched, already}. */
 export function loinToIds(rows, { current = null, title = null } = {}) {
-  const specs = [], unmatched = [];
+  const specs = [], at = [], unmatched = [], already = [];
   (Array.isArray(rows) ? rows : []).forEach((r, i) => {
     const n = i + 1, say = (reason) => unmatched.push({ row: n, reason });
     const element = String(r?.element ?? "").trim(), property = String(r?.property ?? "").trim(), milestone = String(r?.milestone ?? "").trim();
@@ -438,19 +441,26 @@ export function loinToIds(rows, { current = null, title = null } = {}) {
       pset = std[k]; name = k;
     }
     const value = String(r?.value ?? "").trim();
+    at.push(n);
     specs.push({
       name: `${element} at ${milestone || "any stage"}`, origin: "loin", ...(r?.why ? { source_sentence: String(r.why) } : {}),
       applicability: { entity }, requirements: { properties: [{ pset, name, cardinality: "required", ...(value ? { value } : {}) }], attributes: [] },
     });
   });
-  const kept = (current?.specifications ?? []).filter((s) => s?.origin !== "loin");
+  const all = current?.specifications ?? [], kept = all.filter((s) => s?.origin !== "loin"), made = keptFacets(kept);
+  const fresh = specs.filter((s, i) => {
+    const k = facetKey(s.applicability.entity, s.requirements.properties[0]), dup = made.has(k);
+    if (dup) already.push({ row: at[i], by: made.get(k) || "another specification" });
+    else made.set(k, s.name); // two rows asking the same thing (at two milestones) are one requirement too
+    return !dup;
+  });
   return {
     ids: {
       title: current?.title ?? title ?? "Level of information need", ...(current && "enforce" in current ? { enforce: current.enforce } : {}),
-      specifications: [...kept, ...specs], ...(current?.eir_skipped ? { eir_skipped: current.eir_skipped } : {}),
+      specifications: [...kept, ...fresh], ...(current?.eir_skipped ? { eir_skipped: current.eir_skipped } : {}),
       ...(current?.generated_from ? { generated_from: current.generated_from } : {}),
     },
-    added: specs.length, kept: kept.length, skipped: [], unmatched,
+    added: fresh.length, kept: kept.length, replaced: all.length - kept.length, skipped: [], unmatched, already,
   };
 }
 

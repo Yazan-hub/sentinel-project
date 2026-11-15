@@ -251,7 +251,9 @@ export async function saveAsTemplate(key, docId, { id, name, when_to_use, varian
   await (await import("./members-store.mjs")).requireOfficeLead(officeKey, undefined, "Only a lead of the office saves an office template.");
   const cur = await resolveArtefact(officeKey, "doc_templates");
   const templates = Array.isArray(cur.body?.templates) ? cur.body.templates : [];
-  const tid = id ?? templateIdFor(name, new Set(templates.map((t) => t.id)));
+  // An id is kept only for a template still in the list; a new one never takes a retired id (review finding 9).
+  const tid = id && templates.some((t) => t.id === id) ? id
+    : templateIdFor(name, new Set([...templates.map((t) => t.id), ...(Array.isArray(cur.body?.retired) ? cur.body.retired : [])]));
   const entry = templateFromDocument(doc, await templateOf(key, doc).catch(() => null), { id: tid, name: name.trim(), when_to_use: when_to_use ?? "", variant: variant ?? null, keep_content: keep_content === true });
   const next = { templates: templates.some((t) => t.id === tid) ? templates.map((t) => (t.id === tid ? entry : t)) : [...templates, entry] };
   const pointer = await putArtefact(officeKey, "doc_templates", next, { actor, ifMatch: cur.sha256 ?? "none" });
@@ -738,8 +740,10 @@ export async function complianceReport(key, docId) {
     if (bound.length) summary.bound += 1;
     const results = [];
     for (const b of bound) {
+      // A BEP is scored on its own tables and rows: the checks that read BEPs are given this document, so several BEPs of one
+      // project are not judged together (doc-checks.mjs projectBeps).
       const r = evaluated < MAX_COMPLIANCE_CHECKS
-        ? (evaluated += 1, await runCheck(b.id, key, b.params || {}))
+        ? (evaluated += 1, await runCheck(b.id, key, doc.doc_type === "BEP" ? { ...(b.params || {}), document_id: doc.id } : b.params || {}))
         : { id: b.id, label: b.id, status: "not_checkable", count: 0, summary: "", evidence: [],
             reason: `Not evaluated: this document exceeds the ${MAX_COMPLIANCE_CHECKS}-check limit for a single compliance run.` };
       summary[r.status] = (summary[r.status] || 0) + 1;

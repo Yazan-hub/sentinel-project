@@ -52,6 +52,26 @@ describe("loinToIds", () => {
   });
 });
 
+describe("loinToIds beside what the IDS in force already requires (review finding 16a)", () => {
+  const eir = { name: "Walls fire", origin: "eir", source_sentence: "s", applicability: { entity: "IFCWALL" }, requirements: { properties: [{ pset: "Pset_WallCommon", name: "FireRating", cardinality: "required" }], attributes: [] } };
+  const old = { name: "Old", origin: "loin", applicability: { entity: "IFCSLAB" }, requirements: { properties: [], attributes: [] } };
+  it("names a row another specification already requires instead of adding it; a row that asks for a value is still added", () => {
+    const r = loinToIds([row({ value: "" }), row()], { current: { title: "t", specifications: [eir, old] } });
+    expect(r.already).toEqual([{ row: 1, by: "Walls fire" }]);
+    expect([r.added, r.kept, r.replaced]).toEqual([1, 1, 1]);
+    expect(r.ids.specifications.map((s) => s.name)).toEqual(["Walls fire", "Walls at Stage 3"]);
+  });
+  it("with no row left, the proposal still takes the earlier LOIN specifications out", () => {
+    const r = loinToIds([], { current: { title: "t", specifications: [eir, old] } });
+    expect(r).toMatchObject({ added: 0, kept: 1, replaced: 1, already: [], unmatched: [] });
+    expect(r.ids.specifications).toEqual([eir]);
+    expect(loinToIds([row()])).toMatchObject({ added: 1, kept: 0, replaced: 0, already: [] });
+    // the same requirement at two milestones is one requirement; a kept specification without a name still counts
+    expect(loinToIds([row(), row({ milestone: "Stage 4" })])).toMatchObject({ added: 1, already: [{ row: 2, by: "Walls at Stage 3" }] });
+    expect(loinToIds([row({ value: "" })], { current: { specifications: [{ ...eir, name: undefined }] } }).already).toEqual([{ row: 1, by: "another specification" }]);
+  });
+});
+
 describe("loinIds — POST /cde/:key/artefacts/ids/loin", () => {
   const mem = () => {
     const docs = new Map(), k = (s, p, d) => `${s}|${p}|${d}`;

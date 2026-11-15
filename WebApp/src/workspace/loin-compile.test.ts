@@ -35,6 +35,19 @@ describe("loinCompile", () => {
     expect(installArtefact).toHaveBeenCalledWith("http://b", "k", "ids", expect.objectContaining({ title: "t", source: expect.objectContaining({ document_id: "d1" }) }), "lead@x", "ab12");
     expect(textOf(el)).toContain("Installed ids@4 on k.");
   });
+  it("review finding 16a: names a row the IDS already requires; offers the install when only earlier LOIN specifications would go", async () => {
+    expect(loinLines({ added: 0, kept: 2, unmatched: [], already: [{ row: 1, by: "Walls fire" }] }, rows))
+      .toEqual(["0 added, 2 kept, 0 not mapped, 1 already required", 'Row 1: already required by "Walls fire", so it is not checked twice']);
+    const post = vi.fn(async () => ({ ids: { title: "t", specifications: [] }, added: 0, kept: 2, replaced: 2, unmatched: [] })), el = loinCompile(pane(post), [] as any);
+    await press(el, "Compile to IDS");
+    expect(textOf(el)).toContain("No row adds a specification. Installing takes the 2 earlier level-of-information-need specifications out of the IDS.");
+    await press(el, "Install as the project's IDS");
+    expect(textOf(el)).toContain("Installed ids@4 on k.");
+    const none = loinCompile(pane(vi.fn(async () => ({ ids: {}, added: 0, kept: 2, replaced: 0, unmatched: [], already: [{ row: 1, by: "x" }] }))), rows as any);
+    await press(none, "Compile to IDS");
+    expect(textOf(none)).toContain("Nothing to install: the IDS in force already requires every row.");
+    expect(findAll(none, "button").some((b) => textOf(b) === "Install as the project's IDS")).toBe(false);
+  });
   it("installs nothing when no row mapped", async () => {
     const post = vi.fn(async () => ({ ...answer, added: 0, unmatched: [{ row: 1, reason: "r" }, { row: 2, reason: "r" }] })), el = loinCompile(pane(post), rows as any);
     await press(el, "Compile to IDS");

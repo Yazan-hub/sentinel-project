@@ -571,8 +571,8 @@ export const CHECKS = [
     label: "Nominated people are project members",
     description: "Every person named in a BEP table's Person column is an active member of the project.",
     params_schema: {},
-    async run(key) {
-      const [beps, members] = await Promise.all([projectBeps(key), import("./members-store.mjs").then((m) => m.listMembers(key))]);
+    async run(key, params = {}) {
+      const [beps, members] = await Promise.all([projectBeps(key, params.document_id), import("./members-store.mjs").then((m) => m.listMembers(key))]);
       return classifyNominated(beps, members);
     },
   },
@@ -581,8 +581,8 @@ export const CHECKS = [
     label: "One responsible task team per element",
     description: "Every row of a BEP responsibility matrix has one producing column, and that column names a declared task team.",
     params_schema: {},
-    async run(key) {
-      const [beps, teams] = await Promise.all([projectBeps(key), import("./task-teams-store.mjs").then((m) => m.listTeams(key))]);
+    async run(key, params = {}) {
+      const [beps, teams] = await Promise.all([projectBeps(key, params.document_id), import("./task-teams-store.mjs").then((m) => m.listTeams(key))]);
       return classifyOneProducer(beps, teams);
     },
   },
@@ -591,14 +591,14 @@ export const CHECKS = [
     label: "Document suitability",
     description: "The latest issued version of each BEP carries an allowed suitability code.",
     params_schema: { allowed: { type: "string[]", default: SUITABILITY_ALLOWED } },
-    async run(key, params = {}) { return classifyDocSuitability(await bepsWithLatestVersion(key, await projectBeps(key)), params.allowed); },
+    async run(key, params = {}) { return classifyDocSuitability(await bepsWithLatestVersion(key, await projectBeps(key, params.document_id)), params.allowed); },
   },
   {
     id: "loin.levels",
     label: "Level of information need",
     description: "Every row of a BEP level-of-information-need table names an element, a milestone and a property, and maps to an IDS specification.",
     params_schema: {},
-    async run(key) { return classifyLoin(await projectBeps(key)); },
+    async run(key, params = {}) { return classifyLoin(await projectBeps(key, params.document_id)); },
   },
   ...OFFICE_CHECKS,
 ];

@@ -124,6 +124,15 @@ describe("complianceReport is read-only", () => {
   });
 });
 
+describe("complianceReport scores a BEP on itself", () => {
+  it("gives the checks that read BEPs this document only: several BEPs of one project are not judged together", async () => {
+    doc.sections = [{ id: "sec1", heading: "H1", body: "", state: "wip", owner: null, bindings: { checks: [{ id: "loin.levels" }] } }];
+    await complianceReport("k", "11111111-1111-4111-8111-111111111111");
+    expect(sb.mock.calls.some(([q]) => String(q).includes("doc_type=eq.BEP&id=eq.11111111-1111-4111-8111-111111111111"))).toBe(true);
+    expect(sb.mock.calls.some(([q]) => String(q).includes("status=neq.archived"))).toBe(false);
+  });
+});
+
 describe("complianceReport bounds total checks at MAX_COMPLIANCE_CHECKS", () => {
   it("marks checks beyond the cap as not_checkable naming the limit, instead of silently dropping them", async () => {
     const over = MAX_COMPLIANCE_CHECKS + 5;
