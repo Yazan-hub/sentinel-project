@@ -600,11 +600,30 @@ export async function pickStart(key, docId, { start, eir_id, updated_at, actor }
   // 422, as every start refusal: the workspace reads a 409 on a write as "published or archived meanwhile" and would hide these words (F-R3-4).
   if (isOffice(doc.template_id) && !tpl) throw START_REFUSED("The template this document was made from is no longer in the office's list, so a start cannot be picked.");
   const startBlocks = tpl?.starts?.no_eir?.blocks;
+  const sections = Array.isArray(doc.sections) ? doc.sections : [];
+  const si = sections.findIndex((s) => s?.template_key === "eir-response");
+  /** The EIR to link, checked as a start checks it → {eir, version: its latest version number or null}. */
+  const eirToLink = async () => {
+    let eir = null;
+    try { eir = isUuid(eir_id) ? await getDoc(key, eir_id) : null; } catch (e) { if (e?.status !== 404) throw e; }
+    if (!eir || eir.doc_type !== "EIR") throw START_REFUSED("Pick an EIR of this project.");
+    await requireDocAccess(key, eir, "read");
+    if (doc.responds_to && doc.responds_to !== eir.id) throw START_REFUSED("This BEP already answers another EIR.");
+    return { eir, version: one(await sb(`bim_document_versions?document_id=eq.${enc(eir.id)}&select=version_no&order=version_no.desc&limit=1`, { service: true }))?.version_no ?? null };
+  };
+  // P1 (2026-11-15): a BEP with no start to pick (one written before a template carried a start, or an ingested one) still answers an
+  // EIR. "Link an EIR…" then writes the link alone: no section changes, the same ledger row with rows_filled 0.
+  const comprehensive = (isOffice(doc.template_id) || String(doc.template_id ?? "").startsWith("bep-comprehensive")) && !!startBlocks && si >= 0;
+  if (!comprehensive && start === "eir_received" && doc.doc_type === "BEP") {
+    const { eir, version } = await eirToLink();
+    const row = await writeDoc(doc, { responds_to: eir.id, responds_to_version: version }, `&status=in.(wip,shared)&updated_at=eq.${enc(doc.updated_at)}`);
+    await audit(doc.project_id, "bim_document", doc.id, "document_start_picked", actor || "web", { responds_to: doc.responds_to ?? null },
+      { start, responds_to: eir.id, responds_to_version: version, rows_filled: 0 });
+    return row;
+  }
   // A BEP stored with the old template id 'bep' (no file any more) is refused here in words, never thrown on. An office template has a start when it
   // was saved from the comprehensive one (it carries that template's starts).
   if ((!isOffice(doc.template_id) && !String(doc.template_id ?? "").startsWith("bep-comprehensive")) || !startBlocks) throw START_REFUSED("Only a BEP made from the comprehensive template has a start.");
-  const sections = Array.isArray(doc.sections) ? doc.sections : [];
-  const si = sections.findIndex((s) => s?.template_key === "eir-response");
   if (si < 0) throw START_REFUSED("This BEP has no EIR response section from the template, so it has no start.");
   const old = sections[si], blocks = blocksOf(old);
   let next, responds_to = doc.responds_to ?? null, responds_to_version = null, rows_filled = 0;
@@ -613,13 +632,9 @@ export async function pickStart(key, docId, { start, eir_id, updated_at, actor }
     if (blocks.length + startBlocks.length > LIMITS.blocksPerSection) throw START_REFUSED(`A section holds at most ${LIMITS.blocksPerSection} blocks.`);
     next = withBlocks(old, [...startBlocks.map((b) => validateBlock({ ...b, id: `${old.id}.${b.id_suffix}` })), ...blocks]);
   } else {
-    let eir = null;
-    try { eir = isUuid(eir_id) ? await getDoc(key, eir_id) : null; } catch (e) { if (e?.status !== 404) throw e; }
-    if (!eir || eir.doc_type !== "EIR") throw START_REFUSED("Pick an EIR of this project.");
-    await requireDocAccess(key, eir, "read");
-    if (responds_to && responds_to !== eir.id) throw START_REFUSED("This BEP already answers another EIR.");
+    const { eir, version } = await eirToLink();
     responds_to = eir.id;
-    responds_to_version = one(await sb(`bim_document_versions?document_id=eq.${enc(eir.id)}&select=version_no&order=version_no.desc&limit=1`, { service: true }))?.version_no ?? null;
+    responds_to_version = version;
     const table = blocks.find((b) => b?.kind === "table" && b.title === ASSUMPTIONS);
     let fresh = blocks;
     if (table && !table.data?.rows?.length && Array.isArray(eir.sections) && eir.sections.length) {

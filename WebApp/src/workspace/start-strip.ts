@@ -62,10 +62,11 @@ function eirLinker(ctx: PaneCtx): { el: HTMLElement; open(): Promise<void>; star
   return { el, open, start, say };
 }
 
-/** "Link an EIR…" for a lead on a comprehensive BEP that answers no EIR; null otherwise. */
+/** "Link an EIR…" for a lead on a BEP that answers no EIR; null otherwise. A comprehensive BEP gets its start with the link; any other
+ *  BEP (one written before a template carried a start, an ingested one) gets the link alone (bridge pickStart). */
 export function linkEirButton(ctx: PaneCtx): HTMLElement | null {
   const doc = ctx.st.doc;
-  if (!doc || !ctx.canGovern || !isComprehensive(doc) || doc.responds_to) return null;
+  if (!doc || !ctx.canGovern || doc.doc_type !== "BEP" || doc.responds_to) return null;
   const linker = eirLinker(ctx), b = btn(ctx.doc, "Link an EIR…");
   b.addEventListener("click", () => { void linker.open(); });
   const box = h(ctx.doc, "div", "margin:.3rem 0 0");

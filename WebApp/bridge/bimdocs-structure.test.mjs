@@ -635,6 +635,17 @@ describe("R1b: the start route (a lead's; the only writer of responds_to)", () =
     const noted = { ...linked, blocks: linked.blocks.map((b) => (b.kind === "table" ? { ...b, data: { ...b.data, rows: b.data.rows.map((r, i) => (i ? r : { ...r, cells: { ...r.cells, note: "Agreed by e-mail." } })) } } : b)) };
     expect(isWritten(noted)).toBe(true);
   });
+  it("P1: a BEP with no start to pick links an EIR alone: no section changes, one ledger row", async () => {
+    doc = startDoc({ template_id: null, sections: [{ id: "sec1", heading: "1", body: "", state: "wip", owner: null, bindings: {} }] });
+    sb.mockClear(); audit.mockClear();
+    await pickStart("k", doc.id, { start: "eir_received", eir_id: EIR_ID });
+    const body = patches().at(-1)[1].body;
+    expect(body).toMatchObject({ responds_to: EIR_ID });
+    expect(body.sections).toBeUndefined();
+    expect(audit).toHaveBeenCalledWith(expect.anything(), "bim_document", doc.id, "document_start_picked", expect.anything(), { responds_to: null },
+      expect.objectContaining({ start: "eir_received", responds_to: EIR_ID, rows_filled: 0 }));
+    await expect(pickStart("k", doc.id, { start: "no_eir" })).rejects.toMatchObject({ status: 422, message: "Only a BEP made from the comprehensive template has a start. Nothing was saved." });
+  });
   it.each([
     [{ start: "maybe" }, {}, 400, "start must be eir_received or no_eir"],
     [{ start: "no_eir" }, { template_id: "bep" }, 422, "Only a BEP made from the comprehensive template has a start. Nothing was saved."],

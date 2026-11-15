@@ -99,7 +99,8 @@ describe("outlinePane", () => {
     const d = doc({ template_id: "bep-comprehensive", sections: [sec("s1"), sec("s2", { template_key: "eir-response" })] });
     expect(findAll(outlinePane(ctx(true, { d })), "button").map(textOf)).toContain("Link an EIR…");
     expect(findAll(outlinePane(ctx(false, { d })), "button").map(textOf)).not.toContain("Link an EIR…");
-    expect(findAll(outlinePane(ctx(true)), "button").map(textOf)).not.toContain("Link an EIR…");
+    expect(findAll(outlinePane(ctx(true)), "button").map(textOf)).toContain("Link an EIR…"); // P1: any BEP that answers no EIR, with a start to pick or not
+    expect(findAll(outlinePane(ctx(true, { d: doc({ doc_type: "EIR", title: "SNW EIR" }) })), "button").map(textOf)).not.toContain("Link an EIR…");
   });
   it("the head names the stage, the latest version and what the BEP answers", () => {
     const t = textOf(outlinePane(ctx(true, { versions: [version(1), version(2)] })));

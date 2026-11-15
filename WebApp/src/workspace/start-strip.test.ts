@@ -110,7 +110,8 @@ describe("linkEirButton", () => {
   it("is for a lead on a comprehensive BEP with no EIR, and sends the same call", async () => {
     expect(linkEirButton(live({ canGovern: false }))).toBeNull();
     expect(linkEirButton(live({ doc: bep({ responds_to: "e1" }) }))).toBeNull();
-    expect(linkEirButton(live({ doc: bep({ template_id: "bep" }) }))).toBeNull();
+    expect(linkEirButton(live({ doc: bep({ doc_type: "EIR" }) }))).toBeNull();
+    expect(linkEirButton(live({ doc: bep({ template_id: null }) }))).not.toBeNull(); // P1: a BEP with no start to pick still links an EIR
     const c = live(), el = linkEirButton(c)!; await press(el, "Link an EIR…"); await press(el, "Link");
     expect(c.write).toHaveBeenCalledWith("POST", "/start", { start: "eir_received", eir_id: "e1" });
   });
