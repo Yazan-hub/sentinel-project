@@ -196,3 +196,27 @@ describe("R2d-2: Needs a review (revisionReasons)", () => {
       .toEqual({ 1: { parties: ["A", "B"], sha: "s1", at: "2026-11-03T00:00:00Z", by: "l@x" }, 2: { parties: ["C"], sha: "s2", at: "2026-11-01T00:00:00Z", by: "l@x" } });
   });
 });
+
+describe("0057: a team that is not in Sentinel", () => {
+  const noStr = roster.filter((r) => r.uid !== "str");
+  const r1 = round({ stage: "confirmed", teams_owed: ["ARC", "STR", "MEP"], roster: noStr });
+  it("a lead who did not send the round is offered the marked teams nobody can confirm for; nobody else is", () => {
+    expect(roundView(r1, [arc], { uid: "lead2", rank: 3, outsideTeams: ["str"] }).team_outside).toEqual({ can: true, teams: ["STR"] });
+    expect(roundView(r1, [arc], { uid: "lead2", rank: 3, outsideTeams: ["STR", "MEP", "ARC"] }).team_outside.teams).toEqual(["STR", "MEP"]); // ARC has a member in the round
+    expect(roundView(r1, [arc], { uid: "lead2", rank: 3 }).team_outside).toEqual({ can: false, teams: [] });
+    expect(roundView(r1, [arc], { uid: "sender", rank: 4, outsideTeams: ["STR"] }).team_outside.can).toBe(false);
+    expect(roundView(r1, [arc], { uid: "arc", rank: 2, outsideTeams: ["STR"] }).team_outside.can).toBe(false);
+    expect(roundView(round({ status: "closed", outcome: "accepted" }), [], { uid: "lead2", rank: 3, outsideTeams: ["STR"] }).team_outside.can).toBe(false);
+  });
+  it("a recorded team completes its part of step 1, is not decided by the lead who recorded it, and reads with its team", () => {
+    const out = { ...dec(2, 1, "lead2", "l2@x", "appointed", "STR", "accept"), outside: true, outside_name: "Sam Structure", outside_date: "2026-11-14", evidence_ref: "e-mail" };
+    const v = roundView(round({ stage: "confirmed", roster: noStr }), [arc, out], { uid: "lead2", rank: 3, outsideTeams: ["STR"] });
+    expect(v.steps[0]).toMatchObject({ complete: true });
+    expect(v.steps[0].owed[1]).toEqual({ team: "STR", decided_by: null, skipped: false, outside: true });
+    expect(v.steps[0].decisions[1].words).toBe("Team STR: Accepted outside Sentinel on 14 November 2026 by Sam Structure; recorded in Sentinel by l2@x");
+    expect(v.team_outside.can).toBe(false);
+    expect(v.can_decide).toBe(true); // the lead who recorded a team still decides for the Lead firm
+    expect(roundView(r1, [arc], { uid: "lead2", rank: 3, outsideTeams: ["STR"] }).steps[0].owed).toEqual([
+      { team: "ARC", decided_by: "arc@x", skipped: false }, { team: "STR", decided_by: null, skipped: false, not_in_sentinel: true }, { team: "MEP", decided_by: null, skipped: false }]);
+  });
+});

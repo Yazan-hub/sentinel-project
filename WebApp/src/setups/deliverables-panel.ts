@@ -22,7 +22,7 @@ type Row = {
   expected_revision: string | null; expected_suitability: string | null; purpose: string | null; evidence: Evidence;
 };
 type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number>; exceptions: Exception[]; unplanned?: { iso_name: string; versions: number }[] };
-type Team = { id: string; code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; notes: string | null };
+type Team = { id: string; code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; notes: string | null; outside_sentinel?: boolean };
 type Tidp = { code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; declared: boolean; rows: Row[]; summary: Record<string, number>; next_due: string | null; at_risk: number };
 type TidpReport = { generated_at: string; today: string; tidps: Tidp[]; unassigned: { rows: Row[]; summary: Record<string, number> }; midp: Record<string, number> & { empty_tidps: string[] } };
 
@@ -628,6 +628,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       const discI = field("Discipline (optional)", "100%", editing.discipline || "");
       const apptI = field("Appointment, e.g. lead / delivery (optional)", "100%", editing.appointment || "");
       const notesI = field("Notes (optional)", "100%", editing.notes || "");
+      // 0057: a team with nobody in Sentinel. A lead then records what the team decided on a plan sent for review, with who gave it and where it is kept.
+      const outI = document.createElement("input"); outI.type = "checkbox"; outI.checked = !!editing.outside_sentinel; outI.style.cssText = "align-self:flex-start";
       const label = (t: string, el: HTMLElement) => {
         const w = document.createElement("label");
         w.style.cssText = "display:flex;flex-direction:column;gap:.2rem;font:10.5px system-ui;color:#9ca3af";
@@ -643,6 +645,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         label("Discipline", discI),
         label("Position in the appointment chain", apptI),
         label("Notes", notesI),
+        label("Not in Sentinel: nobody of this team signs in here, so a lead records what the team decided on a plan sent for review", outI),
       );
       const save = btn(editing.id ? "Save" : "Declare", true);
       const cancel = btn("Cancel");
@@ -659,6 +662,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         const payload = {
           code: codeI.value, name: nameI.value, lead_email: leadI.value,
           discipline: discI.value, appointment: apptI.value, notes: notesI.value, actor: await actor(),
+          ...(outI.checked || editing.outside_sentinel !== undefined ? { outside_sentinel: outI.checked } : {}), // sent only when the mark is set or the row already carries it
         };
         try {
           const base = `${SERVICE_URL.replace(/\/$/, "")}/teams/${encodeURIComponent(pid())}`;
@@ -711,7 +715,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       nm.textContent = t.name || "(unnamed)";
       nm.style.cssText = "font:600 11.5px system-ui;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
       const sub = document.createElement("div");
-      sub.textContent = [t.discipline, t.appointment, t.notes].filter(Boolean).join(" · ");
+      sub.textContent = [t.discipline, t.appointment, t.outside_sentinel ? "not in Sentinel" : "", t.notes].filter(Boolean).join(" · ");
       sub.style.cssText = "font:10.5px system-ui;color:#9ca3af;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
       main.append(nm, sub);
       const lead = document.createElement("span");

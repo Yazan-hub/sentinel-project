@@ -109,3 +109,12 @@ describe("task-team writes are a lead's (H0 D4, ledger-1)", () => {
     expect(await as("lead", () => updateTeam("demo", T, { name: "Architecture" }, "web"))).toMatchObject({ id: T, name: "Architecture" });
   });
 });
+
+describe("0057: the mark not in Sentinel", () => {
+  it("is kept only when the caller or the stored row carries it, and is true or false", () => {
+    expect(validateTeam({ code: "STR", outside_sentinel: true })).toMatchObject({ code: "STR", outside_sentinel: true });
+    expect(validateTeam({ code: "STR", outside_sentinel: false }).outside_sentinel).toBe(false);
+    expect("outside_sentinel" in validateTeam({ code: "STR" })).toBe(false);
+    expect(() => validateTeam({ code: "STR", outside_sentinel: "yes" })).toThrow(/true or false/);
+  });
+});

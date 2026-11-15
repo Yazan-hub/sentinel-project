@@ -66,6 +66,28 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
   const area = (placeholder: string): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", placeholder); t.value = ""; return t; };
   const input = (type: string, placeholder = ""): HTMLInputElement => { const i = h(d, "input", `${FIELD};margin:.2rem 0`); i.setAttribute("type", type); if (placeholder) i.setAttribute("placeholder", placeholder); i.value = ""; return i; };
 
+  // One form for a step taken outside Sentinel: the Client's (0054), or what a task team marked "not in Sentinel" decided (0057).
+  const outsideForm = (r: RoundView, o: { head: string; whom: "client" | "team"; choices: string[]; teams?: string[] }): void => {
+    const from = o.teams ? "in the team" : "at the client";
+    box.append(h(d, "div", HEAD, o.head));
+    box.append(h(d, "div", MUTED, `Record what the ${o.whom} decided, the day they gave it and who gave it. It stays on the record as taken outside Sentinel.`));
+    const sel = (): HTMLSelectElement => h(d, "select", `${FIELD};width:auto;margin:.2rem 0`);
+    const which = o.teams ? sel() : null;
+    for (const t of o.teams ?? []) { const op = h(d, "option", "", `Team ${t}`); op.value = t; which?.append(op); }
+    const pick = sel();
+    for (const c of o.choices) { const op = h(d, "option", "", DECISION_WORDS[c] ?? c); op.value = c; pick.append(op); }
+    const date = input("date"), name = input("text", `Who ${from} gave it`), ref = input("text", "Where it is kept (e-mail, letter), or the reason");
+    const rec = btn(d, `Record the ${o.whom}'s decision`, true);
+    rec.addEventListener("click", () => {
+      if (!date.value) { note.textContent = `Say on which day the ${o.whom} gave it.`; return; }
+      if (!name.value.trim()) { note.textContent = `Say who ${from} gave it.`; return; }
+      if (NOTE_REQUIRED.has(pick.value) && !ref.value.trim()) { note.textContent = "Write the reason in the last box: it is required here."; return; }
+      void act(ctx.ws.post(`/bimdocs/${pathSegment(st.key)}/rounds/${pathSegment(r.round_id)}/record-outside`,
+        { ...(which ? { team: which.value } : {}), outcome: pick.value, date: date.value, name: name.value.trim(), ...(ref.value.trim() ? { evidence_ref: ref.value.trim() } : {}) }));
+    });
+    box.append(...(which ? [which] : []), pick, date, name, ref, rec);
+  };
+
   // R2d-2: "Needs a review: (reason)" until a round starts or a lead dismisses it with a note.
   if (cur.needs_review?.length && round?.status !== "open") {
     box.append(h(d, "p", `color:${C.warn};font:12px system-ui;line-height:1.5;margin:0 0 .5rem`, `Needs a review: ${cur.needs_review.join("; ")}`));
@@ -87,7 +109,8 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
       const here = round.status === "open" && s.n === round.current;
       box.append(h(d, "div", HEAD, `Step ${s.n} · ${s.name}${s.complete ? " · done" : here ? " · now" : ""}`));
       box.append(h(d, "div", MUTED, `Who must decide: ${s.party_words}`));
-      for (const o of s.owed ?? []) box.append(h(d, "div", SOFT, `Team ${o.team}: ${o.decided_by ? `decided by ${o.decided_by}` : o.skipped ? "skipped" : "waiting"}`));
+      for (const o of s.owed ?? []) box.append(h(d, "div", SOFT, `Team ${o.team}: ${o.decided_by ? `decided by ${o.decided_by}` : o.outside ? "decided outside Sentinel" : o.skipped ? "skipped"
+        : o.not_in_sentinel ? "waiting, not in Sentinel: a lead who did not send the round records what the team decided" : "waiting"}`));
       for (const x of s.decisions) box.append(h(d, "div", SOFT, decisionLine(x)));
     }
     if (round.status === "open") {
@@ -108,22 +131,8 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
         }
         box.append(nb, row);
       } else if (round.why_not) box.append(h(d, "p", MUTED, round.why_not));
-      if (round.outside?.can && round.outside.choices.length) {
-        box.append(h(d, "div", HEAD, "The client is outside Sentinel"));
-        box.append(h(d, "div", MUTED, "Record what the client decided, the day they gave it and who gave it. It stays on the record as taken outside Sentinel."));
-        const pick = h(d, "select", `${FIELD};width:auto;margin:.2rem 0`);
-        for (const c of round.outside.choices) { const op = h(d, "option", "", DECISION_WORDS[c] ?? c); op.value = c; pick.append(op); }
-        const date = input("date"), name = input("text", "Who at the client gave it"), ref = input("text", "Where it is kept (e-mail, letter), or the reason");
-        const rec = btn(d, "Record the client's decision", true);
-        rec.addEventListener("click", () => {
-          if (!date.value) { note.textContent = "Say on which day the client gave it."; return; }
-          if (!name.value.trim()) { note.textContent = "Say who at the client gave it."; return; }
-          if (NOTE_REQUIRED.has(pick.value) && !ref.value.trim()) { note.textContent = "Write the reason in the last box: it is required here."; return; }
-          void act(ctx.ws.post(`/bimdocs/${pathSegment(st.key)}/rounds/${pathSegment(round.round_id)}/record-outside`,
-            { outcome: pick.value, date: date.value, name: name.value.trim(), ...(ref.value.trim() ? { evidence_ref: ref.value.trim() } : {}) }));
-        });
-        box.append(pick, date, name, ref, rec);
-      }
+      if (round.outside?.can && round.outside.choices.length) outsideForm(round, { head: "The client is outside Sentinel", whom: "client", choices: round.outside.choices });
+      if (round.team_outside?.can && round.team_outside.teams.length) outsideForm(round, { head: "A team that is not in Sentinel", whom: "team", choices: ["accept", "reject"], teams: round.team_outside.teams });
       if (round.skip?.can && round.skip.step) {
         const step = round.skip.step;
         box.append(h(d, "div", HEAD, "A step nobody can decide"), h(d, "div", MUTED, round.skip.words ?? ""));

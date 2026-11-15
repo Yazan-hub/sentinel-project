@@ -31,18 +31,18 @@ Status: drafted 2026-11-15. Not yet read by the founder; nothing of it is in Sen
 1. **The EIR.** gmail: Documents ▸ + New document ▸ the EIR template, title "SNW Exchange Information Requirements". Paste `P1-01` sections 1 to 7. In section 4 add a Naming block holding the client's seven fields, so the BEP can be compared against it. user4 sends it for review; gmail decides the Lead firm step (Issue); hotmail decides the Client step (Accept). Expected: "Accepted, A1" and "v1, Accepted C01".
 2. **EIR to checks.** On the EIR: Compile to IDS. Expected: 9 requirement sentences read, 7 compiled, 2 refused with their reasons. A lead installs it as the project's IDS.
 3. **Standards.** Settings ▸ Standards in force: the project reads the office's naming today. Save the project's own naming with role L and type DR allowed, so the names of `P1-03` part (c) pass. Contract and LOD matrix as in Session SNOWDON A4. Then "Generate from standards…" on the IDS row.
-4. **Teams.** Declare the five teams of `P1-03` part (a): ARC, STR, MEP, SIT, INT.
+4. **Teams.** Declare the five teams of `P1-03` part (a): ARC, STR, MEP, SIT, INT. Mark STR, MEP, SIT and INT as "Not in Sentinel" (Deliverables ▸ Task teams ▸ the team ▸ the tick box): they have no seat, so a lead records what each one decided. This needs migration 0057 and web 1.0.125.
 5. **The BEP goes back to draft.** gmail: SNW Pre-appointment BEP ▸ Review ▸ Back to draft (next revision). Outline ▸ Link an EIR… ▸ the EIR of step 1. This needs web 1.0.124: before it, only a BEP made from the comprehensive template could link an EIR, and Snowdon's BEP was written before that template existed.
 6. **The BEP's new content**, from `P1-02`: the texts of part (b); in section 2 a table with a Person column (part c) and a responsibility matrix (`P1-03` part b); in section 3 the EIR link block with the clauses of part (d); in section 6 a Naming block and a Proposed changes block ▸ "Compare with the client's naming" (expected: the two changes of part e; type each reason); in section 7 the LOIN grid (part f) ▸ Compile to IDS (expected: 11 added, 1 already required) ▸ Install.
 7. **Bind and read.** Bind section 2 to "Nominated people are project members" and "One responsible task team per element", section 7 to "Level of information need", section 6 to the container naming check. Read the Quality tab and the Summary.
 8. **The MIDP.** Deliverables ▸ Paste a delivery schedule ▸ the content of `P1-05_MIDP_rows.txt` ▸ Preview ▸ Import 21 rows.
 9. **Lead EIR and TIDP.** Enter team ARC's lead EIR (`P1-04`) and TIDP (`P1-06`) as documents. The other four teams' stay in this pack unless the founder wants them entered too.
-10. **Confirm the BEP.** Review ▸ "Appointment indicated: open confirmation" (a note is asked, because no tender was selected in Sentinel for this BEP: "Awarded by letter P1-07 part 1, SYNTHETIC"). user4 sends it; user3 confirms for Team ARC; gmail signs off; hotmail accepts. Expected: "Accepted, A1 · Confirmed" and a version labelled "Confirmed C01".
+10. **Confirm the BEP.** Review ▸ "Appointment indicated: open confirmation" (a note is asked, because no tender was selected in Sentinel for this BEP: "Awarded by letter P1-07 part 1, SYNTHETIC"). user4 sends it; user3 confirms for Team ARC; gmail records what STR, MEP, SIT and INT decided, taken outside Sentinel (who gave it, the day, where it is kept: the letters of `P1-07`), then signs off; hotmail accepts. Expected: "Accepted, A1 · Confirmed" and a version labelled "Confirmed C01".
 11. Read the MIDP and responsibility checks; print the Summary; list what Sentinel could not hold.
 
 ## Known traps
 
-- **Four of the five teams have no seat.** A confirmed BEP is not sent while a declared task team has no member (seen in drill R2d, row 18), and only at tender can a lead skip such a step. With four accounts only ARC has a member (user3). The matrix and the MIDP need all five teams declared. This is the founder's decision before step 10; see below.
+- **Four of the five teams have no seat.** Closed on 2026-11-15 by the founder's "Yes, build it": a team marked "Not in Sentinel" is not owed a member, and a lead or owner who did not send the round records what the team decided, with who gave it, the day and where it is kept (migration 0057). An unmarked team with no member still stops the send, naming the team. user4 sends, so gmail records the four teams.
 - The MIDP paste has no purpose column, and a comma splits a column, so no title holds one.
 - Publishes from Revit carry S0 and no revision, so the MIDP's expected S2 will disagree. That is a finding, not a data error.
 - `P1-01` sentence 7 (a space's LongName) compiles to a requirement with no property set; how the install and the viewer treat it is not verified.
@@ -51,7 +51,7 @@ Status: drafted 2026-11-15. Not yet read by the founder; nothing of it is in Sen
 
 - Reading this pack, above all `P1-01`: the founder approves the EIR while playing the client.
 - The two carry-overs of step 0.
-- The decision on the four teams with no seat. Options: (a) a small change to Sentinel: at the confirmed stage a lead records a task team's confirmation taken outside Sentinel, with who confirmed and where the evidence is kept, as is already done for a Client outside Sentinel (needs a migration, so the founder's OK); (b) a fifth account (decision 15 said no); (c) declare only ARC before the review and the other four after it, which leaves the matrix check failing at the send. Claude recommends (a).
+- The four teams with no seat: decided 2026-11-15, option (a), built (see Known traps). What is left is the founder's OK to apply migration 0057.
 - A real public EIR to ingest once as the unrigged check of the compiler (roadmap P1; the founder picks the file).
 - Signing in to the four accounts when a step needs another seat.
 

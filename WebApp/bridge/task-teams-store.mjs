@@ -33,6 +33,7 @@ export function validateTeam(body) {
     if (!EMAIL_RE.test(lead)) throw err(400, `lead_email "${lead}" must be an email address`);
   }
 
+  if (body.outside_sentinel != null && typeof body.outside_sentinel !== "boolean") throw err(400, "outside_sentinel is true or false");
   const str = (v) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
   return {
     code,
@@ -41,6 +42,8 @@ export function validateTeam(body) {
     discipline: str(body.discipline),
     appointment: str(body.appointment),
     notes: str(body.notes),
+    // 0057: the team is not in Sentinel, so a lead records what it decided on a plan sent for review. Kept only when the caller, or the stored row, carries it.
+    ...(body.outside_sentinel != null && { outside_sentinel: body.outside_sentinel }),
   };
 }
 
@@ -62,7 +65,7 @@ export async function createTeam(key, body, actor) {
       throw err(409, `task team "${row.code}" is already declared on this project`);
     throw e;
   }
-  await audit(proj.id, "task_team", created.id, "created", actor || "web", null, { code: created.code, lead_email: created.lead_email });
+  await audit(proj.id, "task_team", created.id, "created", actor || "web", null, { code: created.code, lead_email: created.lead_email, ...(created.outside_sentinel && { outside_sentinel: true }) });
   return created;
 }
 
@@ -79,7 +82,9 @@ export async function updateTeam(key, id, patch, actor) {
   const updated = one(requireRows(await sb(`task_teams?id=eq.${enc(id)}`, {
     method: "PATCH", body: { ...merged, updated_at: new Date().toISOString() }, prefer: "return=representation",
   }), "a task team is changed by a lead or owner"));
-  await audit(proj.id, "task_team", id, "updated", actor || "web", { code: before.code, lead_email: before.lead_email }, { code: merged.code, lead_email: merged.lead_email });
+  const marked = !!before.outside_sentinel !== !!merged.outside_sentinel; // 0057: a change of the mark goes on the ledger, both ways
+  await audit(proj.id, "task_team", id, "updated", actor || "web", { code: before.code, lead_email: before.lead_email, ...(marked && { outside_sentinel: !!before.outside_sentinel }) },
+    { code: merged.code, lead_email: merged.lead_email, ...(marked && { outside_sentinel: !!merged.outside_sentinel }) });
   return updated;
 }
 

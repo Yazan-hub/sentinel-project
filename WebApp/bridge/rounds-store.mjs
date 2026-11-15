@@ -112,14 +112,17 @@ const shortText = (v, what, max) => {
   return v ?? null;
 };
 
-/** A lead records the Client's step when the Client is not in Sentinel (0054): the outcome, the day, who gave it, an optional evidence reference. */
-export async function recordOutside(key, roundId, { outcome, date, name, evidence_ref } = {}) {
+/** A lead records a step taken outside Sentinel: the outcome, the day, who gave it, an optional evidence reference. Without `team` it is the Client's step
+ *  when the Client is not in Sentinel (0054); with `team` it is what that task team decided, when the team is marked "not in Sentinel" (0057). */
+export async function recordOutside(key, roundId, { outcome, date, name, evidence_ref, team } = {}) {
   requireSignedIn();
   if (typeof outcome !== "string" || !outcome) throw err(400, "outcome is required");
   if (typeof date !== "string" || !OUTCOME_DATE.test(date)) throw err(400, "Say on which day it was given: a date (YYYY-MM-DD).");
-  if (typeof name !== "string" || !name.trim()) throw err(400, "Say who at the client gave it.");
+  if (team != null && (typeof team !== "string" || !team.trim())) throw err(400, "Say which task team gave it.");
+  if (typeof name !== "string" || !name.trim()) throw err(400, team ? "Say who in the team gave it." : "Say who at the client gave it.");
   const round = await roundRow(key, roundId);
-  const r = await callFn("doc_round_record_outside", { p_round: roundId, p_outcome: outcome, p_date: date, p_name: shortText(name, "the name", 200), p_evidence_ref: shortText(evidence_ref, "the evidence reference", 500) });
+  const args = { p_round: roundId, p_outcome: outcome, p_date: date, p_name: shortText(name, "the name", 200), p_evidence_ref: shortText(evidence_ref, "the evidence reference", 500) };
+  const r = team ? await callFn("doc_round_record_team_outside", { ...args, p_team: shortText(team.trim(), "the team", 16) }) : await callFn("doc_round_record_outside", args);
   return { ...r, bcf: r.decision === "reject" ? await rejectionIssue(key, round, r, evidence_ref) : null }; // F-R2d-12: as a rejection decided in Sentinel
 }
 
@@ -207,12 +210,14 @@ export async function currentRound(key, docId) {
   const setting = !!proj?.client_outside_sentinel;
   let activeUids; // who is an active member now: the skip offer counts only them (0054)
   try { const m = await sb(`memberships?project_id=eq.${enc(proj.id)}&state=eq.active&select=user_id`); if (Array.isArray(m)) activeUids = m.map((x) => x.user_id); } catch { /* the offer then trusts the roster, the database decides */ }
+  let outsideTeams = []; // 0057: the teams marked "not in Sentinel"; a database without the mark offers nothing
+  if (open) try { const t = await sb(`task_teams?project_id=eq.${enc(proj.id)}&outside_sentinel=is.true&select=code`); if (Array.isArray(t)) outsideTeams = t.map((x) => x.code); } catch { /* no offer: the database decides */ }
   let reasons = [];
   try { reasons = await reasonsFor(key, doc, list[0] ?? null); } catch { /* the ledger could not be read: no reason is shown, none is invented */ }
   let inc = {};
   try { inc = incorporatedByVersion(await auditAll(key, { entity_id: docId, action_prefix: "document_incorporated" })); } catch { /* shown on the next read */ }
   return {
-    round: row ? roundView(row, decisions, { uid: currentSub(), rank, outside: setting, activeUids }) : null,
+    round: row ? roundView(row, decisions, { uid: currentSub(), rank, outside: setting, activeUids, outsideTeams }) : null,
     words: docWords(doc, row, []),
     stage: doc.stage, doc_status: doc.status, suitability: doc.suitability ?? null,
     chain: !!chain,

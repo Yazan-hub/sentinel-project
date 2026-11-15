@@ -2342,6 +2342,7 @@ async function handleRequest(req, res) {
       if (p1 && p2 && p3 === "appointment-indicated" && !p4 && req.method === "POST") return send(res, 200, await (await import("./rounds-store.mjs")).appointmentIndicated(p1, p2, body));
       // R2d-2 (0054): the client outside Sentinel, the tender skip rule, Incorporated in appointment, Needs a review
       //   POST /bimdocs/:key/rounds/:roundId/record-outside {outcome, date: "YYYY-MM-DD", name, evidence_ref?} → the decide answer (a lead; the setting on; the Client's step)
+      //     with team: "STR" it records what that task team decided instead (0057: a lead; the team is marked "not in Sentinel"; accept or reject)
       //   POST /bimdocs/:key/rounds/:roundId/skip {step, reason} → {step, decision: "skipped", closed, status, ...} (a lead; tender only)
       //   POST /bimdocs/:key/:docId/incorporated {version_no, parties: [text]} → {document_id, version_no, sha, parties, ledger_id} (a lead)
       //   POST /bimdocs/:key/:docId/review-needed/dismiss {note, reasons} → {dismissed: [reasons], ledger_id} (a lead; the note is required; reasons = what the lead saw, 409 if new ones arrived)

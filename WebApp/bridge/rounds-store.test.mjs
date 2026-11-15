@@ -304,3 +304,15 @@ describe("R2d-2: record outside, skip, the setting, incorporated, dismiss", () =
     expect(audit).not.toHaveBeenCalled();
   });
 });
+
+describe("0057: what a team decided, recorded outside Sentinel", () => {
+  it("with a team, recordOutside calls the team function; a blank team or name is a 400 before any call", async () => {
+    await runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { team: " STR ", outcome: "accept", date: "2026-11-14", name: "Sam Structure" }));
+    expect(calls(/^rpc\/doc_round_record_team_outside/)[0][1].body).toEqual({ p_round: RND, p_team: "STR", p_outcome: "accept", p_date: "2026-11-14", p_name: "Sam Structure", p_evidence_ref: null });
+    expect(calls(/^rpc\/doc_round_record_outside/)).toEqual([]);
+    const n = sb.mock.calls.length;
+    await expect(runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { team: " ", outcome: "accept", date: "2026-11-14", name: "Sam" }))).rejects.toMatchObject({ status: 400 });
+    await expect(runWithAuth(jwt("lead2"), () => recordOutside("k", RND, { team: "STR", outcome: "accept", date: "2026-11-14", name: " " }))).rejects.toMatchObject({ status: 400, message: /who in the team/ });
+    expect(sb.mock.calls.length).toBe(n);
+  });
+});

@@ -16,7 +16,7 @@ const MONTHS = ["January", "February", "March", "April", "May", "June", "July", 
 /** "2026-11-03" -> "3 November 2026" (no locale: the same words on every machine). */
 export const longDate = (iso) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso ?? "")); return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : String(iso ?? ""); };
 /** A step the Client took outside Sentinel, in §17's words. */
-export const outsideWords = (d) => `${PAST[d.decision] ?? d.decision} outside Sentinel on ${longDate(d.outside_date)} by ${d.outside_name}; recorded in Sentinel by ${d.email}`;
+export const outsideWords = (d) => `${d.task_team ? `Team ${d.task_team}: ` : ""}${PAST[d.decision] ?? d.decision} outside Sentinel on ${longDate(d.outside_date)} by ${d.outside_name}; recorded in Sentinel by ${d.email}`;
 /** The columns a signed-in caller may read (the render is never granted): select exactly these, never select=*. */
 export const ROUND_COLS = "id,project_id,document_id,doc_type,stage,steps,roster,teams_owed,codes,deadline,sent_by,sent_by_email,sent_at,status,issued_version,outcome,closed_at";
 export const DECISION_COLS = "id,round_id,step,uid,email,party,task_team,decision,note,at,ledger_id,outside,outside_name,outside_date,evidence_ref";
@@ -80,14 +80,19 @@ function whyNot(round, decisions, k, me) {
  *     issued_version, outcome} */
 export function roundView(round, decisions = [], me = {}) {
   const ds = [...decisions].sort((a, b) => Number(a.id ?? 0) - Number(b.id ?? 0));
+  const marked = (t) => (me?.outsideTeams || []).some((x) => low(x) === low(t)); // 0057: the teams marked "not in Sentinel" (the caller reads them)
   const steps = (round.steps || []).map((s, i) => {
     const n = i + 1, mine = ds.filter((d) => Number(d.step) === n), teams = round.teams_owed || [];
     const task = s.kind === "task_teams";
     return {
       n, name: s.name ?? `Step ${n}`,
       party_words: task ? (teams.map(teamWord).join(", ") || "Each task team") : PARTY_WORD[s.party] ?? "No party",
-      ...(task && { owed: teams.map((team) => ({ team, decided_by: mine.find((d) => ACCEPTS.includes(d.decision) && low(d.task_team) === low(team))?.email ?? null,
-        skipped: mine.some((d) => d.decision === "skipped" && low(d.task_team) === low(team)) })) }),
+      ...(task && { owed: teams.map((team) => {
+        const a = mine.find((d) => ACCEPTS.includes(d.decision) && low(d.task_team) === low(team));
+        // 0057: a team recorded outside Sentinel is not "decided by" the lead who recorded it; a waiting team marked "not in Sentinel" says so
+        return { team, decided_by: a && !a.outside ? a.email ?? null : null, skipped: mine.some((d) => d.decision === "skipped" && low(d.task_team) === low(team)),
+          ...(a?.outside && { outside: true }), ...(!a && marked(team) && { not_in_sentinel: true }) };
+      }) }),
       decisions: mine.map((d) => ({ who: d.email ?? null, party_words: partyOf(d.party, d.task_team), decision: d.decision, note: d.note ?? null, at: d.at ?? null, ledger_id: d.ledger_id ?? null,
         outside: !!d.outside, words: d.outside ? outsideWords(d) : d.decision === "skipped" ? `Skipped${d.task_team ? ` (Team ${d.task_team})` : ""}: ${d.note ?? ""}` : null,
         ...(d.outside && { evidence: d.evidence_ref ?? null }) })), // F-R2d-11: where the outside decision is kept
@@ -111,6 +116,8 @@ export function roundView(round, decisions = [], me = {}) {
   const clientStep = open && !!at && at.party === "appointing" && !clientIn && (eir || (bep && current === nSteps));
   const canOutside = clientStep && lead && !!me?.outside && me.uid !== round.sent_by;
   const canSkip = open && lead && round.stage === "pre_appointment" && (teamsLeft.length > 0 || (clientStep && bep));
+  // 0057: a marked team nobody in the round can confirm for is recorded by a lead who is not the sender, at any stage (the database applies the same rules)
+  const teamsOutside = open && lead && me.uid !== round.sent_by ? teamsLeft.filter(marked) : [];
   return {
     round_id: round.id, stage: round.stage, status: round.status, status_words: roundWords(round),
     codes: round.codes ?? null, deadline: round.deadline ?? null, sent_by_email: round.sent_by_email ?? null, sent_at: round.sent_at ?? null,
@@ -118,6 +125,7 @@ export function roundView(round, decisions = [], me = {}) {
     choices: why_not === null ? choicesAt(round, current) : [],
     can_withdraw: open && lead,
     outside: { can: canOutside, choices: !canOutside ? [] : eir ? ["accept", "reject"] : choicesAt(round, current) },
+    team_outside: { can: teamsOutside.length > 0, teams: teamsOutside },
     skip: { can: canSkip, step: canSkip ? current : null, teams: teamsLeft,
       words: !canSkip ? null : teamsLeft.length ? `No one can confirm for ${teamsLeft.map(teamWord).join(", ")}: skip step ${current} for them, with a reason.` : "There is no Client to evaluate the tender: skip this step, with a reason." },
     issued_version: round.issued_version ?? null, outcome: round.outcome ?? null,

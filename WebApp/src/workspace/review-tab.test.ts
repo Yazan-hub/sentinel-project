@@ -308,3 +308,29 @@ describe("R2d-2: the client outside Sentinel, skipped steps, Needs a review, Inc
     expect(all(el, "textarea")[0].getAttribute("placeholder")).toContain("required");
   });
 });
+
+describe("0057: a team that is not in Sentinel", () => {
+  const step1 = (owed: RoundView["steps"][number]["owed"]) => view({ stage: "confirmed", steps: [{ ...view().steps[0], owed }, view().steps[1]] });
+  it("a lead records what a marked team decided: the team, the day, the name; it posts in the shape the bridge takes", async () => {
+    const c = ctx(cur({ round: { ...step1([{ team: "ARC", decided_by: "arc@x" }, { team: "STR", decided_by: null, not_in_sentinel: true }]), team_outside: { can: true, teams: ["STR", "MEP"] } }, can_send: false })), el = run(c);
+    expect(textOf(el)).toContain("A team that is not in Sentinel");
+    expect(textOf(el)).toContain("Team STR: waiting, not in Sentinel");
+    const [which, pick] = all(el, "select"), [date, name, ref] = all(el, "input");
+    expect(all(which, "option").map((o) => o.value)).toEqual(["STR", "MEP"]);
+    click(by(el, "Record the team's decision")[0]); await tick();
+    expect(textOf(el)).toContain("Say on which day the team gave it"); date.value = "2026-11-14";
+    click(by(el, "Record the team's decision")[0]); await tick();
+    expect(textOf(el)).toContain("Say who in the team gave it"); name.value = " Sam Structure ";
+    pick.value = "reject";
+    click(by(el, "Record the team's decision")[0]); await tick();
+    expect(textOf(el)).toContain("Write the reason"); expect(c.ws.post).not.toHaveBeenCalled();
+    pick.value = "accept"; which.value = "MEP"; ref.value = "letter of 14 Nov";
+    click(by(el, "Record the team's decision")[0]); await tick();
+    expect(c.ws.post).toHaveBeenCalledWith("/bimdocs/snowdon/rounds/r1/record-outside", { team: "MEP", outcome: "accept", date: "2026-11-14", name: "Sam Structure", evidence_ref: "letter of 14 Nov" });
+  });
+  it("no form without the offer; a team recorded outside reads so", () => {
+    const el = run(ctx(cur({ round: step1([{ team: "ARC", decided_by: "arc@x" }, { team: "STR", decided_by: null, outside: true }]) })));
+    expect(textOf(el)).not.toContain("A team that is not in Sentinel");
+    expect(textOf(el)).toContain("Team STR: decided outside Sentinel");
+  });
+});
