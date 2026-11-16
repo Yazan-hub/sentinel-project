@@ -164,6 +164,7 @@ export function revisionReasons(doc, lastRound, rows = []) {
     else if (a === "membership_party_changed") out.add(r.old_value ? "a member's party or task team changed" : `${PARTY_WORD[nv.party] ?? "a party"}${nv.task_team ? ` · Team ${nv.task_team}` : ""} gained a member`);
     else if (a === "member_role_changed") out.add("a member's role changed");
     else if (r.entity_type === "task_team" && a === "created") out.add(`A task team joined: ${nv.code ?? "a new one"}`);
+    else if (r.entity_type === "task_team" && a === "deleted") out.delete(`A task team joined: ${r.old_value?.code}`); // F-RUN-11: a team that left again is not named
     else if (a === "member_joined") out.add("a member joined the project");
     else if (a.startsWith("artefact_installed ")) { const kind = a.slice(19).split("@")[0]; if (BOUND_KINDS.includes(kind)) out.add(`the ${kind.replace(/_/g, " ")} standard was reinstalled`); }
     else if (/^annex_row_(added|changed|removed)$/.test(a) && nv.touches && nv.touches !== "none") out.add(`the ${String(nv.annex ?? "").replace(/_/g, " ")} list changed (${nv.touches})`);
