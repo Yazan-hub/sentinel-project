@@ -59,6 +59,11 @@ describe("intakeLine — what the upload did", () => {
     expect(intakeLine("B12-W.ifc", reply())).toBe("Uploaded B12-W.ifc v2 — accepted (ids@1: 3/3 passed) · ledger #812 · receipt 6e7f8091a2b3c4d5…");
   });
 
+  it("F-RUN-5: accepted under an IDS set to warn says the failing checks were kept as warnings", () => {
+    expect(intakeLine("B12-W.ifc", reply({ warned: true, ids_ref: "ids@3", summary: { in_scope: 2, passing: 0 } })))
+      .toContain("accepted · IDS ids@3: 0 of 2 checks passed, kept as warnings (the IDS is set to warn)");
+  });
+
   it("recorded: says the IDS did not judge it and carries the bridge's note", () => {
     const r = reply({ verdict: "recorded", ids_ref: null, version: { revision: "v1" }, note: "No contract and no IDS installed for b12-hold or its office — nothing was judged." });
     expect(intakeLine("B12-R.ifc", r)).toBe("Uploaded B12-R.ifc v1 — recorded (the IDS did not judge it) · No contract and no IDS installed for b12-hold or its office — nothing was judged. · ledger #812 · receipt 6e7f8091a2b3c4d5…");

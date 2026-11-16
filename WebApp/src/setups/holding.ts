@@ -44,6 +44,7 @@ export interface IntakeReply {
   failures_total?: number; // the IDS failures before the referee cut its list at 200
   summary?: { in_scope?: number; passing?: number } | null;
   ids_ref?: string | null;
+  warned?: boolean; // the IDS is set to warn and some checks failed
   audit_id?: number | null;
   receipt?: { ledger_hash?: string | null } | null;
   note?: string;
@@ -99,7 +100,11 @@ export function intakeLine(name: string, r: IntakeReply): string {
     return `Not uploaded — ${by.words} refused ${name} (${by.n} failure(s)) · ${held}`;
   }
   const row = ledgerLine({ id: r.audit_id ?? null, hash: r.receipt?.ledger_hash ?? null });
-  const judged = r.verdict === "accepted" ? `accepted (${r.ids_ref ?? "IDS"}: ${r.summary?.passing ?? 0}/${r.summary?.in_scope ?? 0} passed)` : "recorded (the IDS did not judge it)";
+  const passing = r.summary?.passing ?? 0, inScope = r.summary?.in_scope ?? 0;
+  // F-RUN-5: under "warn" the file is accepted with failing checks; say so instead of "accepted (0/2 passed)".
+  const judged = r.verdict !== "accepted" ? "recorded (the IDS did not judge it)"
+    : r.warned ? `accepted · IDS ${r.ids_ref ?? ""}: ${passing} of ${inScope} checks passed, kept as warnings (the IDS is set to warn)`.replace("IDS :", "IDS:")
+    : `accepted (${r.ids_ref ?? "IDS"}: ${passing}/${inScope} passed)`;
   // SEC-4: the bridge registers before it uploads; a bridge from before it registered nothing (no version in the reply).
   if (r.stage === "upload_failed") {
     const kept = r.version?.revision ? `Registered as ${r.version.revision} without geometry` : "Nothing was registered";
