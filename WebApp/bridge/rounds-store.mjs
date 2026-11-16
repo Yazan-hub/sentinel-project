@@ -87,7 +87,7 @@ async function rejectionIssue(key, round, r, text) {
     const topic = newTopicObject(key, { ...rejectionTopic({ container_name: doc.title, step: r.step, of: round.steps.length, name: step.name, role: step.role ?? "viewer", id: r.ledger_id, hash: null }, text),
       topic_type: "Issue", priority: "High" }, new Date().toISOString());
     topic.description = `Step ${r.step} of ${round.steps.length} (${step.name}) rejected ${doc.title}: ${String(text ?? "").trim()}. The document is back to a draft (ledger #${r.ledger_id}); sending it for review again starts a new round.`;
-    await bcfCreateTopic(topic);
+    await bcfCreateTopic(topic, { decision: true }); // F-RUN-1: the database accepted the decision — a Client's viewer too
     return { guid: topic.guid };
   } catch (e) { return { error: String(e?.message || e) }; }
 }

@@ -2347,9 +2347,12 @@ export function newTopicObject(pid, b = {}, now = new Date().toISOString()) {
   };
 }
 
-export async function bcfCreateTopic(topic) {
+/** `decision: true` is for the one issue a rejection raises (F-RUN-1): the database has just accepted that person's decision on
+ *  the step, so the issue is the system's record of it and any active member gets it (a Client decides as a viewer). Only the
+ *  two decide paths pass it (the CDE review route, rounds-store rejectionIssue); every other topic write stays a contributor's. */
+export async function bcfCreateTopic(topic, { decision = false } = {}) {
   const { requireMinRole } = await import("./members-store.mjs");
-  await requireMinRole(topic.project_id, "contributor"); // 0038: bcf_topics has no signed-in writer — every topic write is checked here
+  await requireMinRole(topic.project_id, decision ? "viewer" : "contributor"); // 0038: bcf_topics has no signed-in writer — every topic write is checked here
   await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal", service: true });
   return topic;
 }
