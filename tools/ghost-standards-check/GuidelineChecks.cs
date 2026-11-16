@@ -275,8 +275,9 @@ static class GuidelineChecks
 
             string msg = TypeCatalogExport.Message(2, "Office Project (Template)", path);
             _ok(msg.Contains("(2 types from Office Project (Template)) → " + path)
-                && msg.Contains("node bridge/artefact-import.mjs \"" + path + "\" --project <office> --kind type_catalog"),
-                "the dialog names the path and the install command");
+                && msg.Contains("Install catalogue on office") && msg.Contains("Standards review window")
+                && !msg.Contains("node ") && !msg.Contains("artefact-import"),
+                "F-RUN-13: the dialog names the path and the review-window button, no command line");
         }
         finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
 
