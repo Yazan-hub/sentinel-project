@@ -4,7 +4,7 @@ SYNTHETIC, exercise only. Snowdon lifecycle test, not a real appointment.
 
 This folder holds the inputs for phase P1 (Appointment, ISO 19650-2 5.4) of the Snowdon lifecycle test. The authority for decisions is `docs/testing/SNOWDON_LIFECYCLE_ROADMAP_DRAFT_2026-10.md` (sections 2, 4 P1, 5). Its table "What Sentinel does today" for P1 was written on 2026-10-22, before the documents workspace (releases R1a to R3, 2026-10-24 to 2026-11-15). The steps below are written for Sentinel as it is now. Every invented value in these files is marked SYNTHETIC.
 
-Status: drafted 2026-11-15. Not yet read by the founder; nothing of it is in Sentinel yet.
+Status: drafted 2026-11-15; run on 2026-11-16 on the founder's "finish P0, P1, P2, P4". Result: the EIR is "Accepted, A1" (v1 "Accepted C01") and the BEP "Accepted, A1" (v3 "Confirmed C01"). See `../P0-P4-RUN_2026-11-16.md`.
 
 ## The files, in order of use
 
