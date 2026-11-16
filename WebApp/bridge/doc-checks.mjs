@@ -66,7 +66,8 @@ export function classifyNominated(beps, members) {
 }
 
 /** One responsible task team per element: every labelled matrix row has a "produces" mark, in a column that names a declared task team.
- *  (Two marks are already refused on save.) `teams`: listTeams's rows. */
+ *  (Two marks are already refused on save.) A column with no team is read by its name (F-RUN-2: matrices made before the editor tied
+ *  columns to teams carry team null under a team-code name). `teams`: listTeams's rows. */
 export function classifyOneProducer(beps, teams) {
   const id = "roles.one_producer", label = "One responsible task team per element";
   const declared = new Set((teams || []).map((t) => norm(t.code)));
@@ -80,7 +81,7 @@ export function classifyOneProducer(beps, teams) {
       rows += 1;
       const key = Object.entries(r.marks ?? {}).find(([, m]) => m === "produces")?.[0];
       if (key === undefined) bad.push({ label: where, detail: `${name} has no task team that produces it` });
-      else if (!declared.has(norm(cols.get(key)?.team))) bad.push({ label: where, detail: `${name} is produced by a column that names no declared task team` });
+      else if (!declared.has(norm(text(cols.get(key)?.team) ? cols.get(key).team : cols.get(key)?.label))) bad.push({ label: where, detail: `${name} is produced by a column that names no declared task team` });
     }
   }
   if (!rows) return result(id, label, "not_checkable", { reason: "No responsibility matrix has rows yet." });

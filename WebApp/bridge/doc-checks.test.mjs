@@ -47,6 +47,11 @@ describe("roles.one_producer", () => {
     expect(classifyOneProducer(matrix([{ id: "1", label: "Walls", marks: { c1: "produces" } }]), teams).status).toBe("met");
     expect(classifyOneProducer(matrix([{ id: "1", label: "", marks: {} }]), teams)).toMatchObject({ status: "not_checkable", reason: "No responsibility matrix has rows yet." });
   });
+  it("F-RUN-2: a column with no team whose name is a declared team code counts as that team; a named team wins over the name", () => {
+    const cols = [{ key: "c1", label: " Str ", team: null }, { key: "c2", label: "STR", team: "ZZZ" }];
+    expect(classifyOneProducer(matrix([{ id: "1", label: "Walls", marks: { c1: "produces" } }], cols), teams).status).toBe("met");
+    expect(classifyOneProducer(matrix([{ id: "1", label: "Walls", marks: { c2: "produces" } }], cols), teams).status).toBe("violations");
+  });
 });
 
 describe("docs.suitability", () => {

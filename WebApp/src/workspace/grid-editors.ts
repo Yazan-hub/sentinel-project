@@ -46,6 +46,9 @@ export function setMark(data: Matrix, rowId: string, colKey: string, mark: Matri
   return { data: { ...data, rows: data.rows.map((r) => (r.id === rowId ? { ...r, marks } : r)) } };
 }
 
+/** The declared task team a column name stands for: the code equal to it, whatever the case; else null. */
+export const teamForLabel = (label: string, codes: string[]): string | null => codes.find((c) => c.toLowerCase() === label.trim().toLowerCase()) ?? null;
+
 export function applyPreset(data: Matrix, preset: "high_level" | "detailed" | "im_assignment"): Matrix {
   const detailed = preset === "detailed";
   const next: Matrix = { ...data, preset, show_milestone: detailed, show_recipient: detailed };
@@ -250,14 +253,36 @@ export const matrixEditor: BlockEditor = (block, ctx) => {
   let data: Matrix = { preset: src.preset ?? null, columns: arr(src.columns), show_milestone: src.show_milestone === true, show_recipient: src.show_recipient === true,
     rows: arr(src.rows).map((r) => ({ ...rec(r), marks: { ...rec(rec(r).marks) } })) as Matrix["rows"] };
   const setRow = (id: string, patch: Partial<Matrix["rows"][number]>) => { data = { ...data, rows: data.rows.map((r) => (r.id === id ? { ...r, ...patch } : r)) }; f.changed(); };
+  // F-RUN-2: the declared task teams, so a column can be tied to one (the check "One responsible task team per element" reads it)
+  let codes: string[] = [];
+  void (async () => {
+    try {
+      const t = await ctx.ws.get<{ code: string }[]>(`/teams/${encodeURIComponent(ctx.st.key)}`);
+      codes = arr<{ code?: unknown }>(t).map((x) => x.code).filter((e): e is string => typeof e === "string");
+      if (codes.length) draw();
+    } catch { /* no teams to offer */ }
+  })();
+  const setTeam = (key: string, team: string | null) => { data = { ...data, columns: data.columns.map((q) => (q.key === key ? { ...q, team } : q)) }; f.changed(); };
+  /** The lead picks the column's task team; everyone else reads it. A column with no team whose name is a team code shows that team, as the check reads it. */
+  const teamOf = (c: Matrix["columns"][number]): HTMLElement[] => {
+    const now = c.team ?? teamForLabel(c.label, codes);
+    if (!ctx.canGovern) return now ? [h(d, "div", `color:${C.muted};font:12px system-ui`, `Task team ${now}`)] : [];
+    const opts = [...new Set([...(now ? [now] : []), ...codes])].sort();
+    if (!opts.length) return [];
+    const s = select(f, "team", [["", "No task team"], ...opts.map((x): [string, string] => [x, x])], now ?? "", (x) => setTeam(c.key, orNull(x)));
+    s.title = "The task team this column stands for";
+    return [s];
+  };
 
   function draw() {
     f.note.textContent = "";
     const preset = select(f, "preset", [["", "Choose a preset…"], ["high_level", "High-level responsibility matrix"], ["detailed", "Detailed responsibility matrix"], ["im_assignment", "Information management assignment"]],
       data.preset ?? "", (x) => { if (x) { data = applyPreset(data, x as NonNullable<Matrix["preset"]>); draw(); f.changed(); } });
     const head = [cell(f, "th", ""), ...(data.show_milestone ? [cell(f, "th", "Milestone")] : []), ...(data.show_recipient ? [cell(f, "th", "Recipient")] : []),
-      ...data.columns.map((c, at) => cell(f, "th", h(d, "div", "font-weight:700", c.label), ...columnTools(f, ctx, data.columns, at, {
-        rename: (label) => { data = { ...data, columns: data.columns.map((q) => (q.key === c.key ? { ...q, label } : q)) }; draw(); f.changed(); },
+      ...data.columns.map((c, at) => cell(f, "th", h(d, "div", "font-weight:700", c.label), ...teamOf(c), ...columnTools(f, ctx, data.columns, at, {
+        // a tie the name made (or none) follows the new name; a tie the lead chose stays
+        rename: (label) => { const cur = data.columns.find((q) => q.key === c.key) ?? c, follows = cur.team === null || cur.team === teamForLabel(cur.label, codes);
+          data = { ...data, columns: data.columns.map((q) => (q.key === c.key ? { ...q, label, team: follows ? teamForLabel(label, codes) : q.team } : q)) }; draw(); f.changed(); },
         remove: () => { data = removeColumn(data, c.key); draw(); f.changed(); },
       }))), cell(f, "th", "")];
     const rows = data.rows.map((r) => tr(f,
@@ -282,7 +307,7 @@ export const matrixEditor: BlockEditor = (block, ctx) => {
       ...(ctx.canGovern ? [small(f, "Add column", async () => {
         const v = await askText("Column name", { doc: ctx.doc });
         if (v === null || v.trim() === "") return;
-        data = { ...data, columns: [...data.columns, { key: columnKey(v.trim(), data.columns.map((c) => c.key)), label: v.trim(), team: null }] };
+        data = { ...data, columns: [...data.columns, { key: columnKey(v.trim(), data.columns.map((c) => c.key)), label: v.trim(), team: teamForLabel(v, codes) }] };
         draw(); f.changed();
       })] : []));
   }
