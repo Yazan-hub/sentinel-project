@@ -93,10 +93,19 @@ describe("annexPanel", () => {
     expect(findAll(root, "button").filter((b) => textOf(b) === "Remove").length).toBe(1);
     const team = input(root, "Task team") as HTMLInputElement;
     expect(team.value).toBe("ARC"); expect(team.disabled).toBe(true);
-    team.value = "STR"; // even if it were changed, the team sent is the caller's
     input(root, "Item").value = "Navis";
     click(btn(root, "+ Add row")); await flush();
     expect(JSON.parse(bfetch.mock.calls.find((c) => c[1]?.method === "POST")![1].body)).toEqual({ row: { team: "ARC", item: "Navis" }, rev: 2 });
+  });
+  it("F-RUN-8: a team other than the caller's is sent as shown and the bridge's refusal is said, never saved under the caller's team", async () => {
+    const no = "You enter capability for your own task team (ARC) only.";
+    serve(CAP, { role: "contributor", party: "appointed", task_team: "ARC" }, { POST: reply(403, { message: no }) });
+    const root = await mount("capability");
+    (input(root, "Task team") as HTMLInputElement).value = "STR";
+    input(root, "Item").value = "Tekla";
+    click(btn(root, "+ Add row")); await flush();
+    expect(JSON.parse(bfetch.mock.calls.find((c) => c[1]?.method === "POST")![1].body).row.team).toBe("STR");
+    expect(textOf(root)).toContain(no);
   });
   it("capability: a member with no team is told who enters the rows, and cannot edit or add", async () => {
     serve(CAP, { role: "lead", party: "lead_appointed", task_team: null });

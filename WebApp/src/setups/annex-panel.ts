@@ -115,7 +115,7 @@ export function annexPanel(root: HTMLElement, opts: { base: string; key: string;
         const fixed = isCap() && c.key === "team";
         const k = control(c, fixed ? teamOf() : c.type === "check" ? false : "", fixed);
         form.append(labelled(c, k.node));
-        return [c.key, fixed ? () => teamOf() : k.get] as const;
+        return [c.key, k.get] as const; // F-RUN-8: what the box shows is what is sent; the bridge refuses another team in words
       });
       const add = el("button", BTN, "+ Add row"); add.className = "annex-add-btn";
       add.addEventListener("click", () => void run(async () => {
