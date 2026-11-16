@@ -8,7 +8,7 @@ import { bfetch } from "./bridge-fetch";
 import { askYesNo } from "./ask";
 import { artefactInForce, installArtefact } from "./active-ruleset";
 import { readFileSync } from "node:fs";
-import { createLine, mountTemplates, templateForm, templateId, templateLine, type OfficeTemplate } from "./template-form";
+import { createLine, creatable, TIDP_MOVED, mountTemplates, templateForm, templateId, templateLine, type OfficeTemplate } from "./template-form";
 import { click, fakeDocument, findAll, fire, textOf } from "../workspace/fake-dom";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -158,5 +158,13 @@ describe("the start picker", () => {
     expect(panel).toContain("/templates`)");
     expect(panel).toContain("template_id: t.template_id");
     expect(readFileSync(new URL("./project-settings-panel.ts", import.meta.url), "utf8")).toContain("mountTemplates(host,");
+  });
+});
+
+describe("F-RUN-6: + New document does not offer a TIDP", () => {
+  it("drops the TIDP templates and says where task team plans are made", () => {
+    const list = [{ template_id: "bep", doc_type: "BEP", sections: 1 }, { template_id: "tidp", doc_type: "TIDP", sections: 1 }, { template_id: "t2", doc_type: "tidp", sections: 1 }];
+    expect(creatable(list).map((t) => t.template_id)).toEqual(["bep"]);
+    expect(TIDP_MOVED).toContain("Deliverables ▸ By task team");
   });
 });

@@ -118,3 +118,10 @@ describe("F-R1b-4: the panel re-reads what it shows when the person comes back f
     expect(f.indexOf("openId = doc.id;")).toBeGreaterThan(f.lastIndexOf("if (mine !== seq) return;", f.indexOf("openId = doc.id;")));
   });
 });
+describe("F-RUN-6: the start picker offers no TIDP", () => {
+  it("the template list goes through creatable and the picker says where a TIDP is made", () => {
+    const f = fn("showCreate");
+    expect(f).toContain("creatable(await api(");
+    expect(f).toContain("moved.textContent = TIDP_MOVED;");
+  });
+});
