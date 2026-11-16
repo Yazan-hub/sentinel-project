@@ -111,7 +111,8 @@ describe("migration 0038 — the database holds the bridge's write rules (SEC-1)
     expect(count(ROUTES, 'cde.docUpsert("rfi", rpid, rfi.guid, rfi)')).toBe(0);
     expect(CDE).toContain('await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal", service: true });');
     expect(CDE).toContain('await sb(`element_snapshots`, { method: "POST", body: chunk, prefer: "return=minimal", service: true });');
-    expect(count(CDE, 'await requireMinRole(topic.project_id, "contributor"); // 0038')).toBe(2);
+    expect(count(CDE, 'await requireMinRole(topic.project_id, "contributor"); // 0038')).toBe(1); // bcfSaveTopic
+    expect(count(CDE, 'await requireMinRole(topic.project_id, decision ? "viewer" : "contributor"); // 0038')).toBe(1); // bcfCreateTopic (F-RUN-1: a rejection's issue is an active member's)
     // the take-off's header and its link (C8), and geometry on a file's live version (C1)
     expect(CDE).toContain("? (await versionOnKey(key, b.container_version_id)).version.id");
     expect(CDE).toContain("service: true, // 0038: model_revisions has no signed-in insert");
