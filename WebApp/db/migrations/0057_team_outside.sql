@@ -13,7 +13,7 @@
 --           the appointment: it is decided, in Sentinel or outside it.
 --
 -- Dry-run: PGlite with every migration (bridge/migration-0057.test.mjs). Probe: probes/0057_probe.sql.
--- NOT APPLIED. Applying it is the founder's.
+-- APPLIED 2026-11-16 ~06:44 UTC on the founder's "Yes, apply 0057" (Supabase migration 0057_team_outside). The two live function bodies match this file (md5). Probe: part 1 all true, "PROBE 0057: 8 of 8 as expected."
 -- Rollback (never run casually): drop function public.doc_round_record_team_outside(uuid, text, text, date, text, text); re-run 0055's doc_round_start
 --   body; alter table public.task_teams drop column outside_sentinel (only when no open round still waits on a marked team).
 
