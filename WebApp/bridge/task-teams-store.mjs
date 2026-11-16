@@ -73,7 +73,7 @@ export async function createTeam(key, body, actor) {
       throw err(409, `task team "${row.code}" is already declared on this project`);
     throw e;
   }
-  await audit(proj.id, "task_team", created.id, "created", actor || "web", null, { code: created.code, lead_email: created.lead_email, ...(created.outside_sentinel && { outside_sentinel: true }) });
+  await audit(proj.id, "task_team", created.id, "created", actor || "web", null, { code: created.code, lead_email: created.lead_email, ...(created.outside_sentinel && { outside_sentinel: true }), ...(created.owns_no_container && { owns_no_container: true }) });
   return created;
 }
 
@@ -91,8 +91,10 @@ export async function updateTeam(key, id, patch, actor) {
     method: "PATCH", body: { ...merged, updated_at: new Date().toISOString() }, prefer: "return=representation",
   }).catch((e) => { throw noColumn(e); }), "a task team is changed by a lead or owner"));
   const marked = !!before.outside_sentinel !== !!merged.outside_sentinel; // 0057: a change of the mark goes on the ledger, both ways
-  await audit(proj.id, "task_team", id, "updated", actor || "web", { code: before.code, lead_email: before.lead_email, ...(marked && { outside_sentinel: !!before.outside_sentinel }) },
-    { code: merged.code, lead_email: merged.lead_email, ...(marked && { outside_sentinel: !!merged.outside_sentinel }) });
+  const owns = !!before.owns_no_container !== !!merged.owns_no_container; // 0058: so does a change of "owns no container"
+  await audit(proj.id, "task_team", id, "updated", actor || "web",
+    { code: before.code, lead_email: before.lead_email, ...(marked && { outside_sentinel: !!before.outside_sentinel }), ...(owns && { owns_no_container: !!before.owns_no_container }) },
+    { code: merged.code, lead_email: merged.lead_email, ...(marked && { outside_sentinel: !!merged.outside_sentinel }), ...(owns && { owns_no_container: !!merged.owns_no_container }) });
   return updated;
 }
 

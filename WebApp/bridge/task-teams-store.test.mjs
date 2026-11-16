@@ -139,6 +139,15 @@ describe("0058: owns_no_container", () => {
     expect(await lead(() => updateTeam("demo", T, { owns_no_container: true }, "web"))).toMatchObject({ id: T, owns_no_container: true });
     expect(await lead(() => createTeam("demo", { code: "INT", owns_no_container: true }, "web"))).toMatchObject({ code: "INT", owns_no_container: true });
   });
+  it("a change of the tick is on the ledger, both ways, like the not-in-Sentinel tick; an edit that leaves it alone does not name it", async () => {
+    const rows = () => rest.calls.filter((c) => c.table === "audit_log").map((c) => JSON.parse(JSON.stringify(c.body)));
+    const pick = (r) => [r.action, r.old_value?.owns_no_container, r.new_value?.owns_no_container];
+    await lead(() => updateTeam("demo", T, { owns_no_container: true }, "web"));
+    await lead(() => updateTeam("demo", T, { name: "Architecture" }, "web"));
+    await lead(() => updateTeam("demo", T, { owns_no_container: false }, "web"));
+    await lead(() => createTeam("demo", { code: "INT", owns_no_container: true }, "web"));
+    expect(rows().map(pick)).toEqual([["updated", false, true], ["updated", undefined, undefined], ["updated", true, false], ["created", undefined, true]]);
+  });
   it("before the migration: a team without the column reads as not set, other edits save, and a tick is refused in plain words", async () => {
     expect(await lead(() => updateTeam("demo", T, { name: "Architecture" }, "web"))).toMatchObject({ name: "Architecture" });
     expect(db.task_teams[0].owns_no_container).toBeUndefined();
