@@ -34,6 +34,7 @@ export function validateTeam(body) {
   }
 
   if (body.outside_sentinel != null && typeof body.outside_sentinel !== "boolean") throw err(400, "outside_sentinel is true or false");
+  if (body.owns_no_container != null && typeof body.owns_no_container !== "boolean") throw err(400, "owns_no_container is true or false");
   const str = (v) => (v === undefined || v === null || String(v).trim() === "" ? null : String(v).trim());
   return {
     code,
@@ -44,8 +45,13 @@ export function validateTeam(body) {
     notes: str(body.notes),
     // 0057: the team is not in Sentinel, so a lead records what it decided on a plan sent for review. Kept only when the caller, or the stored row, carries it.
     ...(body.outside_sentinel != null && { outside_sentinel: body.outside_sentinel }),
+    // 0058: the team works inside another team's model, so it owns no container. Same rule: only when the caller, or the stored row, carries it.
+    ...(body.owns_no_container != null && { owns_no_container: body.owns_no_container }),
   };
 }
+
+// Before 0058 is applied the column is not there: a write that carries the flag is refused in plain words and nothing is saved (reads use select=*, so they never name it).
+const noColumn = (e) => (/owns_no_container/.test(String(e?.message || "")) ? err(409, "This needs a database update that has not been applied yet, so the tick could not be saved.") : e);
 
 export async function listTeams(key) {
   const proj = await ensureProject(key);
@@ -59,7 +65,9 @@ export async function createTeam(key, body, actor) {
   let created;
   try {
     created = one(await sb("task_teams", { method: "POST", body: { ...row, project_id: proj.id }, prefer: "return=representation" }));
-  } catch (e) {
+  } catch (e0) {
+    const e = noColumn(e0);
+    if (e !== e0) throw e;
     // 23505 = the case-insensitive unique index. A duplicate code is a user mistake, not a 500.
     if (String(e?.message || "").includes("uq_task_teams_project_code") || String(e?.message || "").includes("23505"))
       throw err(409, `task team "${row.code}" is already declared on this project`);
@@ -81,7 +89,7 @@ export async function updateTeam(key, id, patch, actor) {
   // task_teams writes are a lead's (0026): a refused PATCH comes back as no row — a 403, never an "updated" row (ledger-1).
   const updated = one(requireRows(await sb(`task_teams?id=eq.${enc(id)}`, {
     method: "PATCH", body: { ...merged, updated_at: new Date().toISOString() }, prefer: "return=representation",
-  }), "a task team is changed by a lead or owner"));
+  }).catch((e) => { throw noColumn(e); }), "a task team is changed by a lead or owner"));
   const marked = !!before.outside_sentinel !== !!merged.outside_sentinel; // 0057: a change of the mark goes on the ledger, both ways
   await audit(proj.id, "task_team", id, "updated", actor || "web", { code: before.code, lead_email: before.lead_email, ...(marked && { outside_sentinel: !!before.outside_sentinel }) },
     { code: merged.code, lead_email: merged.lead_email, ...(marked && { outside_sentinel: !!merged.outside_sentinel }) });

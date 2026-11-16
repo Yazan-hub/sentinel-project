@@ -208,7 +208,7 @@ export function rollUpTidp(status, teams) {
     return {
       code: t.code, name: t.name ?? null, lead_email: t.lead_email ?? null,
       discipline: t.discipline ?? null, appointment: t.appointment ?? null,
-      declared: true, rows: mine, summary, next_due: nextDue(mine), at_risk: atRisk(summary),
+      declared: true, owns_no_container: !!t.owns_no_container, rows: mine, summary, next_due: nextDue(mine), at_risk: atRisk(summary),
     };
   });
 
@@ -236,7 +236,7 @@ export function rollUpTidp(status, teams) {
       task_teams_declared: (teams || []).length,
       task_teams_undeclared: undeclared.length,
       // An empty TIDP is a team that planned nothing — surfaced, never averaged away.
-      empty_tidps: declared.filter((t) => !t.rows.length).map((t) => t.code),
+      empty_tidps: declared.filter((t) => !t.rows.length && !t.owns_no_container).map((t) => t.code),
       unassigned: unassignedRows.length,
     },
   };

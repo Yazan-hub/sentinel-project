@@ -22,7 +22,7 @@ type Row = {
   expected_revision: string | null; expected_suitability: string | null; purpose: string | null; evidence: Evidence;
 };
 type StatusReport = { generated_at: string; today: string; rows: Row[]; summary: Record<string, number>; exceptions: Exception[]; unplanned?: { iso_name: string; versions: number }[] };
-type Team = { id: string; code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; notes: string | null; outside_sentinel?: boolean };
+type Team = { id: string; code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; notes: string | null; outside_sentinel?: boolean; owns_no_container?: boolean };
 type Tidp = { code: string; name: string | null; lead_email: string | null; discipline: string | null; appointment: string | null; declared: boolean; rows: Row[]; summary: Record<string, number>; next_due: string | null; at_risk: number };
 type TidpReport = { generated_at: string; today: string; tidps: Tidp[]; unassigned: { rows: Row[]; summary: Record<string, number> }; midp: Record<string, number> & { empty_tidps: string[] } };
 
@@ -630,6 +630,8 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       const notesI = field("Notes (optional)", "100%", editing.notes || "");
       // 0057: a team with nobody in Sentinel. A lead then records what the team decided on a plan sent for review, with who gave it and where it is kept.
       const outI = document.createElement("input"); outI.type = "checkbox"; outI.checked = !!editing.outside_sentinel; outI.style.cssText = "align-self:flex-start";
+      // 0058: a team that works inside another team's model has no container of its own, so it is not asked for a deliverable.
+      const noCI = document.createElement("input"); noCI.type = "checkbox"; noCI.checked = !!editing.owns_no_container; noCI.style.cssText = "align-self:flex-start";
       const label = (t: string, el: HTMLElement) => {
         const w = document.createElement("label");
         w.style.cssText = "display:flex;flex-direction:column;gap:.2rem;font:10.5px system-ui;color:#9ca3af";
@@ -646,6 +648,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         label("Position in the appointment chain", apptI),
         label("Notes", notesI),
         label("Not in Sentinel: nobody of this team signs in here, so a lead records what the team decided on a plan sent for review", outI),
+        label("Owns no container: works inside another team's model", noCI),
       );
       const save = btn(editing.id ? "Save" : "Declare", true);
       const cancel = btn("Cancel");
@@ -663,6 +666,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
           code: codeI.value, name: nameI.value, lead_email: leadI.value,
           discipline: discI.value, appointment: apptI.value, notes: notesI.value, actor: await actor(),
           ...(outI.checked || editing.outside_sentinel !== undefined ? { outside_sentinel: outI.checked } : {}), // sent only when the mark is set or the row already carries it
+          ...(noCI.checked || editing.owns_no_container !== undefined ? { owns_no_container: noCI.checked } : {}),
         };
         try {
           const base = `${SERVICE_URL.replace(/\/$/, "")}/teams/${encodeURIComponent(pid())}`;
