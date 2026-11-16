@@ -1524,7 +1524,7 @@ async function handleRequest(req, res) {
           standards: (key, kind) => art.resolveArtefact(key, kind),
           documents: (key) => bimdocs.listDocs(key),
           containers: (key) => cde.listContainers(key),
-          reviews: (key) => cde.readReviews(key),
+          reviews: (key) => cde.readReviews(key, { all: true }), // finished chains too (F-RUN-18)
           ledgerPage: (key, q) => cde.listAudit(key, q),
           chainPage: (key, q) => cde.listChain(key, q),
           verifier: (({ file, sha256 }) => ({ file, sha256, run: `node ${file} <this pack>`, get: "Project Settings ▸ audit pack ▸ Download the verifier — or WebApp/bridge/ledger-verify.mjs in github.com/Yazan-hub/sentinel-project" }))(verifierFile()),

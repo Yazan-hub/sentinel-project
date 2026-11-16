@@ -3,7 +3,7 @@
 // step by the approvals naming its start, the approvals with their ledger rows, whether the caller may decide it (in
 // review_decide's words), and the BCF topic a rejection raises.
 import { describe, it, expect } from "vitest";
-import { openChains, rejectionTopic, RANK } from "./review-logic.mjs";
+import { openChains, allChains, rejectionTopic, RANK } from "./review-logic.mjs";
 import { ROLE_RANK } from "./members-store.mjs";
 
 const V1 = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -111,5 +111,17 @@ describe("openChains — party-aware steps", () => {
   });
   it("a step without a party keeps the role rule for everyone", () => {
     expect(openChains([start(501)], [], [version()], { uid: "u-v", rank: RANK.viewer, party: "appointing" })[0].why_not).toBe("step 1 (Coordination check) needs contributor or above");
+  });
+});
+
+describe("F-RUN-18: allChains — every review chain, finished and open, for the audit pack", () => {
+  it("lists an approved chain, a rejected one and an open one, newest first, each with its outcome", () => {
+    const one = [{ name: "Check", role: "contributor", approvals: 1 }];
+    const reject = { id: 512, at: at(512), hash: hash(512), entity_type: "review", entity_id: V2, action: "review:reject 1", actor: "ana@example.test", new_value: { step: 1, chain_start_id: 511 } };
+    const rows = [start(501, V1, one), approve(502, 501, 1, ANA, "ana@example.test"), start(511, V2, one), reject, start(521, V2, one)];
+    const all = allChains(rows, [back(513, V2)], [version(V1, "published"), version(V2, "shared")]);
+    expect(all.map((c) => [c.chain_start_id, c.outcome, c.open, c.container_name])).toEqual([[521, "open", true, "Annex.ifc"], [511, "rejected", false, "Annex.ifc"], [501, "approved", false, "Tower.ifc"]]);
+    expect(all[2].approvals).toEqual([{ step: 1, actor: "ana@example.test", at: at(502), ledger: { id: 502, hash: hash(502) } }]);
+    expect(all.filter((c) => c.open).length).toBe(openChains(rows, [back(513, V2)], [version(V1, "published"), version(V2, "shared")]).length);
   });
 });
