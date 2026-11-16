@@ -9,7 +9,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 import { escapeHtml as esc, fmtDate } from "./escape-html";
-import { importSummary, exportSummary, topicChanges, STATUSES, type ImportReply, type ExportInfo } from "./bcf-files";
+import { importSummary, exportSummary, topicChanges, supersededWords, STATUSES, type ImportReply, type ExportInfo } from "./bcf-files";
 import { saveAs } from "./audit-pack";
 
 /**
@@ -185,7 +185,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       `<div style="display:flex;align-items:center;gap:.4rem"><span style="width:.6rem;height:.6rem;border-radius:50%;background:${STATUS_COLOR[t.topic_status] || "#6528d7"};flex:none"></span>` +
       `<span style="flex:1;font-weight:600">${esc(t.title)}</span><span style="font-size:11px;color:#9ca3af">${esc(t.topic_type)}</span></div>` +
       `<div style="font-size:11px;color:#9ca3af;margin-top:.15rem">${esc(t.topic_status)} · ${esc(t.priority || "—")} · ${links} el · ${esc(t.assigned_to || "unassigned")}` +
-      `${t.ids_ref ? ` · ${esc(t.ids_ref)}` : ""}${t.superseded_by ? ` · superseded by ${esc(t.superseded_by)}` : ""}</div></div>`;
+      `${t.ids_ref ? ` · ${esc(t.ids_ref)}` : ""}${t.superseded_by ? ` · ${esc(supersededWords(t))}` : ""}</div></div>`;
   };
 
   const closeSuperseded = async () => {
@@ -230,7 +230,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     h += `<div style="font-weight:600;font-size:14px;margin-bottom:.4rem">${esc(t.title)}</div><div style="font-size:12px;line-height:1.5">`;
     h += row("Type", t.topic_type) + row("Status", t.topic_status) + row("Priority", t.priority) + row("Assigned", t.assigned_to) + row("Due", fmtDate(t.due_date));
     if (t.labels?.length) h += row("Labels", t.labels.join(", "));
-    if (/^IDS:/.test(t.title)) h += row("Raised by", `${t.ids_ref ? `${t.ids_ref} (${t.ids_source || "?"})` : "an IDS without a ref (before refs were recorded)"}${t.superseded_by ? ` · superseded by ${t.superseded_by}` : ""}`);
+    if (/^IDS:/.test(t.title)) h += row("Raised by", `${t.ids_ref ? `${t.ids_ref} (${t.ids_source || "?"})` : "an IDS without a ref (before refs were recorded)"}${t.superseded_by ? ` · ${supersededWords(t)}` : ""}`);
     h += row("Author", `${t.creation_author || "—"}  ${fmtDate(t.creation_date)}`);
     if (t.description) h += `<div style="margin-top:.3rem"><span style="color:#9ca3af">Description:</span><br>${esc(t.description)}</div>`;
     if (t.comments?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">Comments (${t.comments.length}):</div>`; for (const c of t.comments) h += `<div>• ${esc(c.author)}: ${esc(c.comment)}</div>`; }

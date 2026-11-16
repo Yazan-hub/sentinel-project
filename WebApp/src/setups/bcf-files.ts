@@ -44,3 +44,11 @@ export function topicChanges(t: { topic_status: string; priority?: string; assig
   if (f.due !== had) out.due_date = f.due ? `${f.due}T00:00:00Z` : null;
   return out;
 }
+
+/** F-RUN-10: "superseded by ids@1"; when the issue's own IDS carries the same label, the other one lives in the other
+ *  scope (a label never repeats inside one), so the scope is named: "superseded by ids@1 · project". */
+export function supersededWords(t: { ids_ref?: string | null; ids_source?: string | null; superseded_by?: string }): string {
+  if (!t.superseded_by) return "";
+  const other = t.ids_source === "office" ? "project" : t.ids_source === "project" ? "office" : "";
+  return `superseded by ${t.superseded_by}${t.superseded_by === t.ids_ref && other ? ` · ${other}` : ""}`;
+}

@@ -32,3 +32,16 @@ describe("topicChanges — the quick edit PUTs only what changed", () => {
     expect(topicChanges(t, { status: "Open", priority: "Low", assignee: "mep@office.example", due: "2026-12-24" })).toEqual({ priority: "Low", due_date: "2026-12-24T00:00:00Z" });
   });
 });
+
+import { supersededWords } from "./bcf-files";
+
+describe("F-RUN-10: a superseded IDS issue names the scope when both labels are the same", () => {
+  it("office ids@1 superseded by the project ids@1 says so", () => {
+    expect(supersededWords({ ids_ref: "ids@1", ids_source: "office", superseded_by: "ids@1" })).toBe("superseded by ids@1 · project");
+    expect(supersededWords({ ids_ref: "ids@1", ids_source: "project", superseded_by: "ids@1" })).toBe("superseded by ids@1 · office");
+  });
+  it("different labels read as before; no mark reads as nothing", () => {
+    expect(supersededWords({ ids_ref: "ids@1", ids_source: "project", superseded_by: "ids@2" })).toBe("superseded by ids@2");
+    expect(supersededWords({ ids_ref: "ids@1" })).toBe("");
+  });
+});
