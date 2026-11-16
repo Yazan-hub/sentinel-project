@@ -605,6 +605,7 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
     <li><strong>مسار واحد في كل مرة.</strong> لا ميزات جديدة في جلسة اختبار.</li>
     <li><strong>ملخّص أسبوعي بالعربي:</strong> ما تغيّر، ما قررتَه، ما ينتظرك. القرارات مكتوبة أصلاً في الوثائق بعبارة "founder: ...".</li>
     <li><strong>هذا التقرير هو المرجع.</strong> عندما يتغير شيء كبير، يُحدَّث هنا في نفس اليوم.</li>
+    <li><strong>ميزانية الاستعمال (اشتراك Pro):</strong> القواعد محفوظة في <code>CLAUDE.md</code> فتتبعها كل جلسة لوحدها. Haiku للبحث والقراءة والتعديلات البسيطة، Sonnet للشغل العادي، Opus للتصميم والأمان وأي إشي صعب التراجع عنه، وFable (أغلى من Opus بمرتين) فقط لقرار صعب جداً تطلبه أنت. شغّل الجلسة على Sonnet بالأيام العادية (<code>/model</code>).</li>
   </ul>
 </section>
 
@@ -612,6 +613,19 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
 <section id="next">
   <span class="sec-no">11</span>
   <h2>التوصيات بالترتيب</h2>
+  <h3>الحالة بعد تنفيذ التوصيات (16 ت2)</h3>
+  <div class="tw"><table>
+    <thead><tr><th>التوصية</th><th>ما تم</th><th>ما بقي عليك</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td>1. أكمل P1 إلى P4</td><td>التجميد مسجّل، وورقة تشغيل بالترتيب: <code>docs/testing/snowdon-lifecycle/RUN-SHEET_P1-P4.md</code></td><td>التشغيل نفسه يحتاج جهازك والحسابات الأربعة</td><td><span class="st part">جاهز للتشغيل</span></td></tr>
+      <tr><td>2. تشغيل موثوق</td><td>Keeper يعيد تشغيل الجسر والـ watcher والـ Funnel، ونسخ احتياطي يومي، وخطوات BitLocker: <code>docs/RELIABILITY.md</code></td><td>أول تشغيل على جهازك (الخطوات A1 وB4). 2FA للـ leads أول بناء بعد التجميد</td><td><span class="st built">مبني، لم يُشغَّل</span></td></tr>
+      <tr><td>3. جولة That Open</td><td>الكود صار يشتغل على المحرك التجريبي والعام، و5,464 من 5,465 اختبار نجحت على حزم 3.6 العامة. التطبيق يجاوب <code>help</code> و<code>ping</code> لـ MCP الرسمي. خطة تجربة "بوابة المزامنة" لتعاون Revit، ورسالة أسئلة جاهزة</td><td>النسخة العامة 3.6 ما فيها Collider (التعارض الدقيق)، فالإنتاج باقي على التجريبي لحد ما يجاوبوا. ابعت الرسالة: <code>docs/THATOPEN_REPORTS.md</code> القسم 3</td><td><span class="st part">جزئي</span></td></tr>
+      <tr><td>4. صحّح الوثائق</td><td>صفحة الحالة في الـ handbook فيها صفوف تشرين الأول والثاني مع دليل كل واحد، وصحّحت الأرقام والمسارات القديمة</td><td>دليل الإضافة يحتاج إعادة كتابة كاملة (مهمة رخيصة لـ Sonnet)</td><td><span class="st ok">تم</span></td></tr>
+      <tr><td>5. أول مستخدم حقيقي</td><td>مؤجّل بقرارك</td><td>—</td><td><span class="st no">مؤجّل</span></td></tr>
+      <tr><td>6. شريك للإنشاء والتسليم</td><td>حزمة مراجعة بـ 14 سؤالاً لمقاول ومدير مرافق: <code>docs/testing/snowdon-lifecycle/P5-P6_REVIEWER_PACK.md</code></td><td>إيجاد الشخص وجلسة ساعة</td><td><span class="st part">جاهز</span></td></tr>
+      <tr><td>7. ثلاثة عروض</td><td>سكربتات الثلاثة عروض، خمس دقائق لكل واحد: <code>docs/DEMOS.md</code></td><td>تجربة كل عرض مرة على مشروع تجريبي</td><td><span class="st built">مكتوب</span></td></tr>
+    </tbody>
+  </table></div>
   <ol class="recs">
     <li><div><strong>أكمل اختبار دورة الحياة P1 إلى P4 قبل أي ميزة جديدة.</strong><p class="why">هو القصة التي ستعرضها على أي مكتب. كل ما بُني في ت2 لم يُشغَّل بعد كقصة واحدة من العطاء إلى قبول العميل. تقديري: أسبوعان إلى ثلاثة.</p></div></li>
     <li><div><strong>اجعل التشغيل موثوقاً قبل أي شخص من الخارج.</strong><p class="why">الجسر كخدمة تعيد تشغيل نفسها أو استضافة حقيقية، نسخ احتياطي، والخطوات المجانية: 2FA للـ leads والمالكين، BitLocker على حاسوب الجسر، وتشغيل حماية كلمات المرور المسرّبة. قرارك كان أن الاستضافة تنتظر النشر العام، وفتح منصة That Open قد يكون ذلك الوقت.</p></div></li>
@@ -627,8 +641,9 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
 <section id="decisions">
   <span class="sec-no">12</span>
   <h2>قرارات تحتاجها منك</h2>
+  <p><strong>محسوم في 16 ت2:</strong> التجميد حتى P4 (نعم)، تجربة تعاون Revit بعد التجميد (نعم)، أول مستخدم حقيقي مؤجّل.</p>
   <ol>
-    <li><strong>هل نوقف الميزات الجديدة ونكمل P1 إلى P4 أولاً؟</strong> توصيتي: نعم.</li>
+    <li><strong>هل نوقف الميزات الجديدة ونكمل P1 إلى P4 أولاً؟</strong> محسوم: نعم.</li>
     <li><strong>موقف سنتينل من CDE منصة That Open:</strong> فوقها (نحكم على ملفاتهم ونكتب حالة ISO عليها) أم بجانبها (CDE سنتينل هو الأساس)؟ توصيتي: فوقها على منصتهم، ونبقي CDE سنتينل لمن يعمل خارجها.</li>
     <li><strong>هل نجرب تعاون Revit عند That Open الآن؟</strong> توصيتي: تجربة صغيرة بعد الترقية، يوم أو يومان.</li>
     <li><strong>من أول مستخدم حقيقي، ومتى؟</strong></li>
