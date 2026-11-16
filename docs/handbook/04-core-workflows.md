@@ -31,7 +31,7 @@ This is the differentiated seam, ✅ **verified live end-to-end** on a real buil
 ### What each gate actually checks
 
 - **Naming gate (Phase A)** — the project's `naming@n` artefact (its own, else its office's); nothing installed is "not checkable", never a shipped default. Default enforcement: **reject** (a bad name blocks the publish). 🟩 Built.
-- **Element IDS (Phase B)** — `%AppData%/Sentinel/ids.json` (from `demo/bds-pilot/bds-ids.json`), LOD-300 completeness checks (discipline, fire rating, U-value, etc.). Default enforcement: **warn** (missing data warns during early stages, doesn't block). 🟩 Built.
+- **Element IDS (Phase B)** — the `ids@n` artefact installed on the project or its office (Settings ▸ Standards in force, or "Install on this project"; pilot data `demo/bds-pilot/bds-ids.json`; nothing installed = not checkable; the workstation file was retired on 2026-09-23), LOD-300 completeness checks (discipline, fire rating, U-value, etc.). Default enforcement: **warn** (missing data warns during early stages, doesn't block). 🟩 Built.
 - Both rulesets are **swappable config, not code** — a future office-agnostic "Base template" is installed as new `naming`/`ids` artefact versions. (See [decision D-03](07-decisions.md) and `docs/BDS_GATE_CONFIG.md`.)
 
 ### The verdict combination

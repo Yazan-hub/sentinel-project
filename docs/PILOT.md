@@ -1,5 +1,9 @@
 # Sentinel Platform — Pilot Onboarding (first run in ~15 min)
 
+> Checked against the code on 2026-11-16: the data section below is current. The tour in section 4 predates the
+> project space (Dashboard, Project Files, Documents, Deliverables, Settings) and the documents workspace; for a
+> guided first run use `docs/DEMOS.md`.
+
 For the person running a pilot at an office. Gets you from zero to "a project living A→Z in one place."
 
 ---
@@ -51,9 +55,10 @@ in `WebApp/.env` and rebuild/redeploy. All users then share the same issues, pro
 (For a single-user trial, the default `localhost:4100` per machine is simplest.)
 
 ## Data & backup
-Everything persists as JSON under `%AppData%\Sentinel\`:
-`bcf-store · project-store · rfi-store · tender-store · pack-store · ruleset · shared params · packs`.
-Back up that folder to preserve a pilot's data; delete a `*-store.json` to reset that feature.
+Since September 2026 every store is in the Supabase database (projects, members, issues, RFIs, tenders, documents,
+deliverables, the ledger); the bridge keeps only files on this PC, under `%APPDATA%\Sentinel\` (CDE files, document
+files, evidence, sheets, views, the outbox). The old `*-store.json` files are gone. Backups and the keeper that restarts
+the bridge: `docs/RELIABILITY.md`. Rows on the ledger can never be deleted, so rehearse on a scratch project.
 
 ---
 

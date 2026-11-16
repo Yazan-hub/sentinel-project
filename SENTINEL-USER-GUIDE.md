@@ -1,5 +1,5 @@
 # Sentinel — Plugin Summary & Tool Guide
-Revit 2021–2027 · BDS BIM governance add-in · v Phase 2 (July 2026)
+Revit 2021–2027 · BIM governance add-in · checked 2026-11-16: the ribbon has four panels (Coordinate, Validate, Publish, Standards & Build) and 38 commands; the tables below still use the older panel names (Coordination, Quality, Workflow) and do not yet describe Review AI Proposals, Applied AI Changes, MEP Type Check, Publish Sheets/Views, Protection, PC Settings or the Model from Drawings chain. The list of commands is in `docs/strategy/2026-11-16-sentinel-full-picture-ar.html` section 5.
 
 **What Sentinel is:** a live BIM coordinator inside Revit. It enforces BDS standards (naming, worksets, parameters) in real time, routes modeller changes through coordinator approval, automates fixes, manages MEP openings, certifies IFC deliverables, and counts what it did from the project's ledger.
 

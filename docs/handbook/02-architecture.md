@@ -37,10 +37,10 @@ The heart. Pure TypeScript with **no DOM, no Node, no platform** dependencies �
 - `validateContainerName(name, ruleset)` — the ISO 19650 naming gate.
 - `groupFailuresForBcf(failures, openReqs)` — turn failures into coordination issues.
 
-Backed by **✅ its own unit tests**, part of the vitest suite CI runs on every push (about 3,800 tests on 2026-10-19).
+Backed by **✅ its own unit tests**, part of the vitest suite CI runs on every push (5,470 tests on 2026-11-16).
 
 ### Supporting: `WebApp/db/migrations/` — the schema
-Supabase/PostgreSQL: the ISO 19650 CDE tables, row-level security policies, and the immutable hash-chained audit ledger. Migrations `0001`→`0016`.
+Supabase/PostgreSQL: the ISO 19650 CDE tables, row-level security policies, and the immutable hash-chained audit ledger. Migrations `0001`→`0057` (2026-11-16).
 
 ## The trust boundary, precisely
 
@@ -50,7 +50,7 @@ This is the single most important architectural fact:
 - The **bridge** holds the service key and the platform token. It forwards a signed-in user's JWT to the database so **row-level security** enforces access per-user; for trusted internal writes (the audit ledger, event fan-out) it uses the service key deliberately.
 - The **database** is the final arbiter: even if a client is compromised, RLS + the append-only ledger constrain what can happen.
 
-> Honest note on current posture: the bridge's own auth gate (requiring a JWT or a shared token so it never silently falls open to the service key) is 🟩 **built but not yet armed** — see [`03-security-and-ledger.md`](03-security-and-ledger.md) and `docs/SECURITY_F2_ACTIVATION.md`. Today it binds to loopback only.
+> Current posture (2026-11-16): the bridge's auth gate is armed (since 2026-07-26), the machine credential is accepted only from this PC's own processes, and the bridge binds to loopback; the published app and Revit reach it through a Tailscale Funnel. It runs on one PC: see `docs/RELIABILITY.md`. Details in [`03-security-and-ledger.md`](03-security-and-ledger.md).
 
 ## Tech stack at a glance
 
