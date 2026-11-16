@@ -6,7 +6,7 @@ vi.mock("../setups/active-ruleset", () => ({ artefactInForce: vi.fn(async () => 
 
 import { artefactInForce } from "../setups/active-ruleset";
 import { loinEditor } from "./loin-editor";
-import { changeLine, changesFrom, proposedChangesEditor } from "./proposed-changes-editor";
+import { changeLine, changesFrom, namingOf, proposedChangesEditor } from "./proposed-changes-editor";
 import { eirLinkEditor, NO_EIR } from "./eir-link-editor";
 import { tableEditor } from "./grid-editors";
 import { click, fakeDocument, findAll, fire, textOf } from "./fake-dom";
@@ -99,6 +99,14 @@ describe("proposedChangesEditor", () => {
     expect((e.value().data as any).changes.map((c: any) => c.detail)).toEqual(["Adds C", "Removes B"]);
     expect(artefactInForce).not.toHaveBeenCalled();
     vi.mocked(artefactInForce).mockReset(); vi.mocked(artefactInForce).mockResolvedValue(null as any);
+  });
+  it("F-RUN-4 leftover: the naming compared is the first naming block that has fields, the one in the block's own section first, never an empty one", () => {
+    const nb = (keys: string[]) => ({ id: "n" + keys.join(""), kind: "naming", data: { separator: "-", fields: keys.map((k) => ({ key: k, label: k.toUpperCase(), kind: "text" })) } });
+    const sections = [{ id: "s1", heading: "A", blocks: [nb([])] }, { id: "s2", heading: "B", blocks: [nb(["a"])] }, { id: "s3", heading: "C", blocks: [nb(["x", "y"])] }] as any;
+    expect(namingOf(sections)?.fields.map((f: any) => f.key)).toEqual(["a"]);
+    expect(namingOf(sections, "s3")?.fields.map((f: any) => f.key)).toEqual(["x", "y"]);
+    expect(namingOf(sections, "s1")?.fields.map((f: any) => f.key)).toEqual(["a"]);
+    expect(namingOf([sections[0]])).toBeNull();
   });
 });
 

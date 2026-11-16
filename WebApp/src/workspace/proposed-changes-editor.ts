@@ -16,11 +16,13 @@ export const NO_CLIENT_NAMING = "No naming was found in the linked EIR, so there
 export const NO_OUR_NAMING = "This document has no naming block and no naming is in force, so there is nothing to compare.";
 const keyOf = (c: Pick<Change, "field_key" | "change">): string => `${c.field_key}\u0000${c.change}`;
 
-/** The first naming a document holds: a naming block, else a naming standard written into a section's text. */
-export function namingOf(sections: SectionRow[]): NamingRuleset | null {
-  for (const s of sections) for (const b of blocksOf(s)) {
+/** The naming a document holds: the first naming block that has fields (an empty one is skipped), the one in section `near` first;
+ *  else a naming standard written into a section's text. */
+export function namingOf(sections: SectionRow[], near?: string): NamingRuleset | null {
+  const ordered = near ? [...sections.filter((s) => s.id === near), ...sections.filter((s) => s.id !== near)] : sections;
+  for (const s of ordered) for (const b of blocksOf(s)) {
     const d = b.kind === "naming" ? rec((b as Block).data) : null;
-    if (d && typeof d.separator === "string" && Array.isArray(d.fields)) return { title: "", separator: d.separator, enforce: d.enforce ?? "reject", fields: d.fields } as NamingRuleset;
+    if (d && typeof d.separator === "string" && Array.isArray(d.fields) && d.fields.length) return { title: "", separator: d.separator, enforce: d.enforce ?? "reject", fields: d.fields } as NamingRuleset;
   }
   const found = findNamingCandidate(sections);
   return found ? (found.ruleset as NamingRuleset) : null;
@@ -42,7 +44,7 @@ const CHANGE_WORDS = { added: "added", removed: "removed", changed: "changed" } 
 export const changeLine = (c: Pick<Change, "field_key" | "change" | "detail">): string =>
   !c.detail ? `${c.field_key} ${CHANGE_WORDS[c.change] ?? "changed"}` : c.change === "changed" && !c.detail.startsWith(c.field_key) ? `${c.field_key}: ${c.detail}` : c.detail;
 
-export const proposedChangesEditor: BlockEditor = (block, ctx) => {
+export const proposedChangesEditor: BlockEditor = (block, ctx, sectionId) => {
   const f = frame(ctx, "proposed_changes", block.title), d = f.d;
   let changes: Change[] = arr(rec(block.data).changes).map((c) => ({ field_key: str(rec(c).field_key), change: (rec(c).change ?? "changed") as Change["change"], detail: str(rec(c).detail), reason: str(rec(c).reason) }));
   const say = h(d, "div", `color:${C.warn};font:12px system-ui;margin:.3rem 0`);
@@ -69,7 +71,7 @@ export const proposedChangesEditor: BlockEditor = (block, ctx) => {
     const eir = await ctx.ws.get<DocRow>(`/bimdocs/${pathSegment(key)}/${pathSegment(doc.responds_to)}`);
     const client = eir && Array.isArray(eir.sections) ? namingOf(eir.sections) : null;
     if (!client) { say.textContent = NO_CLIENT_NAMING; return; }
-    let ours = namingOf(arr<SectionRow>(doc.sections));
+    let ours = namingOf(arr<SectionRow>(doc.sections), sectionId);
     if (!ours) { try { ours = ((await artefactInForce<NamingRuleset>(ctx.base, key, "naming"))?.body) ?? null; } catch { ours = null; } }
     if (!ours) { say.textContent = NO_OUR_NAMING; return; }
     const kept = new Map(changes.map((c) => [keyOf(c), c.reason]));
