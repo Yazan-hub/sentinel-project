@@ -7,7 +7,7 @@ import { C, h } from "./dom";
 import type { BlockEditor } from "./block-editors";
 import { arr, frame, input, rec } from "./grid-editors";
 
-type Clause = { clause_id: string; note: string };
+type Clause = { clause_id: string; note: string; heading?: string };
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 export const NO_EIR = "Link an EIR first (outline, Link an EIR…).";
 
@@ -17,7 +17,7 @@ const namedElsewhere = (doc: DocRow | null, blockId: string): Set<string> => new
 
 export const eirLinkEditor: BlockEditor = (block, ctx) => {
   const f = frame(ctx, "eir_link", block.title), d = f.d, doc = ctx.st.doc;
-  let clauses: Clause[] = arr(rec(block.data).clauses).map((c) => ({ clause_id: str(rec(c).clause_id), note: str(rec(c).note) }));
+  let clauses: Clause[] = arr(rec(block.data).clauses).map((c) => ({ clause_id: str(rec(c).clause_id), note: str(rec(c).note), ...(str(rec(c).heading) ? { heading: str(rec(c).heading) } : {}) }));
   let sections: SectionRow[] | null = null; // the linked EIR's, once read
   let unread = false; // the linked EIR could not be read: never "every clause is answered"
   const other = namedElsewhere(doc, block.id);
@@ -32,7 +32,7 @@ export const eirLinkEditor: BlockEditor = (block, ctx) => {
       const row = h(d, "div", "display:flex;gap:.4rem;align-items:center;margin:.25rem 0"), tick = h(d, "input");
       tick.type = "checkbox"; tick.checked = named(s.id); tick.dataset.field = "clause"; tick.dataset.clause = s.id;
       tick.addEventListener("change", () => {
-        clauses = tick.checked ? [...clauses, { clause_id: s.id, note: "" }] : clauses.filter((c) => c.clause_id !== s.id);
+        clauses = tick.checked ? [...clauses, { clause_id: s.id, note: "", ...(s.heading ? { heading: String(s.heading) } : {}) }] : clauses.filter((c) => c.clause_id !== s.id);
         draw(); f.changed();
       });
       row.append(tick, h(d, "span", `color:${C.soft};font:12px system-ui;min-width:10rem`, String(s.heading ?? "")));
@@ -44,7 +44,12 @@ export const eirLinkEditor: BlockEditor = (block, ctx) => {
   }
   draw();
   if (doc?.responds_to) void ctx.ws.get<DocRow>(`/bimdocs/${pathSegment(ctx.st.key)}/${pathSegment(doc.responds_to)}`).then((eir) => {
-    if (eir && Array.isArray(eir.sections)) sections = eir.sections; else unread = true;
+    if (eir && Array.isArray(eir.sections)) {
+      sections = eir.sections;
+      // F-RUN-3: each clause carries its section's name as the EIR reads now, so the Read view and a frozen version show the name, not the id
+      const names = new Map(eir.sections.map((s) => [s.id, String(s.heading ?? "")]));
+      clauses = clauses.map((c) => (names.get(c.clause_id) ? { ...c, heading: names.get(c.clause_id) } : c));
+    } else unread = true;
     draw();
   });
   return { el: f.el, value: () => ({ title: f.caption.value, data: { clauses } }), onChange: f.onChange };

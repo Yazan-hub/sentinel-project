@@ -102,6 +102,8 @@ describe("eirLinkEditor", () => {
     const tick = findAll(e.el, "input").filter((i) => (i as any).type === "checkbox")[1] as any;
     tick.checked = true; fire(tick, "change");
     expect((e.value().data as any).clauses.map((c: any) => c.clause_id)).toEqual(["n1", "s2"]);
+    // F-RUN-3: each clause carries the EIR section's name (a ticked one, and one saved before names were kept), so what is read and frozen says the name
+    expect((e.value().data as any).clauses.map((c: any) => c.heading)).toEqual(["Naming", "Delivery"]);
     expect(textOf(e.el)).toContain("Every EIR clause is answered.");
   });
   it("clauses another EIR link block names are not 'not answered'", async () => {

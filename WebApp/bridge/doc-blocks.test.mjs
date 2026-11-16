@@ -117,6 +117,10 @@ describe("an empty block derives no body (spec section 4: the executability empt
     expect(one("live_view", { source: "tidp", filter: { team: "ARC" } })).toBe("Live list: tidp (team ARC)");
     expect(one("proposed_changes", { changes: [{ field_key: "f", change: "added", detail: "d", reason: "r" }] })).toBe("f: added — d (r)");
     expect(one("eir_link", { clauses: [{ clause_id: "c1" }] })).toBe("Answers EIR clauses: c1");
+    // F-RUN-3: the EIR section's heading, stored with the clause when it is ticked, is kept and is what the text says
+    expect(validateBlock({ kind: "eir_link", data: { clauses: [{ clause_id: "c1", heading: "Naming" }, { clause_id: "c2" }] } }).data.clauses).toEqual([{ clause_id: "c1", note: "", heading: "Naming" }, { clause_id: "c2", note: "" }]);
+    expect(one("eir_link", { clauses: [{ clause_id: "c1", heading: "Naming" }, { clause_id: "c2" }] })).toBe("Answers EIR clauses: Naming, c2");
+    expect(bad({ kind: "eir_link", data: { clauses: [{ clause_id: "c1", heading: 5 }] } })).toMatchObject({ status: 400 });
     expect(one("loin", { rows: [{ element: "Wall" }] })).toBe("Element | Milestone | Property | Value | Used by | Why\nWall |  |  |  |  | ");
     expect(one("naming", { fields: [{ key: "p", label: "P", enum: ["SNW"] }] })).toBe("Naming rule: p (reject)\nP: SNW");
   });

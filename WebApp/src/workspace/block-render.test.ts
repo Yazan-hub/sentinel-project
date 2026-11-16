@@ -59,6 +59,16 @@ describe("renderBlock — one case per kind", () => {
     expect(textOf(show({ id: "p", kind: "proposed_changes", title: "", data: { changes: [{ field_key: "role", change: "added", detail: "L landscape", reason: "site team" }] } }))).toContain("role: added — L landscape (site team)");
     expect(textOf(show({ id: "e", kind: "eir_link", title: "", data: { clauses: [{ clause_id: "5.1", note: "" }] } }))).toContain("Answers EIR clauses: 5.1");
   });
+  it("F-RUN-3: an EIR link names the EIR sections, not their ids: the stored heading, else the linked EIR's, else the id", () => {
+    const U1 = "0b0f6f0a-1111-4111-8111-000000000001", U2 = "0b0f6f0a-1111-4111-8111-000000000002", U3 = "0b0f6f0a-1111-4111-8111-000000000003";
+    const b = { id: "e", kind: "eir_link", title: "", data: { clauses: [{ clause_id: U1, heading: "Naming", note: "see 4.2" }, { clause_id: U2, note: "agreed" }, { clause_id: U3, note: "" }] } };
+    const t = textOf(show(b, { respondsTo: { title: "SNW EIR", version_no: 2, clauses: { [U1]: "Naming (renamed since)", [U2]: "Delivery milestones" } } }));
+    expect(t).toContain(`Answers EIR clauses: Naming, Delivery milestones, ${U3}`);
+    expect(t).toContain("Naming: see 4.2");
+    expect(t).toContain("Delivery milestones: agreed");
+    expect(t).not.toContain(U1); expect(t).not.toContain(U2);
+    expect(textOf(show(b))).toContain(`Answers EIR clauses: Naming, ${U2}, ${U3}`); // the EIR not read: the stored heading still shows
+  });
   it("the shared words and markers", () => {
     expect([MARK_WORDS.signs_off, ENFORCE_WORDS.warn, ROLE_WORDS.information_standard, SOURCE_WORDS.mobilisation]).toEqual(["Signs off", "names that do not match are flagged", "Information standard", "Mobilisation plan"]);
     const el = show({ id: "t", kind: "text", title: "", data: { markdown: "x" } });

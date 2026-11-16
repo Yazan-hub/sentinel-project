@@ -4,7 +4,7 @@ import { BLOCK_NAMES, blocksOf, type LiveSet, type SectionRow } from "../sentine
 import { renderMarkdown, TABLE, CELL } from "./markdown";
 import { C, h } from "./dom";
 
-export interface RenderCtx { respondsTo: { title: string; version_no: number | null } | null }
+export interface RenderCtx { respondsTo: { title: string; version_no: number | null; /** the EIR's section names by id (F-RUN-3) */ clauses?: Record<string, string> } | null }
 
 export const UNREADABLE = "This part could not be read.";
 export const MARK_WORDS: Record<string, string> = { produces: "Produces", contributes: "Contributes", signs_off: "Signs off" };
@@ -129,10 +129,12 @@ const RENDER: Record<string, Render> = {
     }
     return el;
   },
-  eir_link: (d, _c, doc) => {
+  eir_link: (d, ctx, doc) => {
     const clauses = list(d.clauses).map(rec), el = h(doc, "div");
-    el.append(line(doc, `Answers EIR clauses: ${clauses.map((c) => txt(c.clause_id)).join(", ")}`));
-    for (const c of clauses) if (txt(c.note)) el.append(line(doc, `${txt(c.clause_id)}: ${txt(c.note)}`, MUTED));
+    // F-RUN-3: the section's name, never its id: the one stored with the clause, else the linked EIR's (a block or a frozen version saved before names were stored)
+    const name = (c: Rec): string => txt(c.heading) || txt(own(rec(ctx.respondsTo?.clauses), txt(c.clause_id))) || txt(c.clause_id);
+    el.append(line(doc, `Answers EIR clauses: ${clauses.map(name).join(", ")}`));
+    for (const c of clauses) if (txt(c.note)) el.append(line(doc, `${name(c)}: ${txt(c.note)}`, MUTED));
     return el;
   },
 };

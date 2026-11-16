@@ -158,6 +158,9 @@ const eirLink = (d, at) => ({
   clauses: each(d.clauses, `${at}.clauses`, LIMITS.rows, "clauses", (c, a) => ({
     clause_id: refId(c.clause_id, `${a}.clause_id`),
     note: str(c.note, `${a}.note`, LIMITS.cellChars),
+    // F-RUN-3: the EIR section's name as it read when the clause was ticked, so the Read view, the print and a frozen version say the
+    // name and not the id. Left out when absent: a block saved before this validates to exactly what it was.
+    ...(c.heading == null || c.heading === "" ? {} : { heading: str(c.heading, `${a}.heading`, LIMITS.titleChars) }),
   })),
 });
 
@@ -249,7 +252,7 @@ const LINES = {
   facts: (d) => (d.labels.length ? [`Project facts: ${d.labels.join(", ")}`] : []),
   live_view: (d) => [`Live list: ${d.source}${d.filter.team ? ` (team ${d.filter.team})` : ""}`],
   proposed_changes: (d) => d.changes.map((c) => `${c.field_key}: ${c.change} — ${c.detail} (${c.reason})`),
-  eir_link: (d) => (d.clauses.length ? [`Answers EIR clauses: ${d.clauses.map((c) => c.clause_id).join(", ")}`] : []),
+  eir_link: (d) => (d.clauses.length ? [`Answers EIR clauses: ${d.clauses.map((c) => c.heading || c.clause_id).join(", ")}`] : []),
   loin: (d) => (d.rows.length ? [row("Element", "Milestone", "Property", "Value", "Used by", "Why"), ...d.rows.map((r) => row(r.element, r.milestone, r.property, r.value, r.used_by, r.why))] : []),
   naming: (d) => (d.fields.length ? [`Naming rule: ${d.fields.map((f) => f.key).join(d.separator)} (${d.enforce})`, ...d.fields.map((f) => `${f.label}: ${f.pattern ?? f.enum.join(", ")}`)] : []),
   references: (d) => d.rows.map((r) => `${r.title} ${r.version} — ${r.issuer}${r.received ? `, received ${r.received}` : ""}`),
