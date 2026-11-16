@@ -4,7 +4,8 @@ import { bfetch } from "./bridge-fetch";
 import { transitionVersion, nextAttachRevision, boardLockedWords, newFolderOutcome } from "./cde-transition";
 import { myRoleRead, canEditRole, canGovernRole } from "./my-role";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
-import { activePid, onActiveProjectChange } from "./active-project";
+import { activePid, onActiveProjectChange, platformProjectId } from "./active-project";
+import { showsPlatformDeliveries, type LinkRow } from "./platform-link";
 import { loadScope } from "./load-scope";
 import { unlockAndVerify, isUnlocked, lockProject, passphraseIssue, rotateProjectKey, rotationUnderWay } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, resealFiles, type StoredFile } from "./secure-store";
@@ -286,7 +287,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   // The platform's own verdicts on the IFCs of the linked platform project (spec 2026-09-27 platform-delivery-gate
   // Decision 8): read from the platform, beside the board, on every load.
-  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), () => readGateLedger(base, pid()));
+  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), () => readGateLedger(base, pid()),
+    async () => showsPlatformDeliveries(await (await bfetch(`${base}/cde/projects`)).json() as LinkRow[], pid(), platformProjectId()));
 
   let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {
