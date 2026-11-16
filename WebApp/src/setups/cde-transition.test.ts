@@ -137,3 +137,18 @@ describe("boardLockedWords (W-2 G3): the board draws every control for a lead, w
     expect(boardLockedWords({ role: "viewer", read: false })).toBe("role not read — read-only");
   });
 });
+
+describe("F-RUN-9: + Folder creates nothing until a name is confirmed", () => {
+  it("Escape cancels, Enter or leaving the box with a name creates, an empty name cancels", async () => {
+    const { newFolderOutcome } = await import("./cde-transition");
+    expect(newFolderOutcome("Escape", "Site")).toBe("cancel");
+    expect(newFolderOutcome("Enter", " Site ")).toBe("create");
+    expect(newFolderOutcome("Enter", "  ")).toBe("cancel");
+    expect(newFolderOutcome("blur", "Site")).toBe("create");
+    expect(newFolderOutcome("a", "Site")).toBeNull();
+  });
+  it("the board asks the bridge for the folder only with the typed name", () => {
+    const src = readFileSync(new URL("./cde-panel.ts", import.meta.url), "utf8");
+    expect(src).not.toContain('name: "New folder"');
+  });
+});

@@ -61,3 +61,7 @@ export function nextAttachRevision(c: { container_versions?: { revision?: string
   while (held.has(`P${String(n).padStart(2, "0")}`)) n++;
   return `P${String(n).padStart(2, "0")}`;
 }
+
+/** F-RUN-9: what a key (or "blur") on the new-folder name box does. Escape or an empty name creates nothing. */
+export const newFolderOutcome = (key: string, value: string): "create" | "cancel" | null =>
+  key === "Escape" ? "cancel" : key === "Enter" || key === "blur" ? (value.trim() ? "create" : "cancel") : null;
