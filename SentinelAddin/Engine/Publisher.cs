@@ -221,9 +221,7 @@ public static class Publisher
             // 3) The elements the referee judges, read-only from the live model. Without an office code the Pset_<org>.*
             //    rows are dropped from the read table (PsetMap) and the referee reports them missing: the plan says so.
             if (string.IsNullOrWhiteSpace(App.OrgFor(doc)))
-                plan.OrgWarning = "This document's ruleset (" + (App.Engine?.SourceFor(doc).Label ?? "none") + ") has no \"org\" code — " +
-                    "office property sets (Pset_<org>.*) were NOT read for this publish; the referee will report them " +
-                    "missing. Install a ruleset@n with an \"org\" on " + key + " or its office, then retry.";
+                plan.OrgWarning = PublishLines.NoOrg(App.Engine?.SourceFor(doc).Label ?? "none");
             progress?.Step(2, "Reading the model's elements for the referee.");
             plan.Elements = GovernedElementExtractor.Extract(doc, key);
             if (progress?.Token.IsCancellationRequested == true)
@@ -330,6 +328,10 @@ public sealed class StageResult
 /// the bridge returned the hold row it wrote. Pure.</summary>
 public static class PublishLines
 {
+    /// <summary>F-RUN-14: one line — the ruleset names no office code, so office property sets were not read; where it is set.</summary>
+    public static string NoOrg(string rulesetLabel) =>
+        "Office property sets were not read: " + rulesetLabel + " has no office code. Set one in the ruleset on the web project or its office.";
+
     public static string GateRow(PublishPlan p) => "Gate row: " + LedgerLine.For(p.GateRow);
 
     /// <summary>MA-8-6: the dialog's export line — the mapping the file was exported with, or that none was (never silent).</summary>

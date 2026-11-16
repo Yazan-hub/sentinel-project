@@ -180,6 +180,9 @@ static class Check
            "Prepare's refusal before the export: the mapping, the reason, nothing exported or published");
 
         var plan = Ready();
+        var noOrg = PublishLines.NoOrg("ruleset@3 (office)");
+        Ok(!noOrg.Contains('\n') && noOrg.Length < 160 && noOrg.Contains("office code") && noOrg.Contains("web project or its office"),
+           "F-RUN-14: the no-org line is one short line and says where the code is set");
         Is(PublishLines.Export(plan), "IFC export: no export mapping — Revit's default property sets.", "the dialog's line with no mapping says so");
         plan.ExportMapping = mapping;
         Is(PublishLines.Export(plan), "IFC export: ifc_export@2 · 0123456789ab… (2 property sets) asked of Revit's exporter; not checked in the file.", "…and with a mapping names it, as a request, not a result");
