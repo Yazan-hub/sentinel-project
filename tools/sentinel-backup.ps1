@@ -9,7 +9,7 @@
 #      user environment variable SENTINEL_BACKUP_DB_URL (Supabase dashboard > Connect > Session pooler; it holds the
 #      database password, so it is never written into this repository or into the backup folder). Without either,
 #      the database step is skipped and the reason is said.
-#   Not backed up: WebApp\config\.env (keys; keep them in your password manager) and Revit models (they live where
+#   Not backed up: config\.env (the repository root) (keys; keep them in your password manager) and Revit models (they live where
 #   you keep them).
 #
 # Run by hand:     powershell -ExecutionPolicy Bypass -File tools\sentinel-backup.ps1

@@ -42,7 +42,7 @@ signed-in user.
 |---|---|---|
 | Files the bridge keeps: CDE files, document files, evidence, sheets, views, outbox | `%APPDATA%\Sentinel` | `robocopy` into `<Destination>\files`, new and changed files only, never deleting there |
 | The database: projects, members, documents, deliverables, the ledger | Supabase (free plan: no backups you can download) | `pg_dump` into `<Destination>\db\sentinel-<date>.dump`, the newest 14 kept |
-| Keys (`WebApp\config\.env`) | This PC | Not copied. Keep them in a password manager |
+| Keys (`config\.env (the repository root)`) | This PC | Not copied. Keep them in a password manager |
 
 Steps:
 
