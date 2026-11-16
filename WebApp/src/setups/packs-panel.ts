@@ -5,7 +5,7 @@ import { activePid, onActiveProjectChange } from "./active-project";
 import type { Ruleset } from "../sentinel-core";
 import { activeRuleset, installArtefact, refLabel, NO_RULESET } from "./active-ruleset";
 import { currentUser } from "./auth";
-import { getAppManager } from "../app";
+import { projectTitle } from "../app";
 import { escapeHtml as esc } from "./escape-html";
 
 /**
@@ -182,7 +182,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
         if (!active) { msg(NO_RULESET, "#eab308"); return; }
         await okOr(await publishPack({
           key, version, name: val("pk-name").trim() || key, description: val("pk-desc").trim(),
-          author: getAppManager().projectData?.name ?? "you",
+          author: projectTitle() ?? "you",
           tags: val("pk-tags").split(",").map((s) => s.trim()).filter(Boolean),
           ruleset: active.raw, forked_from: null,   // the installed body, placeholders intact — never the {org}-expanded copy
         }));

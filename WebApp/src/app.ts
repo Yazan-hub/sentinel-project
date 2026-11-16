@@ -35,3 +35,13 @@ export const getAppManager = (_components?: unknown) => ({
     return _projectData;
   },
 });
+
+/**
+ * The platform project's name, on either platform client: services 0.16 keeps it as `projectData.name`, services 0.35
+ * as `projectData.project.title` (checked 2026-11-16). Undefined when neither is there.
+ */
+export const projectTitle = (): string | undefined => {
+  const pd = _projectData as unknown as { name?: unknown; project?: { title?: unknown } } | undefined;
+  const t = pd?.project?.title ?? pd?.name;
+  return typeof t === "string" && t.trim() ? t : undefined;
+};

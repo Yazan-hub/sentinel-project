@@ -69,8 +69,13 @@ export async function confirmOnSolids(
   mode: ClashMode,
   onProgress?: (done: number, of: number) => void,
 ): Promise<SolidHit[]> {
-  const collider = components.get(OBC.Collider);
-  const opts: OBC.ClashOptions = mode.type === "hard" ? { type: "hard", calculateVolume: true } : { type: "clearance", tolerance: mode.distance };
+  // The Collider ships in the beta engine (components-beta 3.5.x) and not in the public @thatopen/components 3.6.0
+  // (checked 2026-11-16). Read it by name so the app builds on either engine; without it this throws in words and
+  // the caller says the run is boxes only (docs/strategy/2026-11-16-thatopen-engine-upgrade.md).
+  const ColliderClass = (OBC as unknown as { Collider?: new (c: OBC.Components) => OBC.Component }).Collider;
+  if (!ColliderClass) throw new Error("this engine has no Collider (the public 3.6 engine) — solids not checked");
+  const collider = components.get(ColliderClass) as unknown as Collider;
+  const opts: ClashOptions = mode.type === "hard" ? { type: "hard", calculateVolume: true } : { type: "clearance", tolerance: mode.distance };
   const hits: SolidHit[] = [];
   const groups = candidateGroups(cands);
   const t0 = performance.now();
@@ -92,3 +97,10 @@ export async function confirmOnSolids(
 }
 
 const ms = (t: number) => `${(t / 1000).toFixed(1)} s`;
+
+// The part of the beta engine's Collider this file calls, typed here so the public engine's types (no Collider) compile.
+type ClashOptions = { type: "hard"; calculateVolume?: boolean } | { type: "clearance"; tolerance: number };
+type ColliderHit =
+  | { type: "hard"; volume?: number; elementA: { modelId: string; localId: number }; elementB: { modelId: string; localId: number } }
+  | { type: "clearance"; distance?: number; elementA: { modelId: string; localId: number }; elementB: { modelId: string; localId: number } };
+interface Collider { find(a: OBC.ModelIdMap, b: OBC.ModelIdMap, opts: ClashOptions): Promise<ColliderHit[]> }
