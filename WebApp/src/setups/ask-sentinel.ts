@@ -1,7 +1,7 @@
 // "Ask Sentinel" — the answering side (spec 2026-09-29 sdk-ask-sentinel, Phase 2). This account's external tools (the
 // bridge's `node bridge/ask-sentinel.mjs`, the MCP tool `sentinel_ask_app`) send commands over the platform's external
-// channel (@thatopen/services 0.16.1 `client.channel.external()`); the open, signed-in Sentinel tab answers with its own
-// sessions. Two read-only commands, nothing else: a command's `kind` is set by the sender and not checked, and anyone
+// channel (@thatopen/services `client.channel.external()`; That Open's own MCP server uses the same room); the open, signed-in Sentinel tab answers with its own
+// sessions. Four read-only commands (help, ping and the two below), nothing else: a command's `kind` is set by the sender and not checked, and anyone
 // holding the token can send any command to an open tab — so no command here writes. Every answer is data in words: a
 // read that failed says "not read — <why>", a ledger claim comes only from ledgerLine(), and when the platform's hint and
 // the ledger row disagree the answer carries both and picks neither. A handler never throws: an error is an answer.
@@ -92,13 +92,36 @@ async function deliveries(payload: unknown, deps: AskDeps): Promise<DeliveriesAn
   return { ...answerDeliveries(cards, rows, readErr, { name, limit: Number(p.limit) }), sentinel_project: project };
 }
 
+/** The commands this tab answers, in the order `help` lists them. All read-only. `help` and `ping` are the two That
+ *  Open's own MCP server (`npx @thatopen/services mcp`, tool `send-app-command`) expects of any app: it sends `help`
+ *  first and follows the answer (services 0.35.1 docs/cli/mcp.md). */
+export const COMMANDS = ["help", "ping", "sentinel.status", "sentinel.deliveries"] as const;
+
+/** The manual an LLM reads before using this tab: what Sentinel is, each command, and what it will not do. */
+export const HELP = {
+  app: "Sentinel — the BIM referee: checks models and documents against the office's standard and ISO 19650, and records every verdict on an append-only ledger.",
+  how_to_use: "Read-only. Ask sentinel.status first (who is signed in, which Sentinel project is open, whether the bridge answers), then sentinel.deliveries for the IFC files the Sentinel Delivery Gate judged on this platform project. Nothing sent here changes anything; changes go through a signed-in person in the app or in Revit.",
+  commands: {
+    help: { payload: "none", reply: "this manual" },
+    ping: { payload: "{ echo?: string }", reply: "{ pong: true, echo? }" },
+    "sentinel.status": { payload: "none", reply: "{ app_version, platform_project_id, sentinel_project, signed_in, bridge }" },
+    "sentinel.deliveries": { payload: "{ name?: string, limit?: number (1 to 20) }", reply: "{ total, more, deliveries: [{ name, version_tag, platform, failures, more_failures, run, ledger, ledger_result?, agrees? }], note?, sentinel_project }" },
+  },
+  will_not: "write, publish, approve, delete or run code — a command that is not listed is refused in words",
+};
+
 /** One command → its answer. Never throws; a command it does not know is refused in words (on the channel the SDK
  *  answers a command with no handler itself: `No handler for "<type>".`). */
 export async function ask(type: string, payload: unknown, deps: AskDeps): Promise<unknown> {
   try {
+    if (type === "help") return HELP;
+    if (type === "ping") {
+      const echo = (payload as { echo?: unknown } | undefined)?.echo;
+      return typeof echo === "string" ? { pong: true, echo: echo.slice(0, 200) } : { pong: true };
+    }
     if (type === "sentinel.status") return await answerStatus(deps);
     if (type === "sentinel.deliveries") return await deliveries(payload, deps);
-    return { error: `unknown command "${type}" — Sentinel answers only "sentinel.status" and "sentinel.deliveries" (read-only)` };
+    return { error: `unknown command "${type}" — Sentinel answers only ${COMMANDS.map((c) => `"${c}"`).join(", ")} (read-only); send "help" for how to use them` };
   } catch (e) {
     return { error: `not answered — ${why(e)}` };
   }
@@ -109,11 +132,12 @@ export interface ChannelHost {
   channel: { external(): { on(type: string, handler: (payload: unknown) => unknown): () => void; join(): Promise<void> } };
 }
 
-/** Joins this account's external room (every kind) and answers the two commands. Fire-and-forget join, as the 0.16.1
- *  app template does: the app works with or without the channel, so a failed join is a warning. */
+/** Joins this account's external room (every kind: the bridge's asker and That Open's MCP server alike) and answers
+ *  the commands above. Fire-and-forget join, as the app template does: the app works with or without the channel, so
+ *  a failed join is a warning. */
 export function setupAskSentinel(client: ChannelHost, deps: AskDeps) {
   const room = client.channel.external();
-  for (const type of ["sentinel.status", "sentinel.deliveries"]) room.on(type, (payload) => ask(type, payload, deps));
+  for (const type of COMMANDS) room.on(type, (payload) => ask(type, payload, deps));
   room.join().catch((e) => console.warn("[ask-sentinel] external channel join failed:", e));
   return room;
 }

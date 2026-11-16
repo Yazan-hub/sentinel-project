@@ -118,3 +118,25 @@ MCP client:
 
 The verdict comes from the SAME pure `sentinel-core` validators the browser uses (bundled to
 `bridge/sentinel-core.mjs` via `npm run build:bridge-core`) — one governed core, deterministic everywhere.
+
+## That Open's own MCP server and Sentinel (2026-11-16)
+
+`@thatopen/services` 0.35 ships an official MCP server (`npx -y @thatopen/services mcp`, docs `docs/cli/mcp.md` in the
+package). Its tool `send-app-command` sends a command to an open app tab over the same platform channel Sentinel's
+`sentinel_ask_app` uses, and an LLM is told to send `help` first. The published Sentinel tab answers four read-only
+commands: `help` (a manual: what Sentinel is, each command and its reply, what it will not do), `ping`,
+`sentinel.status` and `sentinel.deliveries` (`WebApp/src/setups/ask-sentinel.ts`). Anything else is refused in words.
+
+To use it from Claude Desktop, beside Sentinel's own server:
+
+```json
+{
+  "mcpServers": {
+    "thatopen-platform": { "command": "npx", "args": ["-y", "@thatopen/services", "mcp"] }
+  }
+}
+```
+
+Credentials come from `thatopen login` (`~/.thatopen/config.json`); never put the token in this file. Pass the URL of
+the open Sentinel app tab as `project`. Not yet run against the published app: it needs the app published after this
+change (web 1.0.126 or later) and an open, signed-in tab.

@@ -1,7 +1,7 @@
 // "Ask Sentinel" — the answering side (spec 2026-09-29 sdk-ask-sentinel, Phase 2): the ledger strings come only from
 // ledgerLine, a disagreement says both, the caps hold, a signed-out tab never reads the ledger, and nothing throws.
 import { describe, it, expect, vi } from "vitest";
-import { answerDeliveries, answerStatus, ask, setupAskSentinel, type AskDeps } from "./ask-sentinel";
+import { answerDeliveries, answerStatus, ask, setupAskSentinel, COMMANDS, HELP, type AskDeps } from "./ask-sentinel";
 import type { DeliveryCard, GateLedgerRow } from "./platform-deliveries";
 
 const card = (over: Partial<DeliveryCard> = {}): DeliveryCard => ({ name: "tower.ifc", versionTag: "v2", state: "refused", headline: "Refused — contract@1 — 1 failure", lines: ["✗ IFCBUILDINGELEMENTPROXY: 994 exceeds max 0."], sha256: "a".repeat(64), run: "exec9", ...over });
@@ -89,8 +89,19 @@ describe("the two commands", () => {
     expect(await answerStatus(deps())).toEqual({ app_version: "1.0.31", platform_project_id: "plat1", sentinel_project: "aster-tower", signed_in: true, bridge: "reachable" });
     expect((await answerStatus(deps({ bridge: async () => ({ ok: false, status: 502 }) }))).bridge).toBe("not reachable — HTTP 502");
   });
+  it("help: the manual That Open's MCP server reads first, listing every command and nothing that writes", async () => {
+    const h = (await ask("help", undefined, deps())) as typeof HELP;
+    expect(Object.keys(h.commands)).toEqual([...COMMANDS]);
+    expect(h.will_not).toMatch(/write/);
+  });
+  it("ping: pong, with a short echo only when one was sent", async () => {
+    expect(await ask("ping", undefined, deps())).toEqual({ pong: true });
+    expect(await ask("ping", { echo: "hi" }, deps())).toEqual({ pong: true, echo: "hi" });
+    expect(((await ask("ping", { echo: "x".repeat(500) }, deps())) as { echo: string }).echo).toHaveLength(200);
+    expect(await ask("ping", { echo: 5 }, deps())).toEqual({ pong: true });
+  });
   it("an unknown command is refused in words", async () => {
-    expect(await ask("sentinel.delete", {}, deps())).toEqual({ error: 'unknown command "sentinel.delete" — Sentinel answers only "sentinel.status" and "sentinel.deliveries" (read-only)' });
+    expect(await ask("sentinel.delete", {}, deps())).toEqual({ error: 'unknown command "sentinel.delete" — Sentinel answers only "help", "ping", "sentinel.status", "sentinel.deliveries" (read-only); send "help" for how to use them' });
   });
   it("a reader that throws becomes an answer in words, never a throw", async () => {
     const boom = () => { throw new Error("boom"); };
@@ -104,14 +115,14 @@ describe("the two commands", () => {
 });
 
 describe("setupAskSentinel", () => {
-  it("joins the external room and answers exactly the two commands", async () => {
+  it("joins the external room and answers exactly the four commands", async () => {
     const handlers = new Map<string, (p: unknown) => unknown>();
     const room = { on: vi.fn((t: string, h: (p: unknown) => unknown) => { handlers.set(t, h); return () => {}; }), join: vi.fn(async () => {}) };
     const external = vi.fn(() => room);
     setupAskSentinel({ channel: { external } }, deps());
     expect(external).toHaveBeenCalledWith();
     expect(room.join).toHaveBeenCalled();
-    expect([...handlers.keys()]).toEqual(["sentinel.status", "sentinel.deliveries"]);
+    expect([...handlers.keys()]).toEqual(["help", "ping", "sentinel.status", "sentinel.deliveries"]);
     expect(await handlers.get("sentinel.status")!(undefined)).toMatchObject({ bridge: "reachable" });
   });
 });
