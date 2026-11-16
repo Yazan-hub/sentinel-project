@@ -89,6 +89,17 @@ describe("proposedChangesEditor", () => {
     click(btn(e.el, "Compare with the client's naming")!); await flush();
     expect(textOf(e.el)).toContain("Adds Z");
   });
+  it("F-RUN-4: a naming block saved after the page was drawn is what the client's naming is compared with, not the naming in force", async () => {
+    vi.mocked(artefactInForce).mockClear();
+    vi.mocked(artefactInForce).mockResolvedValueOnce({ body: naming(["a", "z"]) } as any); // the project's installed naming: not what this BEP proposes
+    const ctx = ctxWith({ doc: { id: "d1", doc_type: "BEP", title: "T", responds_to: "e1", sections: [{ id: "s1", heading: "Our naming", blocks: [] }] } }, eirDoc(naming(["a", "b"])));
+    const e = proposedChangesEditor(block("proposed_changes", { changes: [] }), ctx, "s1");
+    ctx.ws.state = () => ({ ...ctx.st, doc: st.doc }); // the naming block was saved since: the page's snapshot (ctx.st) is older than the workspace's row
+    click(btn(e.el, "Compare with the client's naming")!); await flush();
+    expect((e.value().data as any).changes.map((c: any) => c.detail)).toEqual(["Adds C", "Removes B"]);
+    expect(artefactInForce).not.toHaveBeenCalled();
+    vi.mocked(artefactInForce).mockReset(); vi.mocked(artefactInForce).mockResolvedValue(null as any);
+  });
 });
 
 describe("eirLinkEditor", () => {

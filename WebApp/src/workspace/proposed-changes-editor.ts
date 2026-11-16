@@ -61,7 +61,10 @@ export const proposedChangesEditor: BlockEditor = (block, ctx) => {
 
   async function compare() {
     say.textContent = "";
-    const doc: DocRow | null = ctx.st.doc, key = ctx.st.key;
+    // F-RUN-4: the workspace's row as it is now, not the page's snapshot (ctx.st): a naming block saved since the page was drawn is in this one
+    // only, and without it the compare fell through to the naming in force.
+    const now = ctx.ws.state(), key = ctx.st.key;
+    const doc: DocRow | null = now.doc && now.doc.id === ctx.st.doc?.id ? now.doc : ctx.st.doc;
     if (!doc?.responds_to) { say.textContent = NO_CLIENT_NAMING; return; }
     const eir = await ctx.ws.get<DocRow>(`/bimdocs/${pathSegment(key)}/${pathSegment(doc.responds_to)}`);
     const client = eir && Array.isArray(eir.sections) ? namingOf(eir.sections) : null;
