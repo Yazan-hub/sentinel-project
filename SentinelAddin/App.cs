@@ -187,7 +187,7 @@ public sealed class App : IExternalApplication
     /// <summary>Resolve the document's ruleset@n (project → office → none) and judge the document by it. The
     /// key is read here (Extensible Storage: API thread); the GET runs on a background task (≤ 4 s, never the UI
     /// thread); the install, the rescan and the strip land back on the API thread through the event hub.</summary>
-    internal static void ReloadRuleset(Document doc)
+    internal static void ReloadRuleset(Document doc, bool postScan = false)
     {
         if (doc.IsFamilyDocument || Engine is not { } engine || Events is not { } events) return;
         var key = ProjectContext.For(doc).Key;
@@ -204,8 +204,13 @@ public sealed class App : IExternalApplication
             // pane): a ruleset that lands after the user moved to another project is installed for it, and shown when
             // that project's view is activated again (OnViewActivated).
             if (!IsShown(doc)) return;
-            PanelVm?.PublishReport(doc, engine.ScanFull(doc));
-            RefreshJourney(doc);
+            var report = engine.ScanFull(doc);
+            PanelVm?.PublishReport(doc, report);
+            // Scan Now (F-RUN-17): the report reaches the bridge as a sync's does — a model with no central still records its scan.
+            var ctx = ProjectContext.For(doc);
+            if (postScan && PanelVm is not null && ctx.IsBound && Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key))
+                SendScanReport(report, ctx.Key, engine.SourceFor(doc));
+            else RefreshJourney(doc);
         }), TaskScheduler.Default);
     }
 
@@ -388,22 +393,24 @@ public sealed class App : IExternalApplication
         var unconfirmed = Sentinel.Engine.ModelBindings.NotConfirmed("Scan report", ctx.Key);
         if (ctx.IsBound && !confirmed && Sentinel.Engine.ModelBindings.FirstTime(e.Document.PathName.Length > 0 ? e.Document.PathName : e.Document.Title, unconfirmed))
             PanelVm!.LogDoctor(unconfirmed);
-        if (confirmed)
-        {
-            var key = ctx.Key;
-            var local = Engine.SourceFor(e.Document);
-            var vm = PanelVm;
-            var follow = vm.JourneySeq;
-            var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
-            Task.Run(() => Sentinel.Coordination.GovernedNotify.OfficeScan(report, key)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
-            {
-                var ledger = t.Status == TaskStatus.RanToCompletion ? t.Result
-                    : Sentinel.Coordination.LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the scan post did not finish");
-                vm.LogDoctor("Scan report: " + Sentinel.Coordination.LedgerLine.For(ledger));
-                if (vm.JourneySeq == follow) vm.RefreshJourney(key, local);
-            })), TaskScheduler.Default);
-        }
+        if (confirmed) SendScanReport(report, ctx.Key, Engine.SourceFor(e.Document));
         else RefreshJourney(e.Document);
+    }
+
+    /// <summary>The scan post both a sync and Scan Now make (F-RUN-17): off the API thread, never waited for; the bridge's
+    /// ledger line goes to the Doctor log and the journey is re-read. A failed post is a Doctor line, never an error.</summary>
+    private static void SendScanReport(Sentinel.Engine.ScanReport report, string key, Sentinel.Coordination.ResolvedArtefact local)
+    {
+        var vm = PanelVm!;
+        var follow = vm.JourneySeq;
+        var ui = System.Windows.Application.Current?.Dispatcher ?? System.Windows.Threading.Dispatcher.CurrentDispatcher;
+        Task.Run(() => Sentinel.Coordination.GovernedNotify.OfficeScan(report, key)).ContinueWith(t => ui.BeginInvoke(new Action(() =>
+        {
+            var ledger = t.Status == TaskStatus.RanToCompletion ? t.Result
+                : Sentinel.Coordination.LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the scan post did not finish");
+            vm.LogDoctor("Scan report: " + Sentinel.Coordination.LedgerLine.For(ledger));
+            if (vm.JourneySeq == follow) vm.RefreshJourney(key, local);
+        })), TaskScheduler.Default);
     }
 
     /// <summary>Next strip: read the document's web key and where its ruleset came from on the Revit API thread,

@@ -267,6 +267,9 @@ static class Check
            && app.IndexOf("if (confirmed)", StringComparison.Ordinal) is var branch && branch > 0
            && branch < app.IndexOf("GovernedNotify.OfficeScan(report, key)", StringComparison.Ordinal),
            "App.cs: the sync's scan post goes only for a confirmed key");
+        Ok(Src("Commands.cs").Contains("App.ReloadRuleset(doc, postScan: true);") && app.Contains("if (postScan && PanelVm is not null && ctx.IsBound && Sentinel.Engine.ModelBindings.ConfirmedFor(doc, ctx.Key))")
+           && app.Contains("if (confirmed) SendScanReport(report, ctx.Key,") && System.Text.RegularExpressions.Regex.Matches(app, @"GovernedNotify\.OfficeScan\(").Count == 1,
+           "F-RUN-17: Scan Now posts the scan report through the same helper as a sync, for a confirmed key only, one post path");
         Ok(Src(Path.Combine("UI", "SettingsDialog.xaml.cs")).Contains("ModelBindings.Confirm(model, webProject);"),
            "UI/SettingsDialog.xaml.cs: Project Setup's project save confirms the model's key on this PC");
         Ok(ModelBindings.PausedLine(" aster-tower ") == "Auto-publish and scan posts paused on this PC — Project Setup ▸ Save confirms web project aster-tower",
