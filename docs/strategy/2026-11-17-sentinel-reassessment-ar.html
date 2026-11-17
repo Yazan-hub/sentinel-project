@@ -1,0 +1,260 @@
+<title>إعادة تقييم سنتينل</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Readex+Pro:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a drawing-register report — sticky contents rail on wide screens, one column on phones; RTL throughout. */
+:root{
+  --bg:#F3F5F7; --surface:#FFFFFF; --ink:#15212C; --muted:#56636F; --line:#D8DFE5;
+  --accent:#0F5E7A; --accent-soft:#E2EEF3;
+  --ok:#1D7A4C; --ok-soft:#E1F2E8; --built:#3557B7; --built-soft:#E5EAF8;
+  --part:#9A6200; --part-soft:#FBF0DA; --no:#9B3434; --no-soft:#F7E4E4;
+  --f-display:"Readex Pro","IBM Plex Sans Arabic","Segoe UI",Tahoma,sans-serif;
+  --f-body:"IBM Plex Sans Arabic","Segoe UI",Tahoma,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0E141A; --surface:#151D25; --ink:#E4EBF0; --muted:#9AA7B2; --line:#283541;
+  --accent:#63B6D4; --accent-soft:#16303B;
+  --ok:#5CC48D; --ok-soft:#143023; --built:#8FA6F0; --built-soft:#1C2545;
+  --part:#E2B25A; --part-soft:#33280F; --no:#E58A8A; --no-soft:#3A1C1C; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0E141A; --surface:#151D25; --ink:#E4EBF0; --muted:#9AA7B2; --line:#283541;
+  --accent:#63B6D4; --accent-soft:#16303B;
+  --ok:#5CC48D; --ok-soft:#143023; --built:#8FA6F0; --built-soft:#1C2545;
+  --part:#E2B25A; --part-soft:#33280F; --no:#E58A8A; --no-soft:#3A1C1C; color-scheme:dark }
+
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.85}
+.page{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.35;margin:0}
+h1{font-size:clamp(1.9rem,4vw,2.7rem);font-weight:700}
+h2{font-size:1.55rem;font-weight:700;margin-block:0 14px}
+h3{font-size:1.12rem;font-weight:600;margin-block:22px 8px}
+p{margin:0 0 12px;max-width:72ch}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+code,.mono{font-family:var(--f-mono);font-size:.86em;direction:ltr;unicode-bidi:isolate}
+code{background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+ul,ol{margin:0 0 12px;padding-inline-start:22px}
+li{margin-block:4px}
+strong{font-weight:600}
+
+/* header */
+.head{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:28px;display:grid;gap:14px}
+.eyebrow{font-family:var(--f-mono);font-size:.78rem;letter-spacing:.06em;color:var(--muted);direction:rtl}
+.lead{font-size:1.1rem;color:var(--muted);max-width:70ch;margin:0}
+.facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0;padding:0;list-style:none;font-size:.9rem;color:var(--muted)}
+.facts li{margin:0}
+.facts b{color:var(--ink);font-family:var(--f-mono);font-weight:500;font-variant-numeric:tabular-nums;margin-inline-end:4px}
+.legend{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.85rem;color:var(--muted)}
+
+/* status chips */
+.st{display:inline-block;font-size:.76rem;font-weight:600;line-height:1.5;padding:1px 9px;border-radius:999px;white-space:nowrap;vertical-align:middle}
+.st.ok{background:var(--ok-soft);color:var(--ok)}
+.st.built{background:var(--built-soft);color:var(--built)}
+.st.part{background:var(--part-soft);color:var(--part)}
+.st.no{background:var(--no-soft);color:var(--no)}
+
+/* contents rail */
+.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);font-size:.92rem}
+.toc .label{font-family:var(--f-mono);font-size:.74rem;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
+.toc ol{list-style:none;padding:0;margin:0;display:grid;gap:2px;counter-reset:t}
+.toc li{margin:0;counter-increment:t}
+.toc a{display:flex;gap:8px;text-decoration:none;color:var(--ink);padding:5px 8px;border-radius:6px}
+.toc a::before{content:counter(t);font-family:var(--f-mono);font-size:.8rem;color:var(--muted);min-width:1.4em}
+.toc a:hover{background:var(--accent-soft)}
+@media (max-width:900px){.toc{position:static;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface)}}
+
+/* sections */
+main{min-width:0;display:grid;gap:44px}
+section{min-width:0;scroll-margin-top:20px}
+.sec-no{font-family:var(--f-mono);font-size:.8rem;color:var(--accent);letter-spacing:.06em;display:block;margin-bottom:4px}
+.note{border-inline-start:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--part);background:var(--part-soft)}
+.note p:last-child{margin-bottom:0}
+.quote{font-family:var(--f-display);font-size:1.05rem;border-inline-start:3px solid var(--line);padding-inline-start:14px;margin:12px 0;color:var(--ink)}
+.quote .src{display:block;font-family:var(--f-body);font-size:.82rem;color:var(--muted);margin-top:4px}
+
+/* summary list */
+.keylist{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.keylist li{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:14px;padding:12px 0;border-bottom:1px solid var(--line);margin:0}
+.keylist .k{font-family:var(--f-display);font-weight:600;color:var(--accent)}
+@media (max-width:560px){.keylist li{grid-template-columns:minmax(0,1fr);gap:2px}}
+
+/* pitch cards */
+.pitch{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.card h3{margin-top:0}
+.card .tag{font-family:var(--f-mono);font-size:.74rem;color:var(--muted);letter-spacing:.05em}
+.en{direction:ltr;text-align:left;font-family:var(--f-body)}
+
+/* referee analogy */
+.roles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0}
+@media (max-width:700px){.roles{grid-template-columns:minmax(0,1fr)}}
+.role{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--surface)}
+.role.me{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.role .who{font-family:var(--f-display);font-weight:600}
+.role .ex{font-size:.88rem;color:var(--muted)}
+
+/* pipeline */
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:14px 0;padding:0;list-style:none}
+.flow li{flex:1 1 150px;margin:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;position:relative;min-width:0}
+.flow .n{font-family:var(--f-mono);font-size:.74rem;color:var(--accent)}
+.flow .t{font-weight:600;display:block}
+.flow .d{font-size:.84rem;color:var(--muted)}
+.branch{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:600px){.branch{grid-template-columns:1fr}}
+.branch .card{border-inline-start-width:4px}
+.branch .pass{border-inline-start-color:var(--ok)}
+.branch .fail{border-inline-start-color:var(--no)}
+
+/* architecture */
+.arch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.arch .box{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+.arch .box.core{grid-column:2;grid-row:1 / span 2;border-color:var(--accent);background:var(--accent-soft);display:flex;flex-direction:column;justify-content:center}
+.arch .b{font-family:var(--f-display);font-weight:600;display:block}
+.arch .s{font-size:.84rem;color:var(--muted)}
+@media (max-width:700px){.arch{grid-template-columns:minmax(0,1fr)}.arch .box.core{grid-column:auto;grid-row:auto}}
+
+/* timeline */
+.tl{list-style:none;padding:0;margin:0;border-inline-start:2px solid var(--line)}
+.tl li{position:relative;padding:0 22px 22px;margin:0}
+.tl li::before{content:"";position:absolute;inset-inline-start:-7px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.tl li.gap::before{border-color:var(--muted);border-style:dashed}
+.tl .when{font-family:var(--f-display);font-weight:600}
+.tl .cnt{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);margin-inline-start:8px}
+.tl p{margin:4px 0 0}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{text-align:start;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--f-display);font-weight:600;font-size:.86rem;color:var(--muted);background:var(--bg);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td .st{margin-block:2px}
+
+/* inventory groups */
+.inv{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.inv .card ul{margin:6px 0 0;padding-inline-start:18px;font-size:.92rem}
+.inv .card li{margin-block:3px}
+
+/* parties */
+.parties{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.parties .card p{font-size:.93rem;margin:0}
+
+/* steps */
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.steps>li{counter-increment:s;display:grid;grid-template-columns:2.2rem minmax(0,1fr);gap:12px;margin:0;align-items:start}
+.steps>li::before{content:counter(s);font-family:var(--f-mono);font-weight:500;width:2rem;height:2rem;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.steps .where{display:block;font-size:.85rem;color:var(--muted)}
+
+details.phase{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 16px;margin-bottom:10px}
+details.phase>summary{cursor:pointer;padding:14px 0;font-family:var(--f-display);font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+details.phase>summary::-webkit-details-marker{display:none}
+details.phase>summary::before{content:"+";font-family:var(--f-mono);color:var(--accent);width:1rem}
+details.phase[open]>summary::before{content:"−"}
+details.phase .body{padding-bottom:14px}
+details.phase .iso{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);font-weight:400}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.two{grid-template-columns:minmax(0,1fr)}}
+
+.recs{list-style:none;padding:0;margin:0;counter-reset:r;display:grid;gap:14px}
+.recs>li{counter-increment:r;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px 14px;margin:0;display:grid;grid-template-columns:2.4rem minmax(0,1fr);gap:12px}
+.recs>li::before{content:counter(r);font-family:var(--f-display);font-weight:700;font-size:1.4rem;color:var(--accent);line-height:1.2}
+.recs .why{font-size:.9rem;color:var(--muted);margin:4px 0 0}
+
+dl.gloss{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);gap:0;margin:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+dl.gloss dt,dl.gloss dd{padding:9px 12px;border-bottom:1px solid var(--line);margin:0}
+dl.gloss dt{font-family:var(--f-mono);font-size:.86rem;background:var(--bg);direction:ltr;text-align:right}
+@media (max-width:560px){dl.gloss{grid-template-columns:minmax(0,1fr)}dl.gloss dt{border-bottom:0;padding-bottom:0}}
+
+.src-list{font-size:.86rem;color:var(--muted)}
+.src-list code{background:transparent;padding:0}
+footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+<body>
+<style>
+table{width:100%;border-collapse:collapse;margin:8px 0 18px;font-size:.95rem}
+td,th{border-bottom:1px solid var(--line);padding:8px;text-align:start;vertical-align:top}
+.s{font-family:var(--f-mono);font-size:.8rem;white-space:nowrap}
+.ok{color:var(--ok)}.bu{color:var(--built)}.pa{color:var(--part)}.no{color:var(--no)}
+section{margin-block:36px}
+</style>
+<div class="page" dir="rtl" lang="ar">
+<header>
+<h1>إعادة تقييم سنتينل — 17 تشرين الثاني 2026</h1>
+<p>بدل تقييم 19 تشرين الأول. كل جملة عليها حالة: <span class="ok">✅ مجرّب حيّ</span> · <span class="bu">🟩 مبني</span> · <span class="pa">🟨 جزئي</span> · <span class="no">⬜ غير موجود</span>. الأدلة (commit، migration، رقم سطر الدفتر) بالملحق الإنجليزي <code>2026-11-17-sentinel-reassessment-appendix.md</code>.</p>
+</header>
+
+<section><h2>الحكم بخمس سطور</h2>
+<ol>
+<li><span class="ok">✅</span> سلسلة الحوكمة شغّالة من أولها لآخرها على مشروع Snowdon: كتابة، فحص، نشر، قبول بثلاث جهات، وملف تدقيق تحقّقنا منه.</li>
+<li><span class="ok">✅</span> مساحة المستندات (BEP وEIR والجولات والأطراف والقوالب) صارت قلب المنتج، وهي اللي رح يشوفها المشتري أول شي.</li>
+<li><span class="pa">🟨</span> اللي بيوقّف بوابة الفيدريشن هلأ هو جودة البيانات والتغطية، مش المنصة: 85 من 106 أسماء بدها إنسان، وما في عقد لـ MEP والموقع.</li>
+<li><span class="no">⬜</span> الثقة الخارجية لسا ناقصة: ما في اختبار اختراق، ولا SSO، والجسر شغّال على جهاز واحد، والنسخ الاحتياطي ما تجرّب استرجاعه.</li>
+<li>الميزة اللي ما حدا عنده لسا موجودة: تصليح الموديل بموافقة شخص مع دليل مختوم. بس Revizto وBIMcollab عم يقرّبوا.</li>
+</ol></section>
+
+<section><h2>لكل قارئ</h2>
+<h3>المؤسس</h3>
+<p>شهر كامل من الشغل انتهى إلى منتج متماسك ومجرّب. القرار المطلوب منك: كيف نسكّر التجميد. البوابة FAIL، وزر Raise مقفول، فمسار «تعارض ← issue» ما انفحص <span class="no">⬜</span>. بعد التجميد، الأولوية للثقة قبل أي ميزة جديدة.</p>
+<h3>مدير BIM في مكتب / المشتري</h3>
+<p>بيقدر يشغّل ISO 19650 فعلياً: BEP وEIR بجولات مراجعة، دعوات للأطراف، وقبول العميل <span class="ok">✅</span>. IDS مطابق للاختبارات الرسمية (286 من 313) <span class="ok">✅</span>، وBCF مع ACC <span class="ok">✅</span>. اللي رح يزعجه: ما في شاشة لقواعد التسمية <span class="no">⬜</span>، وفي خطوة بتطلب سطر أوامر <span class="pa">🟨</span>، وعقد واحد بس للمعماري <span class="pa">🟨</span>. يعني مكتب جديد ما بيقلع لحاله بدون المؤسس.</p>
+<h3>مراجع الأمن</h3>
+<p>اللي سكّر: سجل مختوم بختم وقت خارجي ومتحقَّق منه <span class="ok">✅</span>، قفل الذكاء الاصطناعي وإخفاء الأسماء <span class="bu">🟩</span>، اختبار عزل بين مكتبين <span class="ok">✅</span>، وحمايات من الحذف ومن التطبيق المكرّر <span class="ok">✅</span>. اللي لسا مفتوح: أداة تنفيذ كود من طرف ثالث (<code>send_code_to_revit</code>) موجودة بنفس عميل Claude وما في حارس عليها <span class="no">⬜</span>. كمان ما في MFA مثبت، ولا SSO، ولا اختبار اختراق، والجسر على جهاز شخصي <span class="no">⬜</span>.</p>
+</section>
+
+<section><h2>مقارنة مع تقرير 19 تشرين الأول</h2>
+<table>
+<tr><th>البند</th><th>الحالة</th><th>شو صار</th></tr>
+<tr><td>تقوية حدود الذكاء الاصطناعي</td><td class="s pa">🟨 مفتوح</td><td>القفل والإخفاء انبنوا، بس حارس أداة تنفيذ الكود ما انعمل</td></tr>
+<tr><td>حماية العناصر، بلا حذف من الذكاء الاصطناعي</td><td class="s ok">✅ سكّر</td><td>مستويات الخطر، drill GUARD</td></tr>
+<tr><td>التراجع عن تغيير مطبّق</td><td class="s ok">✅ سكّر</td><td>drill REV</td></tr>
+<tr><td>منع التطبيق المكرّر، وتأكيد بعد الحفظ</td><td class="s ok">✅ سكّر</td><td>drill CLM</td></tr>
+<tr><td>MFA واختبار العزل</td><td class="s pa">🟨 مفتوح</td><td>العزل موجود، MFA ما في دليل عليه</td></tr>
+<tr><td>CI لـ Revit 2024 و2027</td><td class="s bu">🟩 سكّر جزئياً</td><td>بناء 2021–2027، تجميع بس</td></tr>
+<tr><td>بيان مطابقة IDS</td><td class="s ok">✅ سكّر</td><td>286 من 313 بالعارض</td></tr>
+<tr><td>جسر مستضاف</td><td class="s no">⬜ مفتوح</td><td>لسا على جهاز المؤسس، وصار في «حارس» بيعيد تشغيله</td></tr>
+<tr><td>اختبار اختراق وصفحة أمن</td><td class="s no">⬜ مفتوح</td><td>ما بلّش</td></tr>
+<tr><td>SSO وصلاحيات حسب الفريق</td><td class="s pa">🟨 مفتوح</td><td>الأطراف والفرق والصلاحية لكل مستند انبنوا، SSO لا</td></tr>
+<tr><td>قياس موديل فوق 100 ألف عنصر</td><td class="s pa">🟨 مفتوح</td><td>63 ألف و126 ألف (مجموعة مكرّرة)، ما في مبنى واحد فوق 100 ألف</td></tr>
+<tr><td><b>جديد:</b> مساحة المستندات ISO 19650</td><td class="s ok">✅</td><td>R1a لـ R3، migrations 0049–0056</td></tr>
+<tr><td><b>جديد:</b> اختبار Snowdon من العطاء للتسليم</td><td class="s ok">✅</td><td>P0 لـ P4 انعملوا، وصار في نتائج F-LC</td></tr>
+<tr><td><b>جديد:</b> نسخ احتياطي يومي</td><td class="s pa">🟨</td><td>B1–B4 نجحوا، الاسترجاع B5 ما تجرّب</td></tr>
+<tr><td><b>جديد:</b> تسريب الحافظة (F-LC-7)</td><td class="s pa">🟨</td><td>نص اتصال بقاعدة البيانات انلصق بـ Revit وانمسح فوراً، امسح الحافظة</td></tr>
+</table></section>
+
+<section><h2>المنافسين (بحث اليوم)</h2>
+<ul>
+<li><b>Revizto 5.18</b>: صار عنده MCP للذكاء الاصطناعي وتسمية حسب ISO 19650. أقرب منافس لفكرتنا.</li>
+<li><b>BIMcollab</b>: دمج Nexus وTwin بمنصة وحدة، وزاد بـ IDS.</li>
+<li><b>Solibri</b>: Anywhere وCheckPoint ونسخ تانية رايحين على التقاعد، وIDS بس بنسخة الديسكتوب. في فراغ لفاحص سعره معقول.</li>
+<li><b>ACC / Forma</b>: مساعد ذكاء اصطناعي للأسئلة، بس ما بيصلّح الموديل وما في IDS.</li>
+<li><b>Dalux</b>: عارض مجاني، وما عنده عمق بالحوكمة.</li>
+<li><b>جديد: Kestrel Labs وSpacial</b>: فحص كود البناء بالذكاء الاصطناعي جوّا Revit. بنافسوا على القصة، مش على الحوكمة.</li>
+</ul></section>
+
+<section><h2>أكبر 5 مخاطر</h2>
+<ol>
+<li><span class="no">⬜</span> أداة تنفيذ كود جنب سنتينل بدون حارس.</li>
+<li><span class="no">⬜</span> كل شي على جهاز واحد، والاسترجاع ما تجرّب.</li>
+<li><span class="no">⬜</span> ما في دليل ثقة خارجي (اختبار اختراق، SSO، صفحة أمن).</li>
+<li><span class="pa">🟨</span> المكتب الجديد ما بيقلع بدون المؤسس (التسمية، سطر الأوامر، عقد واحد).</li>
+<li><span class="pa">🟨</span> المنافسين عم يقرّبوا (MCP عند Revizto، وIDS عند BIMcollab وSolibri).</li>
+</ol></section>
+
+<section><h2>الخطوات الثلاث الجاية</h2>
+<ol>
+<li><b>سكّر التجميد:</b> شغّل مسار «تعارض ← issue» مرة وحدة (على فيدريشن ناجحة، أو بموافقة lead مع إنها فاشلة)، وبعدها أعلن إن P3 وP4 خلصوا.</li>
+<li><b>الثقة أولاً:</b> حارس <code>send_code_to_revit</code> ومنعه بالـ CI، drill استرجاع B5، وصفحة أمن وحدة.</li>
+<li><b>مكتب جديد يقلع لحاله:</b> شاشة لقواعد التسمية (F-LC-1)، شاشة بدل سطر الأوامر (F-RUN-13)، وعقد لـ MEP والموقع. بعدها اختبار مع مستخدم خارجي.</li>
+</ol></section>
+</div>
+</body></html>
