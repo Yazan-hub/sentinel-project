@@ -771,8 +771,10 @@ async function handleRequest(req, res) {
   // Health (no secrets, no posture): up, CDE configured. The bind host and the CORS allowlist are in the
   // startup log, not on a route anyone on the internet can read.
   if (url.pathname === "/health" && req.method === "GET") {
-    let cdeConfigured = false;
-    try { cdeConfigured = (await import("./cde-store.mjs")).cdeConfigured(); } catch { /* */ }
+    let cdeConfigured = false, stuck = false;
+    try { const s = await import("./cde-store.mjs"); cdeConfigured = s.cdeConfigured(); stuck = s.sbStuck(); } catch { /* */ }
+    // F-CHK-1: the last database calls got no answer at all, so this bridge is up but cannot work; a 503 lets the keeper restart it.
+    if (stuck) return send(res, 503, { ok: false, cde_configured: cdeConfigured, database: "no answer from the database" });
     return send(res, 200, { ok: true, cde_configured: cdeConfigured });
   }
 

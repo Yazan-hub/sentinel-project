@@ -44,6 +44,15 @@ export const forwardingConfigured = () => !!ANON;
 // planned or estimated count.
 /** F-R1b-5: a Supabase call slower than this leaves one warning line (method, table, ms) - nothing from the query, body or headers. */
 export const SB_SLOW_MS = 2000;
+/** F-CHK-1: a Supabase call with no answer after this is dropped, and its connection with it, so the next call opens a fresh
+ *  one. Before, a stuck connection held every call for undici's 300 s and the bridge never recovered by itself (2026-11-17).
+ *  The slowest ordinary call in the bridge log took 19 s. */
+export const SB_TIMEOUT_MS = 60_000;
+/** F-CHK-1: this many calls in a row with no answer at all (dropped, or no connection) and GET /health says 503, so the keeper,
+ *  which restarts a bridge after 3 failed checks, restarts this one. Any answer, an error status included, resets the count. */
+export const SB_STUCK_AFTER = 3;
+let sbNoAnswer = 0;
+export const sbStuck = () => sbNoAnswer >= SB_STUCK_AFTER;
 export async function sb(path, { method = "GET", body, prefer, service = false, count = false } = {}) {
   if (!cdeConfigured()) throw new Error("CDE not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY)");
   const userToken = service ? null : currentUserToken();
@@ -67,8 +76,13 @@ export async function sb(path, { method = "GET", body, prefer, service = false, 
   const t0 = performance.now();
   let r, text;
   try {
-    r = await fetch(`${URL}/rest/v1/${path}`, { method, headers, body: payload });
+    r = await fetch(`${URL}/rest/v1/${path}`, { method, headers, body: payload, signal: AbortSignal.timeout(SB_TIMEOUT_MS) });
     text = await r.text();
+    sbNoAnswer = 0;
+  } catch (e) {
+    sbNoAnswer++;
+    if (e?.name === "TimeoutError") throw new Error(`Supabase gave no answer in ${SB_TIMEOUT_MS / 1000} s (${method} ${path.split("?")[0]}); the call was dropped`);
+    throw e;
   } finally {
     const ms = Math.round(performance.now() - t0);
     if (ms > SB_SLOW_MS) console.warn(`[sb] slow ${method} ${path.split("?")[0]} ${ms} ms`);

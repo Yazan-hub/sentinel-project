@@ -7,7 +7,7 @@ vi.hoisted(() => {
   process.env.SUPABASE_SERVICE_KEY ||= "fixture-service-key";
 });
 
-import { sb, SB_SLOW_MS } from "./cde-store.mjs";
+import { sb, SB_SLOW_MS, SB_TIMEOUT_MS, SB_STUCK_AFTER, sbStuck } from "./cde-store.mjs";
 
 const realFetch = globalThis.fetch;
 let warn;
@@ -42,5 +42,33 @@ describe("sb() reports a slow Supabase call", () => {
     answerAfter(2600, 500);
     await expect(sb("audit_log?a=1", { method: "POST", body: {} })).rejects.toThrow(/Supabase 500/);
     expect(warn).toHaveBeenCalledWith("[sb] slow POST audit_log 2600 ms");
+  });
+});
+
+// F-CHK-1 (2026-11-17): after a restart every Supabase call hung 300 s on a stuck connection and the bridge never recovered.
+describe("sb() drops a call with no answer, and says when the database stopped answering", () => {
+  const noAnswer = (name = "TimeoutError") => {
+    globalThis.fetch = vi.fn(async () => { throw Object.assign(new Error(name === "TimeoutError" ? "The operation was aborted due to timeout" : "fetch failed"), { name }); });
+  };
+  it("every call carries a time limit of 60 s", async () => {
+    answerAfter(10);
+    await sb("projects");
+    expect(SB_TIMEOUT_MS).toBe(60_000);
+    expect(globalThis.fetch.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+  });
+  it("a dropped call says so in words, without the query", async () => {
+    noAnswer();
+    await expect(sb("bridge_events?id=gt.5")).rejects.toThrow("Supabase gave no answer in 60 s (GET bridge_events); the call was dropped");
+  });
+  it(`${SB_STUCK_AFTER} calls in a row with no answer mark the database stuck; one answer, even an error, clears it`, async () => {
+    answerAfter(10); await sb("projects");
+    expect(sbStuck()).toBe(false);
+    noAnswer(); await expect(sb("projects")).rejects.toThrow();
+    noAnswer("TypeError"); await expect(sb("projects")).rejects.toThrow("fetch failed");
+    expect(sbStuck()).toBe(false);
+    noAnswer(); await expect(sb("projects")).rejects.toThrow();
+    expect(sbStuck()).toBe(true);
+    answerAfter(10, 500); await expect(sb("projects")).rejects.toThrow(/Supabase 500/);
+    expect(sbStuck()).toBe(false);
   });
 });
