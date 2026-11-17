@@ -68,7 +68,10 @@ const tidp = (deliverables, teams) => {
   ];
   if (reasons.length) return { reason: reasons.join("; ") };
   const n = deliverables.length;
-  return { evidence: { ref: teams.map((t) => t.code).join(","), label: `${n} deliverable${n === 1 ? "" : "s"} across ${teams.length} task team${teams.length === 1 ? "" : "s"}` } };
+  // F-RUN-7 leftover: a team that owns no container is not counted among the teams the deliverables are across; it is named.
+  const owning = teams.filter((t) => !t.owns_no_container).length, none = teams.filter((t) => t.owns_no_container).map((t) => t.code);
+  const noneWords = none.length ? ` (${none.join(", ")} own${none.length === 1 ? "s" : ""} no container)` : "";
+  return { evidence: { ref: teams.map((t) => t.code).join(","), label: `${n} deliverable${n === 1 ? "" : "s"} across ${owning} task team${owning === 1 ? "" : "s"}${noneWords}` } };
 };
 const verdict = (rows) => {
   if (!rows.length) return { reason: "no governed verdict recorded yet" };

@@ -154,7 +154,9 @@ describe("project journey", () => {
     it("a declared team with no deliverable", () => expect(tidp(["ARC", "STR"], ["arc"])).toMatchObject({ status: "todo", reason: "Team STR has no deliverable yet" }));
     it("F-RUN-7: a team that owns no container is not asked for a deliverable", () => {
       const j = (teams, deliverables) => byId(buildJourney({ ...emptyProject(), docs: ok([]), teams: ok(teams), deliverables: ok(deliverables.map((responsible_team) => ({ responsible_team }))) })).tidp;
-      expect(j([{ code: "ARC" }, { code: "INT", owns_no_container: true }], ["ARC"])).toMatchObject({ status: "done" });
+      expect(j([{ code: "ARC" }, { code: "INT", owns_no_container: true }], ["ARC"])).toMatchObject({ status: "done", evidence: { label: "1 deliverable across 1 task team (INT owns no container)" } });
+      expect(j([{ code: "ARC" }, { code: "INT", owns_no_container: true }, { code: "LND", owns_no_container: true }], ["ARC", "ARC"]).evidence.label)
+        .toBe("2 deliverables across 1 task team (INT, LND own no container)");
       expect(j([{ code: "ARC" }, { code: "INT", owns_no_container: false }], ["ARC"])).toMatchObject({ status: "todo", reason: "Team INT has no deliverable yet" });
     });
     it("a deliverable naming an undeclared team", () => expect(tidp(["ARC"], ["ARC", "XYZ"])).toMatchObject({ status: "todo", reason: "a deliverable names team XYZ, which is not declared" }));
