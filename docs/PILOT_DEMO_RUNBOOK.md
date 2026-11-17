@@ -66,14 +66,15 @@ curl -s http://127.0.0.1:4100/health
   from `WebApp`, checked with `GET /cde/demo/artefacts/contract` (`source: "office"`). A demo project with no
   office needs `--project <that key>` instead. Nothing is copied to the workstation; with no contract the
   IFC Delivery Gate reads NOT CHECKED.
-- **The element IDS** — copied to `%AppData%\Sentinel\ids.json`. For the real pilot use
+- **The element IDS** — installed on the project or its office as `ids@n` (Settings ▸ Standards in force, or
+  `node bridge/artefact-import.mjs <file> --project <key> --kind ids`). For the real pilot use
   `demo/bds-pilot/bds-ids.json` (BDS LOD-300 checks, `enforce: warn`); `demo/bds-pilot/ids.json` is the tiny
-  starter. Absent ⇒ the model is recorded but not judged (gate-only publish).
+  starter. None installed ⇒ the element check is "not checkable" (the workstation `ids.json` was retired 2026-09-23).
 - The BDS demo model open in Revit (or rely on the headless dry-run in §2 if Revit isn't on the demo box).
 
 > **The gate is two checks, both configurable** (full reference: [`docs/BDS_GATE_CONFIG.md`](BDS_GATE_CONFIG.md)):
 > **(A) Naming** — the model file name vs BDS's 11-field ISO 19650 form (the installed `naming` artefact — pilot data `demo/bds-pilot/bds-naming-ruleset.json`,
-> `enforce: reject`). **(B) Element data** — per-element LOD-300 checks (`%AppData%\Sentinel\ids.json`,
+> `enforce: reject`). **(B) Element data** — per-element LOD-300 checks (the project's installed `ids@n`,
 > `enforce: warn`). Pilot posture = naming reject, data warn; tighten data to `reject` at DD/CD. A future Base
 > template just replaces the two ruleset files — no code change.
 

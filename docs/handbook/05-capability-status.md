@@ -46,6 +46,41 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | GhostBuilder v2: docs → proposal → **human review** → build | ✅ Verified | Live on Revit 2024, 2026-07-23. Local-only: BDS standard resolves known layers with no model call; the local LLM + vision model read the project's spec and sketches; spec values (e.g. `Fire Rating = FR60`) land on the built geometry; **nothing is written until a reviewer ticks it** |
 | Datum → Ghost → Annotate chain (folder-driven, level-aware, guideline views) | ✅ Verified | Live on Revit 2024, 2026-07-26 (`demo/ghost-sample`): Datum read levels+grids from the folder DXFs (kept existing L1, idempotent); Ghost's pick window listed the folder drawings and on re-run flagged + reused the existing import; the reviewer chose a non-lowest level and the wall's Base Constraint verified as that level; Annotate created 24 guideline views across 4 levels, re-run skipped all 28. Warnings correctly named the default template's missing BDS view templates — full scoring needs the office template |
 
+## Added 2026-10-01 to 2026-11-16 (reconciled 2026-11-16 from the drill records in `git log` and `docs/testing/`)
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Model automation, MA-0 to MA-8 (Promote walls to DD, one placement path, LOD matrix, review desk, ghost overlay, per-storey proposal models) | ✅ Verified per batch | Drills MA3d2/MA3d3/MA3cN (2026-10-07), MA-6 batches 1–3 (2026-10-12, Revit 2024/2025/2027), MA-8 batches 1–5 (2026-10-12/13); rows owed are named in each run log |
+| Scan to model: E57, LAS, LAZ, survey jobs, deviation per wall, scan openings, Revit "Measure" | ✅ Verified | Drills MA4e, MA4f, MA4g, MA4h (2026-10-09/10, Kladno at full size), MA5a/MA5a2 (2026-10-11) |
+| Drawing reader (vector PDF plans to walls and doors) and revision compare | ✅ Verified | Drill MA5a3/MA5a456 (2026-10-11) |
+| Photos and web evidence (counsel switch, source lists) | 🟨 Partial | MA-7 batch 4: PM-1 passed, PM-2..4 owed (2026-10-14) |
+| Standards without JSON (Standards in force forms, batch 3 screens, Protection window) | ✅ Verified | Sessions STD-F, STD-3, PROT-B, PROT-W (2026-10-19) |
+| IDS from the installed standards; IDS 1.0 rules; IfcTester cross-check | ✅ Verified | Drill IDS-G: 4 real IFCs, 0 disagreements (2026-10-19); `docs/compliance/IDS_CONFORMANCE_2026-10.md` |
+| EIR compile installs beside the generated IDS | ✅ Verified | Drills EIR-M, EIR-M2 (2026-10-19) |
+| Clash triage (groups, owner, one issue per group, "not a clash", imported BCF) | ✅ Verified | Drill CT (2026-10-19), web 1.0.99 |
+| Revert changeset (a compensating change) and the "applied, then saved" check | ✅ Verified | Drill REV on Revit 2024, workshared rows included (2026-10-19) |
+| Apply claim (one Revit session applies a changeset), retry-safe result, two-office isolation suite | ✅ Verified | Drill CLM on Revit 2024 (2026-10-19) |
+| Add-in built in CI for Revit 2021–2027 | ✅ | `.github/workflows/ci.yml` legs (2026-10-19) |
+| AI privacy: office/project AI lock, name masking at the MCP and the gateway, no-telemetry proof | ✅ Verified | Drill AIP, web and Revit rows (2026-10-20) |
+| Ledger verifiable per project, daily RFC 3161 timestamps, offline verifier | ✅ Verified | Drill LV: migration 0045 live, a rewrite caught (2026-10-20) |
+| Data feed for Power BI (no toll) | ✅ Verified | Drills FEED-L and PBI: 12,670 rows read by Power BI Desktop (2026-10-19/20) |
+| BCF round trip (38 samples, 0 differences), IfcOpenShell, Revit import/export | ✅ Verified | Drills BCF-RT, BCF-IOS, BCF-RV (2026-10-19/20); the BCF Manager click is the founder's |
+| Human-error guards: risk-tiered review in Revit, If-Match version checks, governed delete of clash duplicates | ✅ Verified | Drills GUARD, GUARD-W, GUARD-P, GUARD-D (2026-10-21/22) |
+| Session SNOWDON: full run on Autodesk's Snowdon Towers (Revit 2025) | ✅ Run | 51 pass, 1 fail, 4 n/a, 15 not run; findings F-SNW-1..16 (2026-10-22) |
+| Lifecycle test P0 (bid response) | ✅ Run | `docs/testing/snowdon-lifecycle/P0/P0-RUN_2026-10-22.md`, findings F-LC-1..6 |
+| Documents workspace R1a: party model, database-enforced versions | ✅ Verified | Drill R1a, migration 0049 (2026-10-24) |
+| Documents workspace R1b: full-page editor with blocks, print | ✅ Verified | Drill R1b, local and published app (2026-10-25/26) |
+| R1c: office register, living annexes, live lists, freeze at publish | ✅ Verified | Drill R1c (2026-11-13), web 1.0.117 |
+| R2a: invite by e-mail with role, party and task team; sign-in by code | ✅ Verified | Drill R2a, migration 0050 (2026-11-12) |
+| R2c: people, section leads, comments | ✅ Verified | Drill R2c (2026-11-13) |
+| R2d: review rounds, the client outside Sentinel, stages and suitability, "Accepted C0n" labels | ✅ Verified | Drills R2d, R2d-2, R2d-3, migrations 0053–0056 (2026-11-14) |
+| R3: adoption and templates (LOIN to IDS, office templates, every block editable, Summary) | ✅ Verified | Drill R3 including the published app at 1.0.122 (2026-11-14/15) |
+| A task team that is not in Sentinel, recorded by a lead | ✅ Verified | Migration 0057, drill on snowdon-lifecycle (2026-11-16) |
+| Lifecycle test P1 to P6 | 🟨 Partial | P0, P1, P2 and P4 for M1 run on 2026-11-16 (`docs/testing/snowdon-lifecycle/P0-P4-RUN_2026-11-16.md`, F-RUN-1..18); P3, P4 for M2/M3, P5 and P6 not run |
+| Runs on the public That Open engine | 🟨 Partial | Code compatible and 5,464 of 5,465 tests green on the public 3.6 packages (2026-11-16); production stays on the beta; no Collider in public 3.6 (`docs/strategy/2026-11-16-thatopen-engine-upgrade.md`) |
+| Keeper (bridge, watcher, Funnel) and daily backups | 🟩 Built, not run | `docs/RELIABILITY.md`; first run on the bridge PC owed |
+| Two-step sign-in for leads and owners | ⬜ Planned | First build after the freeze (`docs/RELIABILITY.md` section D) |
+
 ## Platform (web app)
 
 | Capability | Status | Notes |

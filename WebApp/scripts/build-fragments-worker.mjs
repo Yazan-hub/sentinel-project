@@ -13,14 +13,21 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const entry = join(root, "node_modules", "@thatopen-platform", "fragments-beta", "dist", "Worker", "worker.mjs");
+// The beta engine's worker when the beta package is installed (the founder's PC today), else the public engine's
+// (@thatopen/fragments 3.6.x after `thatopen swap`, see docs/strategy/2026-11-16-thatopen-engine-upgrade.md): main.ts
+// imports the generated file on both engines, so it is written on both.
+const candidates = [
+  join(root, "node_modules", "@thatopen-platform", "fragments-beta", "dist", "Worker", "worker.mjs"),
+  join(root, "node_modules", "@thatopen", "fragments", "dist", "Worker", "worker.mjs"),
+];
+const entry = candidates.find((p) => existsSync(p));
 const out = join(root, "src", "generated", "fragments-worker.ts");
 
-if (!existsSync(entry)) {
-  // Stable engine (no beta package): the app does not use a generated worker there.
-  console.log("[fragments-worker] beta fragments not installed — skipped");
+if (!entry) {
+  console.log("[fragments-worker] no fragments worker installed (neither the beta nor the public package) — skipped");
   process.exit(0);
 }
+console.log(`[fragments-worker] from ${entry.includes("fragments-beta") ? "the beta engine" : "the public engine"}`);
 
 const result = await build({
   entryPoints: [entry],

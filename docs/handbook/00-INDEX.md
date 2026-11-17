@@ -34,4 +34,4 @@ This handbook is the **curated front door**. The deeper, older docs in `docs/` r
 
 When you change the system, update the status tag here in the same commit. A `Verified` claim that quietly becomes false is worse than no claim. When in doubt, downgrade the tag.
 
-*Last reconciled: 2026-07-21.*
+*Last reconciled: 2026-11-16 (capability rows for October and November added to [`05`](05-capability-status.md); the founder-facing overview is `docs/strategy/2026-11-16-sentinel-full-picture-ar.html`).*

@@ -5,7 +5,7 @@ import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
 import { assess, toCobieCsv, missingFields, type Asset, type CobieReport } from "../sentinel-core";
-import { getAppManager } from "../app";
+import { projectTitle } from "../app";
 import { escapeHtml as esc } from "./escape-html";
 
 /**
@@ -121,7 +121,7 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
 
   const exportCobie = () => {
     if (!report) { msg("Scan assets first.", "#eab308"); return; }
-    const facility = getAppManager().projectData?.name ?? "Project";
+    const facility = projectTitle() ?? "Project";
     const csv = toCobieCsv(report, facility);
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
     const a = document.createElement("a"); a.href = url; a.download = "sentinel-cobie.csv"; a.click(); URL.revokeObjectURL(url);

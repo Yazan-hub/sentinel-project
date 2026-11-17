@@ -8,6 +8,7 @@ Sentinel is a **BIM governance system**: the deterministic *referee* layer that 
 
 🔗 **Explainer (share this):** the [Sentinel explainer page](https://claude.ai/code/artifact/76e1dae0-552a-43bc-a755-57e292a16e72) — what it is, the loop, the moat, what's built, the roadmap.
 🧪 **Try it live:** the [**Sentinel Sandbox**](https://claude.ai/code/artifact/79661f4d-a4b5-4220-80c2-f894d19545f0) — edit a model + your own rulesets and watch the referee's verdict update live, running the real engine in your browser (source: [`WebApp/sandbox/`](WebApp/sandbox/)).
+🧭 **Start here (founder, Arabic):** [`docs/strategy/2026-11-16-sentinel-full-picture-ar.html`](docs/strategy/2026-11-16-sentinel-full-picture-ar.html) — what Sentinel is, what is built, where the lifecycle test stands, how to use it. Running it reliably: [`docs/RELIABILITY.md`](docs/RELIABILITY.md). The three demos: [`docs/DEMOS.md`](docs/DEMOS.md).
 📚 **Source of truth:** the [**Sentinel Handbook**](docs/handbook/00-INDEX.md) — the honest, status-tagged record of what Sentinel is, what's actually built, and *why* every decision was made (overview · architecture · security · workflows · capability status · glossary · decisions · deployment).
 
 ---
@@ -70,7 +71,7 @@ The gate is configured — not coded — against a reference ruleset. See [`docs
 
 ## Status
 
-The Governed Publish loop is **verified live end-to-end** on a real building model. The web app and bridge run **about 3,800 automated tests** and the Revit-free C# checks over 1,250 more (counted 2026-10-19); the immutable ledger is **truncate-proof at the database core**; the add-in **builds in CI for every Revit version it ships to, 2021–2027**.
+The Governed Publish loop is **verified live end-to-end** on a real building model. The web app and bridge run **5,470 automated tests** (counted 2026-11-16) and the Revit-free C# checks over 1,250 more (counted 2026-10-19); the immutable ledger is **truncate-proof at the database core**; the add-in **builds in CI for every Revit version it ships to, 2021–2027**.
 
 A full **security audit** ([`docs/SECURITY_AUDIT_2026-07.md`](docs/SECURITY_AUDIT_2026-07.md)) — three adversarial passes plus live-DB advisors and dependency/secret scans — has been run. The one **CRITICAL** finding (an anon-open RLS hole that exposed cross-tenant data to the public key) is **fixed and verified closed live**, guarded against regression by [`WebApp/db/security-check.mjs`](WebApp/db/security-check.mjs) (`npm run security:check`). Remaining triaged items and the one owed manual action (key rotation) are in the report.
 

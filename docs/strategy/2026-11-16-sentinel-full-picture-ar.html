@@ -1,0 +1,688 @@
+<title>الصورة الكاملة لسنتينل</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&family=Readex+Pro:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a drawing-register report — sticky contents rail on wide screens, one column on phones; RTL throughout. */
+:root{
+  --bg:#F3F5F7; --surface:#FFFFFF; --ink:#15212C; --muted:#56636F; --line:#D8DFE5;
+  --accent:#0F5E7A; --accent-soft:#E2EEF3;
+  --ok:#1D7A4C; --ok-soft:#E1F2E8; --built:#3557B7; --built-soft:#E5EAF8;
+  --part:#9A6200; --part-soft:#FBF0DA; --no:#9B3434; --no-soft:#F7E4E4;
+  --f-display:"Readex Pro","IBM Plex Sans Arabic","Segoe UI",Tahoma,sans-serif;
+  --f-body:"IBM Plex Sans Arabic","Segoe UI",Tahoma,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0E141A; --surface:#151D25; --ink:#E4EBF0; --muted:#9AA7B2; --line:#283541;
+  --accent:#63B6D4; --accent-soft:#16303B;
+  --ok:#5CC48D; --ok-soft:#143023; --built:#8FA6F0; --built-soft:#1C2545;
+  --part:#E2B25A; --part-soft:#33280F; --no:#E58A8A; --no-soft:#3A1C1C; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0E141A; --surface:#151D25; --ink:#E4EBF0; --muted:#9AA7B2; --line:#283541;
+  --accent:#63B6D4; --accent-soft:#16303B;
+  --ok:#5CC48D; --ok-soft:#143023; --built:#8FA6F0; --built-soft:#1C2545;
+  --part:#E2B25A; --part-soft:#33280F; --no:#E58A8A; --no-soft:#3A1C1C; color-scheme:dark }
+
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.85}
+.page{max-width:1180px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.layout{display:grid;grid-template-columns:240px minmax(0,1fr);gap:40px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.35;margin:0}
+h1{font-size:clamp(1.9rem,4vw,2.7rem);font-weight:700}
+h2{font-size:1.55rem;font-weight:700;margin-block:0 14px}
+h3{font-size:1.12rem;font-weight:600;margin-block:22px 8px}
+p{margin:0 0 12px;max-width:72ch}
+a{color:var(--accent)}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+code,.mono{font-family:var(--f-mono);font-size:.86em;direction:ltr;unicode-bidi:isolate}
+code{background:var(--accent-soft);padding:1px 6px;border-radius:4px}
+ul,ol{margin:0 0 12px;padding-inline-start:22px}
+li{margin-block:4px}
+strong{font-weight:600}
+
+/* header */
+.head{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:28px;display:grid;gap:14px}
+.eyebrow{font-family:var(--f-mono);font-size:.78rem;letter-spacing:.06em;color:var(--muted);direction:rtl}
+.lead{font-size:1.1rem;color:var(--muted);max-width:70ch;margin:0}
+.facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin:0;padding:0;list-style:none;font-size:.9rem;color:var(--muted)}
+.facts li{margin:0}
+.facts b{color:var(--ink);font-family:var(--f-mono);font-weight:500;font-variant-numeric:tabular-nums;margin-inline-end:4px}
+.legend{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:.85rem;color:var(--muted)}
+
+/* status chips */
+.st{display:inline-block;font-size:.76rem;font-weight:600;line-height:1.5;padding:1px 9px;border-radius:999px;white-space:nowrap;vertical-align:middle}
+.st.ok{background:var(--ok-soft);color:var(--ok)}
+.st.built{background:var(--built-soft);color:var(--built)}
+.st.part{background:var(--part-soft);color:var(--part)}
+.st.no{background:var(--no-soft);color:var(--no)}
+
+/* contents rail */
+.toc{position:sticky;top:calc(env(safe-area-inset-top,0px) + 20px);font-size:.92rem}
+.toc .label{font-family:var(--f-mono);font-size:.74rem;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
+.toc ol{list-style:none;padding:0;margin:0;display:grid;gap:2px;counter-reset:t}
+.toc li{margin:0;counter-increment:t}
+.toc a{display:flex;gap:8px;text-decoration:none;color:var(--ink);padding:5px 8px;border-radius:6px}
+.toc a::before{content:counter(t);font-family:var(--f-mono);font-size:.8rem;color:var(--muted);min-width:1.4em}
+.toc a:hover{background:var(--accent-soft)}
+@media (max-width:900px){.toc{position:static;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface)}}
+
+/* sections */
+main{min-width:0;display:grid;gap:44px}
+section{min-width:0;scroll-margin-top:20px}
+.sec-no{font-family:var(--f-mono);font-size:.8rem;color:var(--accent);letter-spacing:.06em;display:block;margin-bottom:4px}
+.note{border-inline-start:3px solid var(--accent);background:var(--accent-soft);padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+.note.warn{border-color:var(--part);background:var(--part-soft)}
+.note p:last-child{margin-bottom:0}
+.quote{font-family:var(--f-display);font-size:1.05rem;border-inline-start:3px solid var(--line);padding-inline-start:14px;margin:12px 0;color:var(--ink)}
+.quote .src{display:block;font-family:var(--f-body);font-size:.82rem;color:var(--muted);margin-top:4px}
+
+/* summary list */
+.keylist{list-style:none;padding:0;margin:0;display:grid;gap:12px}
+.keylist li{display:grid;grid-template-columns:7.5rem minmax(0,1fr);gap:14px;padding:12px 0;border-bottom:1px solid var(--line);margin:0}
+.keylist .k{font-family:var(--f-display);font-weight:600;color:var(--accent)}
+@media (max-width:560px){.keylist li{grid-template-columns:minmax(0,1fr);gap:2px}}
+
+/* pitch cards */
+.pitch{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-top:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.card h3{margin-top:0}
+.card .tag{font-family:var(--f-mono);font-size:.74rem;color:var(--muted);letter-spacing:.05em}
+.en{direction:ltr;text-align:left;font-family:var(--f-body)}
+
+/* referee analogy */
+.roles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:12px 0}
+@media (max-width:700px){.roles{grid-template-columns:minmax(0,1fr)}}
+.role{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--surface)}
+.role.me{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.role .who{font-family:var(--f-display);font-weight:600}
+.role .ex{font-size:.88rem;color:var(--muted)}
+
+/* pipeline */
+.flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:14px 0;padding:0;list-style:none}
+.flow li{flex:1 1 150px;margin:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;position:relative;min-width:0}
+.flow .n{font-family:var(--f-mono);font-size:.74rem;color:var(--accent)}
+.flow .t{font-weight:600;display:block}
+.flow .d{font-size:.84rem;color:var(--muted)}
+.branch{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:600px){.branch{grid-template-columns:1fr}}
+.branch .card{border-inline-start-width:4px}
+.branch .pass{border-inline-start-color:var(--ok)}
+.branch .fail{border-inline-start-color:var(--no)}
+
+/* architecture */
+.arch{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0}
+.arch .box{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;min-width:0}
+.arch .box.core{grid-column:2;grid-row:1 / span 2;border-color:var(--accent);background:var(--accent-soft);display:flex;flex-direction:column;justify-content:center}
+.arch .b{font-family:var(--f-display);font-weight:600;display:block}
+.arch .s{font-size:.84rem;color:var(--muted)}
+@media (max-width:700px){.arch{grid-template-columns:minmax(0,1fr)}.arch .box.core{grid-column:auto;grid-row:auto}}
+
+/* timeline */
+.tl{list-style:none;padding:0;margin:0;border-inline-start:2px solid var(--line)}
+.tl li{position:relative;padding:0 22px 22px;margin:0}
+.tl li::before{content:"";position:absolute;inset-inline-start:-7px;top:9px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:2px solid var(--accent)}
+.tl li.gap::before{border-color:var(--muted);border-style:dashed}
+.tl .when{font-family:var(--f-display);font-weight:600}
+.tl .cnt{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);margin-inline-start:8px}
+.tl p{margin:4px 0 0}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin:12px 0}
+table{border-collapse:collapse;width:100%;font-size:.92rem;min-width:640px}
+th,td{text-align:start;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{font-family:var(--f-display);font-weight:600;font-size:.86rem;color:var(--muted);background:var(--bg);position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td .st{margin-block:2px}
+
+/* inventory groups */
+.inv{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}
+.inv .card ul{margin:6px 0 0;padding-inline-start:18px;font-size:.92rem}
+.inv .card li{margin-block:3px}
+
+/* parties */
+.parties{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.parties .card p{font-size:.93rem;margin:0}
+
+/* steps */
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.steps>li{counter-increment:s;display:grid;grid-template-columns:2.2rem minmax(0,1fr);gap:12px;margin:0;align-items:start}
+.steps>li::before{content:counter(s);font-family:var(--f-mono);font-weight:500;width:2rem;height:2rem;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent)}
+.steps .where{display:block;font-size:.85rem;color:var(--muted)}
+
+details.phase{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 16px;margin-bottom:10px}
+details.phase>summary{cursor:pointer;padding:14px 0;font-family:var(--f-display);font-weight:600;list-style:none;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+details.phase>summary::-webkit-details-marker{display:none}
+details.phase>summary::before{content:"+";font-family:var(--f-mono);color:var(--accent);width:1rem}
+details.phase[open]>summary::before{content:"−"}
+details.phase .body{padding-bottom:14px}
+details.phase .iso{font-family:var(--f-mono);font-size:.78rem;color:var(--muted);font-weight:400}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:760px){.two{grid-template-columns:minmax(0,1fr)}}
+
+.recs{list-style:none;padding:0;margin:0;counter-reset:r;display:grid;gap:14px}
+.recs>li{counter-increment:r;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px 14px;margin:0;display:grid;grid-template-columns:2.4rem minmax(0,1fr);gap:12px}
+.recs>li::before{content:counter(r);font-family:var(--f-display);font-weight:700;font-size:1.4rem;color:var(--accent);line-height:1.2}
+.recs .why{font-size:.9rem;color:var(--muted);margin:4px 0 0}
+
+dl.gloss{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr);gap:0;margin:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+dl.gloss dt,dl.gloss dd{padding:9px 12px;border-bottom:1px solid var(--line);margin:0}
+dl.gloss dt{font-family:var(--f-mono);font-size:.86rem;background:var(--bg);direction:ltr;text-align:right}
+@media (max-width:560px){dl.gloss{grid-template-columns:minmax(0,1fr)}dl.gloss dt{border-bottom:0;padding-bottom:0}}
+
+.src-list{font-size:.86rem;color:var(--muted)}
+.src-list code{background:transparent;padding:0}
+footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+
+<div class="page" dir="rtl" lang="ar">
+
+<header class="head">
+  <div class="eyebrow">تقرير تقييم · 16 تشرين الثاني 2026 · من الكود وسجلات الاختبار في المستودع</div>
+  <h1>الصورة الكاملة لسنتينل</h1>
+  <p class="lead">ما الذي بنيناه منذ تموز، ما المشكلات التي يحلّها، أين يقف اليوم، وكيف تستعمله بأفضل طريقة. كل حالة هنا مأخوذة من الكود ومن سجلات الاختبار الحيّة، وكل ما لم يُجرَّب مكتوب أنه لم يُجرَّب.</p>
+  <ul class="facts">
+    <li><b>2,482</b>تعديل (commit) منذ 13 تموز</li>
+    <li><b>57</b>تعديل قاعدة بيانات (migration)</li>
+    <li><b>1.0.125</b>نسخة تطبيق الويب</li>
+    <li><b>38</b>أمراً في Revit</li>
+    <li><b>17</b>أداة للذكاء الاصطناعي (MCP)</li>
+    <li><b>~3,800</b>اختبار ويب وجسر + <b>1,250</b> فحص C# (عُدّت في 19 ت1)</li>
+  </ul>
+  <div class="legend">مفتاح الحالة:
+    <span class="st ok">مُثبت حيّاً</span> شُغّل وشوهد يعمل
+    <span class="st built">مبني</span> في الكود، لم يُعاد التحقق منه هنا
+    <span class="st part">جزئي</span>
+    <span class="st no">غير موجود</span>
+  </div>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="المحتويات">
+  <div class="label">المحتويات</div>
+  <ol>
+    <li><a href="#summary">الخلاصة في دقيقة</a></li>
+    <li><a href="#what">سنتينل بكلمات بسيطة</a></li>
+    <li><a href="#story">القصة: كيف وصلنا لهنا</a></li>
+    <li><a href="#problems">المشكلات التي يحلّها</a></li>
+    <li><a href="#inside">ماذا يوجد في الداخل</a></li>
+    <li><a href="#parties">ماذا يقدّم لكل طرف</a></li>
+    <li><a href="#lifecycle">من العطاء إلى التسليم</a></li>
+    <li><a href="#status">أين يقف اليوم</a></li>
+    <li><a href="#thatopen">That Open: كيف نستفيد</a></li>
+    <li><a href="#workflow">كيف تستعمل سنتينل</a></li>
+    <li><a href="#next">التوصيات بالترتيب</a></li>
+    <li><a href="#decisions">قرارات تحتاجها منك</a></li>
+    <li><a href="#glossary">قاموس المصطلحات</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<!-- 1 -->
+<section id="summary">
+  <span class="sec-no">01</span>
+  <h2>الخلاصة في دقيقة</h2>
+  <ul class="keylist">
+    <li><span class="k">ما هو</span><span>سنتينل هو <strong>الحَكَم</strong> في مشروع BIM. لا يرسم ولا يخزّن. يحكم: هل هذا الموديل أو الملف أو المستند مطابق للمعيار المتفق عليه؟ ينشر فقط ما ينجح، ويسجّل كل حكم في سجل لا يمكن تعديله أو حذفه.</span></li>
+    <li><span class="k">ماذا يفعل</span><span><strong>يفحص</strong> موديلات Revit وملفات IFC والمستندات مقابل معايير المكتب والعميل. <strong>يصلّح بموافقة</strong>: يقترح تعديلات، وشخص يوافق عنصراً عنصراً، ثم تُطبَّق داخل Revit. <strong>يوثّق</strong>: من رفع، من وافق، بأي معيار، ومتى.</span></li>
+    <li><span class="k">أين يقف</span><span>النواة مُثبتة حيّاً منذ تموز: زر واحد في Revit يصدّر IFC، يحكم عليه، ينشره إن نجح، ويرجع القضايا إلى Revit إن فشل. حولها بُنيت منصة كاملة: CDE بحالات ISO 19650، مستندات BEP/EIR حيّة، MIDP/TIDP، أدوات نمذجة من الرسومات والمسح، 4D إلى 7D، وخادم للذكاء الاصطناعي.</span></li>
+    <li><span class="k">الاختبار الكامل</span><span>اختبار دورة الحياة (مشروع Snowdon) أنهى <strong>P0 العطاء</strong> بين 22 و24 ت1. بعدها توقف ثلاثة أسابيع لبناء مساحة المستندات (R1a إلى R3) لأن P0 كشف ضعفها. <strong>تحديث 17 ت2:</strong> في 16 ت2 شُغّلت P0 وP1 وP2 وP4 للمرحلة M1 في جلسة أخرى (F-RUN-1 إلى 18، أُصلحت في 1.0.126 و1.0.127). بقي <strong>P3</strong> (M2 وM3) وقبولهما، ثم P5 وP6.</span></li>
+    <li><span class="k">أكبر خطر</span><span>ليس ميزة ناقصة. (1) المنصة كلها تعمل على حاسوبك عبر Tailscale Funnel، وخلال P0 توقف الجسر مرتين وتعطّل النفق ساعات. (2) شخص واحد يحمل النظام، والوثائق تأخرت عن الكود. (3) That Open تبني الآن CDE وتعارضات وقضايا وتعاون Revit خاصاً بها، فمكان سنتينل يجب أن يكون <strong>فوقها</strong> لا بجانبها.</span></li>
+    <li><span class="k">الخطوة التالية</span><span>أوقف الميزات الجديدة حتى تُكمل P1 إلى P4. اعمل جولة That Open (ترقية الحزم وتجربة تعاون Revit المحكوم). جهّز تشغيلاً يعتمد عليه، ثم اختر أول مستخدم حقيقي.</span></li>
+  </ul>
+</section>
+
+<!-- 2 -->
+<section id="what">
+  <span class="sec-no">02</span>
+  <h2>سنتينل بكلمات بسيطة</h2>
+  <p>فكّر بمباراة كرة قدم. في كل مشروع BIM ثلاثة أدوار:</p>
+  <div class="roles">
+    <div class="role"><span class="who">اللاعبون</span><p class="ex">أدوات التصميم: Revit وArchicad ووكلاء الذكاء الاصطناعي. يقترحون التصميم.</p></div>
+    <div class="role"><span class="who">الملعب</span><p class="ex">الـ CDE: ACC أو منصة That Open أو غيرها. يخزّن الملفات وينقلها بين المجلدات.</p></div>
+    <div class="role me"><span class="who">الحَكَم: سنتينل</span><p class="ex">يطبّق القانون (معيار المكتب + ISO 19650 + متطلبات العميل)، يصفّر عند الخطأ ويقول ما هو بالضبط، ويكتب القرار في تقرير المباراة الذي لا يُمحى.</p></div>
+  </div>
+  <p class="quote">Storage is a CDE's job. Truth is ours.<span class="src">التخزين عمل الـ CDE، والحقيقة عملنا. (README المشروع)</span></p>
+  <p class="quote en" dir="ltr">Sentinel turns drawings, scans and standards into Revit changes that a person approves and an auditor can verify.<span class="src" dir="rtl">سنتينل يحوّل الرسومات والمسح والمعايير إلى تعديلات في Revit يوافق عليها شخص ويستطيع المدقق التحقق منها. (جملتك أنت، 19 ت1)</span></p>
+
+  <h3>ما ليس سنتينل</h3>
+  <ul>
+    <li><strong>ليس أداة رسم.</strong> لا يرسم هندسة بنفسه. يقترح، وRevit هو من يضع العناصر بعد موافقة شخص.</li>
+    <li><strong>ليس محرّك تعارضات ضخماً.</strong> فيه كشف تعارضات وفرز لها، لكنه لا ينافس Navisworks على موديلات مستشفى كاملة.</li>
+    <li><strong>ليس برنامج تسعير.</strong> 5D و6D مشتقة من كميات موديل مُتحقَّق منه، وليست بديلاً عن مُقدّر الكميات.</li>
+    <li><strong>ليس CDE آخر فقط.</strong> فيه CDE، لكن قيمته في الحكم والسجل، لا في التخزين.</li>
+  </ul>
+
+  <h3>كيف تشرحه للناس</h3>
+  <div class="pitch">
+    <div class="card"><span class="tag">10 ثوانٍ · عربي</span><p>سنتينل حَكَم لمشاريع BIM: يفحص كل موديل ومستند مقابل معيار المكتب وISO 19650، يقترح التصليح داخل Revit بموافقة شخص، ويسجّل كل قرار في سجل لا يُمحى.</p></div>
+    <div class="card en" dir="ltr"><span class="tag">10 SECONDS · ENGLISH</span><p>Sentinel is the referee for BIM projects. It checks every model and document against the office standard and ISO 19650, proposes fixes inside Revit that a person approves, and records every decision on a ledger nobody can edit.</p></div>
+    <div class="card"><span class="tag">دقيقة واحدة · عربي</span><p>اليوم يستلم المكتب موديلاً من استشاري ولا يعرف إن كان مطابقاً حتى يفتحه أحد. الـ BEP يُكتب في Word ثم يُنسى. ومن وافق على ماذا ضائع في الإيميلات. سنتينل يحكم على الملف لحظة وصوله ويرجع الأخطاء إلى Revit، يربط بنود الـ BEP بفحوصات حقيقية، ويمرّر كل موافقة عبر سلسلة مراجعة مسجّلة. النتيجة ملف تدقيق جاهز لأي عميل أو جهة اعتماد.</p></div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section id="story">
+  <span class="sec-no">03</span>
+  <h2>القصة: كيف وصلنا لهنا</h2>
+  <p>الأرقام بجانب كل شهر هي عدد التعديلات في المستودع. هي تُظهر حجم العمل، وتشرح لماذا فقدت الصورة.</p>
+  <ol class="tl">
+    <li><span class="when">قبل تموز 2026</span><span class="cnt">نموذج pyRevit</span>
+      <p>الفكرة الأصلية من خبرتك كمنسّق BIM: إضافة لـ Revit تفرض معايير المكتب لحظياً، وتمرّر تغييرات المودلرز على المنسّق قبل اعتمادها ("Git pull requests لـ Revit")، وتقرأ BEP وEIR بالذكاء الاصطناعي لتحوّلها إلى قواعد، ومكتبة معايير للمكتب ترثها كل المشاريع. الشعار وقتها: <em>Guardian prevents mistakes. We govern change.</em></p></li>
+    <li><span class="when">تموز</span><span class="cnt">266</span>
+      <p>المستودع الموحّد (13 تموز). الإضافة بـ C#، تطبيق الويب على منصة That Open، الجسر (الخادم الحَكَم)، قاعدة Supabase. <strong>Governed Publish مُثبت حيّاً</strong> على موديل Snowdon. تدقيق أمني أغلق ثغرة حرجة كانت تكشف بيانات بين المشاريع. السجل صار غير قابل للتعديل من قلب قاعدة البيانات. GhostBuilder وسلسلة Datum ثم Ghost ثم Annotate. انضمامك لـ That Open كعضو مؤسس.</p></li>
+    <li><span class="when">آب</span><span class="cnt">140</span>
+      <p>وحدة المستندات: قوالب BEP وEIR، استيراد docx وpdf، ربط البنود بفحوصات تُشغَّل فعلاً، ودرجة "قابلية التنفيذ". MIDP وTIDP. صياغة بالذكاء الاصطناعي مع فحص سلامة. الـ changesets: اقتراحات الذكاء الاصطناعي تُراجع في Revit قبل أي كتابة. أدوار المشروع.</p></li>
+    <li><span class="when">أيلول</span><span class="cnt">687</span>
+      <p>قرار 17 أيلول: <strong>الاستشارة أولاً، المنتج لاحقاً</strong>. Fix in Revit وNaming Manager. كيان المكتب، والمعايير كملفات بنسخ (المشروع يرث من المكتب). Governed Intake لأي IFC بدون Revit. Federation Gate. Holding Area للملفات المرفوضة. سلسلة المراجعة. تسجيل دخول لكل شخص في Revit. بوابة التسليم على منصة That Open (cloud component مع automations). Ask Sentinel عبر قناة That Open، واكتشفتَ خللاً في قناتهم فأصلحوه في 1 ت1. تصميم أتمتة النمذجة (30 أيلول).</p></li>
+    <li><span class="when">تشرين الأول</span><span class="cnt">1,290 · أكثر شهر</span>
+      <p>هاكاثون الأعضاء المؤسسين لـ That Open (4 ت1) ببوابة التسليم. BCF-API 3.0 وopenCDE (20 من 20 مساراً)، ملف التدقيق (audit pack)، وإجراء إدارة المعلومات المكتوب (8 ت1). أتمتة النمذجة MA-0 إلى MA-8: Promote للجدران، مصفوفة LOD، مكتب المراجعة، المسح E57 وLAS وLAZ مع قياس الانحراف، الفتحات من المسح، الصور وأدلة الويب، قارئ الرسومات. تقييم تقني وسوقي (19 ت1) ثم تنفيذ معظم توصياته خلال يومين: Revert للتعديلات، منع التطبيق المزدوج، عزل المكاتب، بناء الإضافة لكل نسخ Revit، IDS مقابل IfcTester، Protection، خصوصية الذكاء الاصطناعي، فرز التعارضات، وحواجز الخطأ البشري. خطة اختبار دورة الحياة (22 ت1)، تشغيل P0 (22 إلى 24 ت1)، وتصميم مساحة المستندات (24 ت1).</p></li>
+    <li class="gap"><span class="when">27 ت1 إلى 11 ت2</span><span class="cnt">0</span><p>توقف.</p></li>
+    <li><span class="when">تشرين الثاني</span><span class="cnt">99 حتى اليوم</span>
+      <p>مساحة المستندات: R1c سجل المكتب والجداول الحيّة، R2a الأطراف والدعوة بالإيميل، R2c الأشخاص والتعليقات، R2d جولات المراجعة (مع عميل من خارج سنتينل)، R3 التبنّي والقوالب (LOIN إلى IDS، قوالب المكتب، الملخّص). حزمة P1 كُتبت في 15 ت2، وmigration 0057 (فريق ليس في سنتينل) طُبّقت اليوم.</p></li>
+  </ol>
+  <div class="note warn">
+    <p><strong>لاحظ النمط.</strong> كل شهر اتسع النطاق: من إضافة Revit إلى منصة كاملة من العطاء إلى التسليم. 2,482 تعديلاً في أربعة أشهر، معظمها في جلسات مع Claude توافق فيها على "Apply". هذا هو سبب شعورك بالضياع، وهو طبيعي. صفحة الحالة في الـ handbook مكتوب في رأسها "آخر مطابقة 21 تموز"، ودليل الإضافة يقول "Phase 2, July 2026"، ودليل التجربة (PILOT.md) يصف ملفات JSON لم تعد موجودة. هذا التقرير يحاول أن يكون نقطة البداية الجديدة.</p>
+  </div>
+</section>
+
+<!-- 4 -->
+<section id="problems">
+  <span class="sec-no">04</span>
+  <h2>المشكلات الحقيقية التي يحلّها</h2>
+  <p>هذه مشكلات من خبرتك في تنسيق BIM، ومن بحث تشرين الأول عن آلام كتابة الـ BEP (نحو 30 صوتاً من الممارسين ودراسة UCL)، ومن اختبار Snowdon.</p>
+  <div class="tw"><table>
+    <thead><tr><th>المشكلة على أرض الواقع</th><th>من يتأذى</th><th>ماذا يفعل سنتينل</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td>أسماء ملفات وعائلات ومناظير خاطئة رغم وجود معيار</td><td>المنسّق، كل أسبوع</td><td>فحص حي أثناء العمل، Naming Manager بأسماء مقترحة من بيانات الموديل، زر ⚡ للتصليح، وفحص اسم الحاوية حسب ISO 19650 عند المزامنة والنشر</td><td><span class="st ok">مُثبت</span></td></tr>
+      <tr><td>موديل يُسلَّم ناقص البيانات (FireRating، U-value، psets) ولا أحد يعرف حتى يفتحه</td><td>المستلم والعميل</td><td>بوابة IDS وعقد التسليم (contract) عند كل نشر واستلام. المرفوض يُحجز في Holding Area، وتُفتح قضية BCF ترجع إلى Revit، وFix in Revit يكتب القيم ويعيد الحكم</td><td><span class="st ok">مُثبت</span></td></tr>
+      <tr><td>استشاري يرفع IFC مباشرة في الـ CDE بدون أي فحص</td><td>الـ lead</td><td>بوابة التسليم على منصة That Open تحكم على كل ملف .ifc خلال ثوانٍ وتكتب الحكم على الملف نفسه، ثم يدخل الحكم سجل سنتينل</td><td><span class="st ok">مُثبت</span></td></tr>
+      <tr><td>تعارضات بين التخصصات، فتحات MEP، عناصر مكررة</td><td>المنسّق</td><td>Federation Gate (ستة فحوصات بيانات قبل التعارض)، كشف دقيق على المجسّمات، فرز التعارضات إلى مجموعات بمالك، MEP Openings، وحذف المكررات بموافقة lead</td><td><span class="st ok">مُثبت</span></td></tr>
+      <tr><td>عائلات ثقيلة أو ناقصة البارامترات</td><td>الفريق كله</td><td>Sanitize .rfa قبل التحميل، Heal Loaded Families يصلّح الناقص ويترك ما يحتاج إنساناً</td><td><span class="st built">مبني</span></td></tr>
+      <tr><td>مودلر يغيّر اسم منظور أو لوحة بدون مراجعة</td><td>المنسّق</td><td>Change Requests: التغيير يُحفظ معلّقاً، والرفض يرجعه تلقائياً</td><td><span class="st built">مبني</span></td></tr>
+      <tr><td>"من وافق على ماذا ومتى؟" ضائعة في الإيميلات</td><td>الـ lead والعميل والمدقق</td><td>سجل مسلسل بالهاش لا يُعدَّل ولا يُحذف، إيصال لكل صف يمكن التحقق منه علناً، وملف تدقيق لكل مشروع</td><td><span class="st ok">مُثبت</span></td></tr>
+      <tr><td>الـ EIR من العميل ناقص أو غير موجود (أعلى ألم في البحث: 4.63 من 5)</td><td>المكتب الذي يقدّم العطاء</td><td>قالب EIR يكتبه الـ lead مع العميل، وCompile to IDS يحوّل الجمل إلى فحوصات ويرفض الغامض ويقول لماذا</td><td><span class="st built">مبني</span></td></tr>
+      <tr><td>الـ BEP يعد بأكثر مما يقدر الفريق، ويُنسى بعد التوقيع، ولا يُراجَع التسليم مقابله</td><td>الكل</td><td>البند يُحسب فقط إن ارتبط بفحص يُشغَّل فعلاً. جداول حيّة (MIDP وTIDP والمخاطر) بدل نسخ ثانية. تبويب الجودة والملخّص</td><td><span class="st built">مبني</span></td></tr>
+      <tr><td>مسؤوليات غير واضحة: من ينمذج ماذا</td><td>المنسّق والفرق</td><td>مصفوفة مسؤولية داخل الـ BEP وفحص "فريق مسؤول واحد لكل عنصر"</td><td><span class="st part">جزئي</span> على مستوى الحاوية، لا على العنصر داخلها</td></tr>
+      <tr><td>MIDP وTIDP في Excel تُجمع يدوياً</td><td>مدير المعلومات</td><td>جدول التسليمات بحالة مشتقة: مخطط، متأخر، وصل، غير مخطط</td><td><span class="st built">مبني</span></td></tr>
+      <tr><td>موافقات ISO 19650: فحص الفريق، اعتماد الـ lead، قبول العميل</td><td>كل الأطراف</td><td>سلسلة مراجعة للموديلات وجولات مراجعة للمستندات، وقرار العميل يمكن تسجيله حتى لو لم يكن في سنتينل</td><td><span class="st ok">مُثبت</span> في تجارب R2d</td></tr>
+      <tr><td>ذكاء اصطناعي يعدّل الموديل بلا رقابة</td><td>المكتب</td><td>خادم MCP لا ينفّذ كوداً ويقترح فقط. شخص يوافق عنصراً عنصراً. Protection للشبكات والمستويات والإنشائي. Revert كتعديل جديد مسجّل</td><td><span class="st ok">مُثبت</span> على Revit 2024</td></tr>
+      <tr><td>إدارة مكتب عن بعد (عمّان وألمانيا)</td><td>مدير BIM الخارجي</td><td>الحكم آلي والقضايا ترجع إلى Revit بدون انتظار المستشار</td><td><span class="st part">جزئي</span> يعمل عبر حاسوبك فقط</td></tr>
+      <tr><td>بيانات التسليم للمالك (COBie) ناقصة عند التسليم</td><td>العميل والمشغّل</td><td>بوابة COBie تقيس الحقول الأربعة لكل أصل قابل للصيانة</td><td><span class="st built">مبني</span> Snowdon: 0 من 807</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 5 -->
+<section id="inside">
+  <span class="sec-no">05</span>
+  <h2>ماذا يوجد داخل سنتينل</h2>
+  <p>أربعة أجزاء تعمل معاً، والجسر في الوسط هو الحَكَم الوحيد الذي يكتب في السجل.</p>
+  <div class="arch" role="img" aria-label="رسم معماري: Revit والذكاء الاصطناعي على جهة، الويب ومنصة That Open على جهة، والجسر في الوسط فوق قاعدة البيانات">
+    <div class="box"><span class="b">إضافة Revit</span><span class="s">C# لـ Revit 2021 إلى 2027. لا تحمل أسراراً. ترسل وتستقبل عبر الجسر.</span></div>
+    <div class="box core"><span class="b">الجسر · الحَكَم</span><span class="s">خادم Node على المنفذ 4100. يحمل المفاتيح، يشغّل محرك الحكم، الكاتب الوحيد للمخازن المحكومة والسجل. يعمل اليوم على حاسوبك، ويُوصَل إليه عبر Tailscale Funnel.</span><span class="s" style="margin-top:8px">تحته: <strong>Supabase/Postgres</strong>، 57 migration، أمان على مستوى الصف، أربعة أدوار، وسجل لا يُعدَّل.</span></div>
+    <div class="box"><span class="b">تطبيق الويب</span><span class="s">يعمل داخل منصة That Open: العارض، الـ CDE، المستندات، التنسيق، دورة الحياة.</span></div>
+    <div class="box"><span class="b">الذكاء الاصطناعي</span><span class="s">Claude عبر MCP (17 أداة، قراءة واقتراح فقط) وبوابة AI محلية تبدأ بـ Ollama.</span></div>
+    <div class="box"><span class="b">منصة That Open</span><span class="s">الملفات، automations، بوابة التسليم كـ cloud component، والقناة التي تسأل التطبيق المفتوح.</span></div>
+  </div>
+
+  <h3>الحلقة الأساسية: Governed Publish</h3>
+  <ol class="flow">
+    <li><span class="n">1</span><span class="t">زر في Revit</span><span class="d">يصدّر الموديل كاملاً إلى IFC</span></li>
+    <li><span class="n">2</span><span class="t">بوابة التسليم</span><span class="d">الاسم حسب naming، والعقد contract</span></li>
+    <li><span class="n">3</span><span class="t">الحكم</span><span class="d">IDS على كل عنصر: مقبول، مقبول بتحذيرات، مرفوض</span></li>
+    <li><span class="n">4</span><span class="t">السجل</span><span class="d">الحكم يُكتب على نسخة الملف مع إيصال</span></li>
+  </ol>
+  <div class="branch">
+    <div class="card pass"><strong>نجح</strong> · يُسجَّل كنسخة في الـ CDE ويُرفع للمنصة، ويمكن أن يدخل سلسلة المراجعة.</div>
+    <div class="card fail"><strong>فشل</strong> · لا شيء يُخزَّن. يُحجز في Holding Area، وتُفتح قضية BCF لكل متطلب فاشل ترجع إلى Revit مع العناصر.</div>
+  </div>
+
+  <h3>الجرد</h3>
+  <div class="inv">
+    <div class="card">
+      <h3>إضافة Revit · 38 أمراً في أربع لوحات</h3>
+      <ul>
+        <li><strong>Coordinate:</strong> Show Panel (اللوحة الحيّة)، Change Requests، BCF Issues مع Fix in Revit، Clash Manager وClash Register، Review Flag، Review AI Proposals، Applied AI Changes</li>
+        <li><strong>Validate:</strong> Scan Now، Health Scorecard، Rule Set، IFC Pre-Flight، IFC Delivery Gate، Sanitize .rfa، Heal Loaded Families، MEP Openings، MEP Type Check، Naming Manager</li>
+        <li><strong>Publish:</strong> Governed Publish، Publish Sheets، Publish Views</li>
+        <li><strong>Standards &amp; Build:</strong> Project Setup، Sign in، PC Settings، Build Office System، Apply Standard، Ingest Docs، Modelling Guideline، IFC Export Mapping، Protection، ROI Dashboard، وسلسلة Model from Drawings: Datum، Ghost Builder، Photo Massing، Shell a Mass، Annotate Views، Promote (DD)، Provenance</li>
+        <li><strong>في الخلفية بدون زر:</strong> فحص حي لكل تغيير، فحص عند كل Sync، Revit Doctor للتحذيرات البسيطة، ونشر تلقائي إن ثبّته الـ lead</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>تطبيق الويب · على منصة That Open</h3>
+      <ul>
+        <li><strong>المشاريع:</strong> مكاتب ومشاريع، لوحة المشروع، Project Files (نسخ، معلّق، محذوف)، Documents، Deliverables، Settings</li>
+        <li><strong>مساحة المستندات:</strong> محرر صفحة كاملة لـ BEP وEIR وTIDP وREADINESS بأقسام من بلوكات: نص، جدول، مصفوفة مسؤولية، حقائق المشروع، جداول حيّة، LOIN، قاعدة تسمية، تغييرات على تسمية العميل، روابط EIR. تبويبات: المراجعة، الجودة، الأشخاص، التعليقات، النسخ، الملخّص</li>
+        <li><strong>BIM Tools:</strong> Browser، Properties، Visibility، Views (مساقط حيّة)، Sheets، Review، Performance</li>
+        <li><strong>Coordination:</strong> Issues، RFIs، Clash مع المجموعات، CDE</li>
+        <li><strong>Lifecycle:</strong> Cost 5D، Carbon 6D، 4D Sequence، COBie 7D، Tender، Owner، Data feed</li>
+        <li><strong>أخرى:</strong> Standards، QA، Guide، Copilot</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>الجسر · الحَكَم</h3>
+      <ul>
+        <li>محرك الحكم <code>sentinel-core</code>: نفس الكود في المتصفح وعلى الخادم</li>
+        <li>البوابات: التسمية، IDS، العقد، Federation، المرحلة (stage gate)، COBie</li>
+        <li>الـ CDE: حالات WIP وShared وPublished وArchived، الملاءمة، النسخ، Holding Area، المحذوفات</li>
+        <li>سلسلة المراجعة وجولات المستندات والدعوات</li>
+        <li>BCF-API 3.0 وopenCDE، وتدفق أحداث حيّ إلى Revit</li>
+        <li>السجل والإيصالات وملف التدقيق</li>
+        <li>خادم MCP وبوابة AI محلية أولاً مع إخفاء الأسماء</li>
+        <li>مزامنة أحكام بوابة المنصة إلى السجل</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>أدوات جانبية</h3>
+      <ul>
+        <li><strong>المسح (Python):</strong> قراءة E57 وLAS وLAZ، مقارنة الموديل بالمسح، الفتحات</li>
+        <li><strong>الصور (Python):</strong> تسجيل الصور، بانوراما، splats</li>
+        <li><strong>قارئ الرسومات (C#):</strong> يقرأ المساقط لسلسلة Ghost</li>
+        <li><strong>بوابة التسليم:</strong> cloud component على منصة That Open</li>
+        <li><strong>Sandbox:</strong> صفحة تشغّل محرك الحكم في المتصفح للعرض</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section id="parties">
+  <span class="sec-no">06</span>
+  <h2>ماذا يقدّم لكل طرف في المشروع</h2>
+  <div class="parties">
+    <div class="card"><h3>مدير BIM أو المعلومات</h3><p>يكتب معايير المكتب مرة واحدة، فترثها كل المشاريع ويعدّلها المشروع عند الحاجة. يثبّت سلاسل المراجعة. يقرأ السجل ولوحة ROI. يخرج ملف التدقيق لشهادة ISO 19650 أو BSI Kitemark (الشهادة للمكتب، وسنتينل هو الـ CDE ودليلها).</p></div>
+    <div class="card"><h3>منسّق BIM</h3><p>يرى المخالفات حيّة، يصلّح بزر، يدير الأسماء والعائلات والفتحات، يشغّل Federation Gate والتعارضات ويفرزها إلى قضايا بمالكين.</p></div>
+    <div class="card"><h3>المودلر</h3><p>يضغط زراً واحداً للنشر. إن رُفض، تصله القضايا داخل Revit مع العناصر ونافذة لكتابة القيم الصحيحة. لا ينتظر أحداً.</p></div>
+    <div class="card"><h3>المكتب الرئيسي (Lead appointed party)</h3><p>يكتب BEP العطاء ثم الـ BEP المؤكد، يرد على الـ EIR، يدير الفرق والمصفوفة وMIDP وTIDP، ويمرّر المستندات بجولات مراجعة حتى قبول العميل.</p></div>
+    <div class="card"><h3>العميل (Appointing party)</h3><p>يقرأ الـ BEP في أي وقت أثناء كتابته، يعلّق، ويقرر خطوة القبول الأخيرة. يرى عرض المالك وجاهزية التسليم.</p></div>
+    <div class="card"><h3>الاستشاريون والفرق</h3><p>يرفعون IFC إلى المنصة فتحكم البوابة عليه. أو، إن لم يكن لهم حساب، يسجّل الـ lead قرارهم مع من أعطاه، ومتى، وأين يُحفظ.</p></div>
+    <div class="card"><h3>المدقق أو الجهة الرقابية</h3><p>يتحقق من أي إيصال علناً بالهاش، ويقرأ ملف التدقيق: من فعل ماذا، بأي معيار، بأي حكم.</p></div>
+  </div>
+  <div class="note"><p><strong>نموذج العمل الحالي</strong> (قرار 17 أيلول): الاستشارة أولاً. أنت تقدّم إدارة BIM للمكاتب <em>عبر</em> سنتينل، وما يثبت نفسه في مشاريع حقيقية يُحزَم لاحقاً كمنتج تستعمله المكاتب وحدها.</p></div>
+</section>
+
+<!-- 7 -->
+<section id="lifecycle">
+  <span class="sec-no">07</span>
+  <h2>من العطاء إلى التسليم</h2>
+  <p>مراحل ISO 19650-2 كما رسمها اختبار Snowdon. افتح أي مرحلة لترى ما يغطيه سنتينل وما ينقصه.</p>
+
+  <details class="phase" open><summary>P0 · العطاء <span class="iso">5.3</span> <span class="st ok">اختُبر 22–24 ت1</span></summary><div class="body">
+    <p><strong>يغطي:</strong> BEP ما قبل التعيين من قالب، إعلان جاهزية المكتب (READINESS)، ومنذ R1c سجل المكتب للقدرات والبرامج والأشخاص، وجداول حيّة للمخاطر والتعبئة داخل الـ BEP.</p>
+    <p><strong>ما وجده الاختبار:</strong> الطباعة تُظهر Markdown خاماً (F-LC-1)، فحص السلامة بنموذج محلي 7B أخطأ في 2 من 3 (F-LC-2)، شريط Next لا يتحدّث وحده (F-LC-3)، وعنوان النسخة لا يُطلب داخل المنصة (F-LC-6، أُصلح في نفس اليوم). مساحة المستندات بُنيت بعده لتعالج ضعف المستندات.</p>
+  </div></details>
+
+  <details class="phase"><summary>P1 · التعيين <span class="iso">5.4</span> <span class="st ok">شُغّل 16 ت2</span></summary><div class="body">
+    <p><strong>يغطي:</strong> EIR يكتبه الـ lead مع العميل، Compile to IDS وتثبيته، الفرق الخمسة ومن ليس في سنتينل (0057)، رجوع الـ BEP إلى مسودة وربطه بالـ EIR، بلوكات الأشخاص والمصفوفة وLOIN وقاعدة التسمية، لصق MIDP، TIDP، وجولة تأكيد الـ BEP إلى "Confirmed C01".</p>
+    <p><strong>الفجوات:</strong> لا يوجد سجل "تعيين" ككيان، عقد تسليم واحد لكل مشروع (MEP يُرفض بعقد المعماري)، لصق MIDP بلا عمود غرض.</p>
+  </div></details>
+
+  <details class="phase"><summary>P2 · التعبئة <span class="iso">5.5</span> <span class="st ok">شُغّل 16 ت2، مع ملاحظات</span></summary><div class="body">
+    <p><strong>يغطي:</strong> الدعوات بالإيميل مع الدور والطرف والفريق، تسجيل الدخول في Revit لكل شخص، إعدادات الحاسوب، تثبيت سلسلة المراجعة، شريط الخطوة التالية.</p>
+    <p><strong>الفجوات:</strong> لا توجد سلسلة مراجعة افتراضية، وثلاث خطوات ISO تحتاج أربعة أشخاص.</p>
+  </div></details>
+
+  <details class="phase"><summary>P3 · إنتاج التصميم <span class="iso">5.6</span> <span class="st part">النشر لكل فريق في P2؛ M2 وM3 لم تُشغّلا</span></summary><div class="body">
+    <p><strong>يغطي:</strong> أقوى منطقة في سنتينل: كل أدوات Revit، Governed Publish، Federation Gate، التعارضات، القضايا، Fix in Revit.</p>
+    <p><strong>الفجوات:</strong> PDF اللوحات يفشل دائماً في قاعدة التسمية (F-SNW-7)، نسخ Revit تحمل vN لا P01، الحالة S0 دائماً عند النشر من Revit.</p>
+  </div></details>
+
+  <details class="phase"><summary>P4 · التسليم والقبول <span class="iso">5.7</span> <span class="st part">M1 قُبلت 16 ت2؛ M2 وM3 لا</span></summary><div class="body">
+    <p><strong>يغطي:</strong> Share ثم سلسلة المراجعة (فحص الفريق، اعتماد الـ lead، قبول العميل) ثم Published، وملف التدقيق.</p>
+    <p><strong>الفجوات:</strong> لا شاشة للـ transmittals. قبول العميل لموديل لا يضع رمز A (للمستندات حُلّ في R2d، للموديلات بقي فجوة حسب آخر سجل).</p>
+  </div></details>
+
+  <details class="phase"><summary>P5 · مرحلة الإنشاء <span class="iso">5.2–5.7 مرة ثانية</span> <span class="st no">لم يُشغَّل</span></summary><div class="body">
+    <p><strong>يغطي:</strong> عطاء من كميات الموديل (اختُبر: 14 مليون ريال، 9 بنود)، 4D مقابل MIDP، 5D و6D مع الفرق بين النسخ.</p>
+    <p><strong>الفجوات:</strong> لا تعيين للمقاول ككيان، لا دورة تعيين ثانية، الأسعار وعوامل الكربون للعرض فقط، كميات سالبة في Snowdon (F-SNW-5).</p>
+  </div></details>
+
+  <details class="phase"><summary>P6 · الإغلاق والتسليم للمالك <span class="iso">5.8</span> <span class="st no">لم يُشغَّل</span></summary><div class="body">
+    <p><strong>يغطي:</strong> بوابة COBie، عرض المالك، الأرشفة، ملف التدقيق.</p>
+    <p><strong>الفجوات:</strong> لا علامة "النسخة النهائية"، لا كائن للدروس المستفادة، بوابة التسليم لم تُجرَّب.</p>
+  </div></details>
+
+  <div class="note warn"><p>قلتَ إن خبرتك تتوقف عند وثائق مرحلة الإنشاء. P5 وP6 مبنيان من الإرشادات (UK BIM Framework) لا من ممارسة. لا تبنِ أكثر هناك قبل أن يراجعهما مقاول أو مدير مرافق حقيقي، ولو في جلسة واحدة.</p></div>
+</section>
+
+<!-- 8 -->
+<section id="status">
+  <span class="sec-no">08</span>
+  <h2>أين يقف اليوم: تقييم صريح</h2>
+  <div class="two">
+    <div class="card">
+      <h3>ما هو قوي</h3>
+      <ul>
+        <li><strong>مكان فارغ في السوق.</strong> لا أحد من المنافسين المدروسين يجمع "يغيّر الموديل" مع "يثبت من غيّره". ACC وModel Checker وBIMcollab وSolibri يبلّغون فقط. أدوات MCP المفتوحة تكتب بلا سجل.</li>
+        <li><strong>السجل حقيقي.</strong> مسلسل بالهاش، ومحمي من التعديل والحذف والمسح من قلب قاعدة البيانات، حتى ضد مفتاح الخدمة.</li>
+        <li><strong>الذكاء الاصطناعي آمن بالتصميم.</strong> لا تنفيذ كود، اقتراح فقط، موافقة لكل عنصر، Revert، وAI محلي افتراضياً.</li>
+        <li><strong>openBIM من أوله لآخره:</strong> IFC، IDS، BCF 3.0، openCDE، COBie، MIDP وTIDP.</li>
+        <li><strong>انضباط هندسي:</strong> آلاف الاختبارات، تجارب حيّة لكل شريحة، تدقيقات أمنية مكتوبة، وقرارات مسجّلة بكلماتك.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>ما هو ضعيف</h3>
+      <ul>
+        <li><strong>التشغيل.</strong> حاسوب واحد، جسر واحد، نفق Tailscale. لا نسخ احتياطي موثّق ولا خطة تعافٍ. عندما يُطفأ الحاسوب، لا أحد يعمل.</li>
+        <li><strong>عامل الحافلة.</strong> أنت وClaude فقط تعرفان النظام.</li>
+        <li><strong>العرض قبل العمق.</strong> عشر وحدات كبيرة لمنتج ليس عنده مستخدم حقيقي بعد خارج حسابات الاختبار الأربعة.</li>
+        <li><strong>الوثائق متأخرة عن الكود</strong> (القسم 3).</li>
+        <li><strong>ما لم يُثبت:</strong> العارض على موديلات كبيرة (قيس فقط على مئات العناصر)، فحص السلامة بالذكاء الاصطناعي، P5 وP6.</li>
+        <li><strong>المورّد.</strong> سنتينل يعمل على حزم That Open التجريبية 3.5 من سجل مغلق، بينما نُشرت 3.6 للعموم.</li>
+        <li><strong>المشتريات:</strong> لا اختبار اختراق، لا SSO، لا SOC 2، والخطوات المجانية (2FA للـ leads، BitLocker، حماية كلمات المرور المسرّبة) لم أجد في المستودع ما يثبت تنفيذها.</li>
+      </ul>
+    </div>
+  </div>
+  <h3>ما ينتظرك أنت</h3>
+  <ul>
+    <li><s>الموافقة على P0-01 وأسئلة READINESS الـ 17</s>: انعملت في 16 ت2 (إجابات SYNTHETIC من حزمة P0).</li>
+    <li>قراءة حزمة P1، وخاصة الـ EIR (P1-01).</li>
+    <li>اختيار EIR عام حقيقي ليُجرَّب عليه المترجم بدون ترتيب مسبق.</li>
+  </ul>
+</section>
+
+<!-- 9 -->
+<section id="thatopen">
+  <span class="sec-no">09</span>
+  <h2>That Open: كيف نستفيد قبل وبعد فتح المنصة</h2>
+  <p>سنتينل يستعمل That Open أعمق من معظم المطورين: التطبيق يعمل داخل منصتهم، وبوابة التسليم cloud component تبدأها automations على كل IFC، والأحكام تُكتب على ملفاتهم، والقناة تسأل التطبيق المفتوح، ومشاركتك في الهاكاثون، والخلل الذي اكتشفته في قناتهم وأصلحوه.</p>
+
+  <h3>ما يستعمله سنتينل اليوم</h3>
+  <p>العارض وشجرة الموديل والخصائص، محرك fragments، تحويل IFC إلى .frag، قراءة IFC بـ web-ifc، كشف التعارض الدقيق (Collider)، المساقط الحيّة، القطع والقياس، ملفات المنصة ونسخها ووسومها، بوابة التسليم، وقناة Ask Sentinel.</p>
+
+  <h3>ما الجديد عندهم ولم نستعمله</h3>
+  <p>قرأت هذا من توثيق حزمة <code>@thatopen/services</code> 0.35.1 التي نُشرت في 8 ت2. سنتينل مثبّت على 0.16.1. لم يُجرَّب شيء من هذا في سنتينل بعد.</p>
+  <div class="tw"><table>
+    <thead><tr><th>عندهم الآن</th><th>ماذا يعني</th><th>الفرصة لسنتينل</th></tr></thead>
+    <tbody>
+      <tr><td><strong>تعاون Revit حقيقي</strong></td><td>الـ central على منصتهم، Revit 2024 إلى 2027، المزامنات بالدور فلا يتباعد الـ central</td><td>في 19 ت1 قلنا إن العمل المشترك على Revit في السحابة لا يستضيفه إلا Autodesk. هذا تغيّر. سنتينل يمكن أن يحكم على كل مزامنة كما يحكم على كل IFC. أكبر فرصة في القائمة</td></tr>
+      <tr><td><strong>Recipes</strong></td><td>IFC أو .frag أو Rhino إلى Revit في transaction واحدة، والمشروع يضيف وصفاته</td><td>مقارنة مع مسار changesets عندنا. لا نستبدل مسارنا، لكن ربما نكتب وصفة يحكم عليها سنتينل قبل التطبيق</td></tr>
+      <tr><td><strong>سجل Flow</strong></td><td>كل تعديل commit له هوية ومصدر، مع لوحة تاريخ بألوان الفرق</td><td>إيصال سنتينل لكل commit: من غيّر، بأي معيار، بأي حكم</td></tr>
+      <tr><td><strong>MCP رسمي</strong> (<code>thatopen mcp</code>)</td><td>Claude يرسل أوامر لتطبيق مفتوح عبر القناة، ويسأل <code>help</code> أولاً</td><td>Ask Sentinel يصبح أوامر رسمية بدل كودنا الخاص للقناة</td></tr>
+      <tr><td><strong>CDE وتعارضات وقضايا مدمجة</strong></td><td>CDEManager بمخططات بيانات ومجلدات وتعديل جماعي، ClashesManager، لوحة topics</td><td>تداخل مباشر مع CDE سنتينل. الموقف الأفضل أن يحكم سنتينل على ملفاتهم ويكتب حالة ISO عليها، كما تفعل البوابة اليوم</td></tr>
+      <tr><td><strong>Drafter</strong></td><td>مجموعة لوحات تلقائية: غلاف، مساقط، واجهات، مقاطع، بأنواع لوحات المكتب</td><td>فحص تسمية اللوحات وترقيمها مقابل معيار المكتب</td></tr>
+      <tr><td><strong>GIS والإسناد الجغرافي</strong></td><td>ProjectManager وGISManager: إحداثيات المشروع ومحيطه</td><td>فحص الإسناد في Federation Gate يقرأ مصدراً واحداً</td></tr>
+      <tr><td><strong>محوّلات المسح والـ splats</strong></td><td>cloud components تحوّل LAS وPLY</td><td>المسح داخل العارض نفسه بدل عارض منفصل (توصية أيلول التي لم تُنفَّذ)</td></tr>
+      <tr><td><strong>حزم عامة 3.6</strong></td><td>components وfragments وcomponents-front نُشرت للعموم</td><td>الانتقال من الحزم التجريبية المغلقة يقلّل خطر المورّد</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note"><p><strong>الخطر والفرصة معاً.</strong> That Open تبني طبقة CDE وتنسيق وتعاون خاصة بها. إن بقي سنتينل CDE منافساً لها على منصتها، سيخسر. إن صار <strong>الحَكَم فوق كل ما يدخل منصتهم</strong> (كل IFC، كل مزامنة Revit، كل نسخة) مع السجل والمستندات وسلاسل الموافقة، فهو الشيء الذي لا يبنونه ويحتاجه كل مستخدميهم عندما تفتح المنصة.</p></div>
+
+  <h3>خطة الاستفادة، بالترتيب</h3>
+  <ol class="steps">
+    <li><span><strong>ترقية في خطوة واحدة:</strong> الحزم التجريبية 3.5 إلى العامة 3.6، services من 0.16 إلى 0.35، web-ifc إلى 0.0.79، ثم إعادة تجربة بوابة التسليم والعارض في التطبيق المنشور.</span></li>
+    <li><span><strong>تجربة صغيرة لتعاون Revit:</strong> central واحد على المنصة، مزامنتان، ثم سؤال: هل يمكن أن تبدأ automation عند كل commit؟ إن نعم، تُبنى "بوابة المزامنة" مثل بوابة التسليم.</span></li>
+    <li><span><strong>MCP الرسمي:</strong> يعلن تطبيق سنتينل أوامره عبر AppCommands، فيصل إليه Claude عبر أداتهم.</span></li>
+    <li><span><strong>التوزيع عند الفتح:</strong> بوابة التسليم مجانية لكل مستخدمي المنصة كأول تماس، وصفحة واحدة تشرح سنتينل. هذا يحتاج جسراً مستضافاً قبل أن يستعمله غرباء.</span></li>
+    <li><span><strong>المسح داخل العارض</strong> باستعمال محمّلات النقاط والـ splats عندهم.</span></li>
+  </ol>
+
+  <h3>أسئلة لفريق That Open</h3>
+  <ul>
+    <li>هل يمكن أن يبدأ cloud component أو automation عند كل commit أو مزامنة Revit؟</li>
+    <li>هل يعمل الـ add-in الخاص بكم بجانب إضافة Revit أخرى (سنتينل) في نفس الجلسة؟</li>
+    <li>ما خطتكم لتطبيقات الطرف الثالث التي تقدّم CDE أو حوكمة؟ هل هناك سوق أو قائمة تطبيقات للأعضاء المؤسسين عند الفتح؟</li>
+    <li>هل تؤكدون كتابياً ترخيص الحزم التجريبية، ومنطقة تخزين البيانات وتشفيرها؟</li>
+    <li>هل كل ما في components-beta 3.5.18 (مثل Collider) موجود في 3.6 العامة؟</li>
+  </ul>
+</section>
+
+<!-- 10 -->
+<section id="workflow">
+  <span class="sec-no">10</span>
+  <h2>كيف تستعمل سنتينل بأفضل طريقة</h2>
+  <div class="note"><p><strong>القاعدة الذهبية:</strong> كل خطوة مهمة تمر عبر سنتينل حتى تدخل السجل. وما يحدث خارجه (إيميل، رسالة موقّعة، اجتماع) يُسجَّل كخطوة "خارج سنتينل" مع من أعطاها ومتى وأين تُحفظ. السجل الذي فيه ثغرات لا يثبت شيئاً.</p></div>
+
+  <h3>مرة واحدة لكل مكتب</h3>
+  <ol class="steps">
+    <li><span>أنشئ المكتب، وثبّت المعيار الأساسي عليه <span class="where">Packs ▸ base-standard ▸ Install on office، أو Settings ▸ Standards in force</span></span></li>
+    <li><span>أكمل المعايير السبعة الأساسية: التسمية، IDS، عقد التسليم، قواعد Revit، الطبقات، دليل النمذجة، كتالوج الأنواع. أضف سلسلة المراجعة وسياسة النشر التلقائي وROI <span class="where">كلها تُورَث لكل مشروع جديد، والمشروع يعدّل نسخته فقط</span></span></li>
+    <li><span>اكتب سجل المكتب مرة واحدة: الأشخاص، البرامج، القدرات، وكل سطر "مُثبت" أو "التزام" <span class="where">يملأ أقسام القدرات في كل عطاء</span></span></li>
+    <li><span>احفظ أفضل BEP وEIR عندك كقالب للمكتب <span class="where">Save as office template</span></span></li>
+    <li><span>اضبط خصوصية الذكاء الاصطناعي: محلي فقط، إخفاء الأسماء <span class="where">Project settings ▸ AI privacy</span></span></li>
+  </ol>
+
+  <h3>لكل مشروع، مرحلة بعد مرحلة</h3>
+  <details class="phase" open><summary>العطاء</summary><div class="body"><ol class="steps">
+    <li><span>مشروع جديد داخل المكتب، رقم المشروع، وأعضاء بدور وطرف وفريق <span class="where">Members ▸ Invite…</span></span></li>
+    <li><span>BEP ما قبل التعيين من القالب، وREADINESS <span class="where">Documents ▸ + New document</span></span></li>
+    <li><span>انشره بعنوان "Tender issue" <span class="where">Review ▸ Publish</span></span></li>
+  </ol></div></details>
+  <details class="phase"><summary>التعيين</summary><div class="body"><ol class="steps">
+    <li><span>الـ EIR (من العميل، أو تكتبه معه)، ثم Compile to IDS وثبّته</span></li>
+    <li><span>الفرق والمصفوفة، وعلّم من ليس في سنتينل <span class="where">Deliverables ▸ Task teams</span></span></li>
+    <li><span>الـ BEP يرجع مسودة، اربطه بالـ EIR، أضف الأشخاص والمصفوفة وLOIN والتسمية، واربط الأقسام بالفحوصات <span class="where">Outline ▸ Link an EIR… · تبويب Quality</span></span></li>
+    <li><span>الصق الـ MIDP <span class="where">Deliverables ▸ Paste a delivery schedule ▸ Preview ▸ Import</span></span></li>
+    <li><span>جولة تأكيد الـ BEP حتى قبول العميل</span></li>
+  </ol></div></details>
+  <details class="phase"><summary>التعبئة</summary><div class="body"><ol class="steps">
+    <li><span>كل شخص يسجّل الدخول في Revit باسمه <span class="where">Standards ▸ Sign in</span></span></li>
+    <li><span>اربط ملف Revit بمشروع الويب <span class="where">Project Setup</span></span></li>
+    <li><span>نشر تجريبي واحد من كل فريق قبل البدء الحقيقي</span></li>
+  </ol></div></details>
+  <details class="phase"><summary>الإنتاج: الحلقة اليومية</summary><div class="body"><ol class="steps">
+    <li><span>المودلر يعمل واللوحة الحيّة مفتوحة، ويصلّح الأحمر بزر ⚡</span></li>
+    <li><span>عند نقطة جاهزة: Governed Publish</span></li>
+    <li><span>إن رُفض: BCF Issues ▸ Fix in Revit، ثم انشر من جديد <span class="where">الملف المرفوض ينتظر في Project Files ▸ On hold</span></span></li>
+    <li><span>أسبوعياً، المنسّق: Federation Gate، ثم Clash ▸ Groups، ثم قضايا بمالكين</span></li>
+  </ol></div></details>
+  <details class="phase"><summary>التسليم والقبول</summary><div class="body"><ol class="steps">
+    <li><span>الـ lead يضغط Share، فتبدأ السلسلة: فحص الفريق، اعتماد الـ lead، قبول العميل</span></li>
+    <li><span>آخر موافقة تنشر النسخة، ولا شيء غيرها ينشر</span></li>
+    <li><span>نزّل ملف التدقيق في نهاية كل milestone</span></li>
+  </ol></div></details>
+  <details class="phase"><summary>الإنشاء والتسليم للمالك</summary><div class="body"><ol class="steps">
+    <li><span>عطاء من كميات الموديل، و4D مقابل MIDP، و5D و6D مع الفرق بين النسخ <span class="where">Lifecycle</span></span></li>
+    <li><span>بوابة COBie، عرض المالك، الأرشفة، ملف التدقيق النهائي</span></li>
+  </ol></div></details>
+
+  <h3>الإيقاع حسب الدور</h3>
+  <div class="tw"><table>
+    <thead><tr><th>الدور</th><th>يومياً</th><th>أسبوعياً أو عند كل milestone</th></tr></thead>
+    <tbody>
+      <tr><td>المودلر</td><td>اللوحة الحيّة، ⚡، Sync، Governed Publish، Fix in Revit</td><td>إغلاق قضاياه المفتوحة</td></tr>
+      <tr><td>المنسّق</td><td>Change Requests، Naming Manager، القضايا</td><td>Federation Gate، مجموعات التعارض، MEP Openings مع كل IFC جديد، Heal families</td></tr>
+      <tr><td>مدير المعلومات</td><td>شريط الخطوة التالية، Holding Area</td><td>Deliverables (ما وصل وما تأخر)، جولات المراجعة، stage gate، السجل وROI</td></tr>
+      <tr><td>الـ lead</td><td>قرارات المراجعة المعلّقة <span class="where">My reviews</span></td><td>اعتماد الحاويات، تأكيد مستندات الـ BEP</td></tr>
+      <tr><td>العميل</td><td>قراءة وتعليق عند الحاجة</td><td>خطوة القبول، عرض المالك</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>كيف تعمل أنت مع Claude على سنتينل حتى لا تضيع</h3>
+  <ul>
+    <li><strong>ابدأ كل جلسة بهدف واحد بجملة واحدة</strong>، مثل "نشغّل P1 خطوة 1 إلى 4"، واطلب خطة من خمسة أسطر بالعربي قبل أي تعديل.</li>
+    <li><strong>لا تضغط Apply إلا إن استطعت أن تقول بجملة ماذا سيتغير على الشاشة.</strong> إن لم تستطع، اسأل: "اشرحلي شو رح يتغيّر قدامي".</li>
+    <li><strong>مسار واحد في كل مرة.</strong> لا ميزات جديدة في جلسة اختبار.</li>
+    <li><strong>ملخّص أسبوعي بالعربي:</strong> ما تغيّر، ما قررتَه، ما ينتظرك. القرارات مكتوبة أصلاً في الوثائق بعبارة "founder: ...".</li>
+    <li><strong>هذا التقرير هو المرجع.</strong> عندما يتغير شيء كبير، يُحدَّث هنا في نفس اليوم.</li>
+    <li><strong>ميزانية الاستعمال (اشتراك Pro):</strong> القواعد محفوظة في <code>CLAUDE.md</code> فتتبعها كل جلسة لوحدها. Haiku للبحث والقراءة والتعديلات البسيطة، Sonnet للشغل العادي، Opus للتصميم والأمان وأي إشي صعب التراجع عنه، وFable (أغلى من Opus بمرتين) فقط لقرار صعب جداً تطلبه أنت. شغّل الجلسة على Sonnet بالأيام العادية (<code>/model</code>).</li>
+  </ul>
+</section>
+
+<!-- 11 -->
+<section id="next">
+  <span class="sec-no">11</span>
+  <h2>التوصيات بالترتيب</h2>
+  <h3>الحالة بعد تنفيذ التوصيات (16 ت2)</h3>
+  <div class="tw"><table>
+    <thead><tr><th>التوصية</th><th>ما تم</th><th>ما بقي عليك</th><th>الحالة</th></tr></thead>
+    <tbody>
+      <tr><td>1. أكمل P1 إلى P4</td><td>P0 وP1 وP2 وP4-M1 شُغّلت في 16 ت2. ورقة التشغيل للباقي: <code>docs/testing/snowdon-lifecycle/RUN-SHEET_P1-P4.md</code></td><td>P3 (M2، M3) وقبولهما، على جهازك</td><td><span class="st part">بقي P3</span></td></tr>
+      <tr><td>2. تشغيل موثوق</td><td>Keeper يعيد تشغيل الجسر والـ watcher والـ Funnel، ونسخ احتياطي يومي، وخطوات BitLocker: <code>docs/RELIABILITY.md</code></td><td>أول تشغيل على جهازك (الخطوات A1 وB4). 2FA للـ leads أول بناء بعد التجميد</td><td><span class="st built">مبني، لم يُشغَّل</span></td></tr>
+      <tr><td>3. جولة That Open</td><td>الكود صار يشتغل على المحرك التجريبي والعام، و5,464 من 5,465 اختبار نجحت على حزم 3.6 العامة. التطبيق يجاوب <code>help</code> و<code>ping</code> لـ MCP الرسمي. خطة تجربة "بوابة المزامنة" لتعاون Revit، ورسالة أسئلة جاهزة</td><td>النسخة العامة 3.6 ما فيها Collider (التعارض الدقيق)، فالإنتاج باقي على التجريبي لحد ما يجاوبوا. ابعت الرسالة: <code>docs/THATOPEN_REPORTS.md</code> القسم 3</td><td><span class="st part">جزئي</span></td></tr>
+      <tr><td>4. صحّح الوثائق</td><td>صفحة الحالة في الـ handbook فيها صفوف تشرين الأول والثاني مع دليل كل واحد، وصحّحت الأرقام والمسارات القديمة</td><td>دليل الإضافة يحتاج إعادة كتابة كاملة (مهمة رخيصة لـ Sonnet)</td><td><span class="st ok">تم</span></td></tr>
+      <tr><td>5. أول مستخدم حقيقي</td><td>مؤجّل بقرارك</td><td>—</td><td><span class="st no">مؤجّل</span></td></tr>
+      <tr><td>6. شريك للإنشاء والتسليم</td><td>حزمة مراجعة بـ 14 سؤالاً لمقاول ومدير مرافق: <code>docs/testing/snowdon-lifecycle/P5-P6_REVIEWER_PACK.md</code></td><td>إيجاد الشخص وجلسة ساعة</td><td><span class="st part">جاهز</span></td></tr>
+      <tr><td>7. ثلاثة عروض</td><td>سكربتات الثلاثة عروض، خمس دقائق لكل واحد: <code>docs/DEMOS.md</code></td><td>تجربة كل عرض مرة على مشروع تجريبي</td><td><span class="st built">مكتوب</span></td></tr>
+    </tbody>
+  </table></div>
+  <ol class="recs">
+    <li><div><strong>أكمل اختبار دورة الحياة P1 إلى P4 قبل أي ميزة جديدة.</strong><p class="why">هو القصة التي ستعرضها على أي مكتب. كل ما بُني في ت2 لم يُشغَّل بعد كقصة واحدة من العطاء إلى قبول العميل. تقديري: أسبوعان إلى ثلاثة.</p></div></li>
+    <li><div><strong>اجعل التشغيل موثوقاً قبل أي شخص من الخارج.</strong><p class="why">الجسر كخدمة تعيد تشغيل نفسها أو استضافة حقيقية، نسخ احتياطي، والخطوات المجانية: 2FA للـ leads والمالكين، BitLocker على حاسوب الجسر، وتشغيل حماية كلمات المرور المسرّبة. قرارك كان أن الاستضافة تنتظر النشر العام، وفتح منصة That Open قد يكون ذلك الوقت.</p></div></li>
+    <li><div><strong>جولة That Open.</strong><p class="why">الترقية في خطوة واحدة، تجربة تعاون Revit مع حكم سنتينل، MCP الرسمي، وإرسال الأسئلة. القسم 9.</p></div></li>
+    <li><div><strong>صحّح الوثائق.</strong><p class="why">صفحة الحالة في الـ handbook، دليل التجربة، ودليل الإضافة. المشتري التقني يلاحظ الأرقام القديمة ويفقد الثقة.</p></div></li>
+    <li><div><strong>أول مستخدم حقيقي: BDS.</strong><p class="why">مشروع واحد بثلاثة أشياء فقط: Governed Publish، بوابة التسليم، والـ BEP مع جولة المراجعة. المرحلة الأولى للتجربة في BDS ما زالت "قيد التنفيذ" في خطة الطريق.</p></div></li>
+    <li><div><strong>شريك لمرحلتي الإنشاء والتسليم.</strong><p class="why">مقاول أو مدير مرافق يراجع P5 وP6 قبل أي بناء إضافي هناك.</p></div></li>
+    <li><div><strong>ثلاثة عروض ثابتة.</strong><p class="why">(1) Governed Publish: موديل يُرفض ويُصلَّح في Revit وينشر. (2) بوابة التسليم على منصة That Open. (3) BEP يفحص نفسه ويمر بجولة مراجعة حتى قبول العميل. كل عرض خمس دقائق، وكل واحد يمكن تكراره.</p></div></li>
+  </ol>
+</section>
+
+<!-- 12 -->
+<section id="decisions">
+  <span class="sec-no">12</span>
+  <h2>قرارات تحتاجها منك</h2>
+  <p><strong>محسوم في 16 ت2:</strong> التجميد حتى P4 (نعم)، تجربة تعاون Revit بعد التجميد (نعم)، أول مستخدم حقيقي مؤجّل.</p>
+  <ol>
+    <li><strong>هل نوقف الميزات الجديدة ونكمل P1 إلى P4 أولاً؟</strong> محسوم: نعم.</li>
+    <li><strong>موقف سنتينل من CDE منصة That Open:</strong> فوقها (نحكم على ملفاتهم ونكتب حالة ISO عليها) أم بجانبها (CDE سنتينل هو الأساس)؟ توصيتي: فوقها على منصتهم، ونبقي CDE سنتينل لمن يعمل خارجها.</li>
+    <li><strong>هل نجرب تعاون Revit عند That Open الآن؟</strong> توصيتي: تجربة صغيرة بعد الترقية، يوم أو يومان.</li>
+    <li><strong>من أول مستخدم حقيقي، ومتى؟</strong></li>
+    <li><strong>هل تبقى الاستضافة مؤجلة</strong> حتى بعد فتح منصة That Open؟</li>
+  </ol>
+</section>
+
+<!-- 13 -->
+<section id="glossary">
+  <span class="sec-no">13</span>
+  <h2>قاموس المصطلحات</h2>
+  <dl class="gloss">
+    <dt>ISO 19650</dt><dd>المعيار الدولي لإدارة المعلومات في مشاريع BIM: من يطلب ماذا، ومن يسلّم، وكيف يُوافَق.</dd>
+    <dt>CDE</dt><dd>بيئة البيانات المشتركة: المكان الذي تُحفظ فيه ملفات المشروع بحالاتها.</dd>
+    <dt>WIP · Shared · Published · Archived</dt><dd>حالات الملف حسب ISO 19650: قيد العمل، مُشارَك، منشور، مؤرشف.</dd>
+    <dt>S0–S5 · A1–An</dt><dd>رموز الملاءمة (suitability): لأي غرض يصلح الملف. A تعني مقبولاً من العميل.</dd>
+    <dt>EIR</dt><dd>متطلبات المعلومات من العميل: ماذا يريد أن يستلم.</dd>
+    <dt>BEP</dt><dd>خطة تنفيذ BIM: رد الفريق على الـ EIR، ويُكتب مرتين: قبل التعيين (عطاء) وبعده (مؤكد).</dd>
+    <dt>MIDP · TIDP</dt><dd>خطة تسليم المعلومات الرئيسية، وخطة كل فريق: أي ملف، متى، بأي مستوى.</dd>
+    <dt>LOIN</dt><dd>مستوى المعلومات المطلوبة لكل عنصر في كل مرحلة. في سنتينل يتحول إلى IDS.</dd>
+    <dt>IDS</dt><dd>ملف متطلبات يقرؤه الحاسوب: "كل جدار يجب أن يحمل FireRating". هو ما يحكم به سنتينل على العناصر.</dd>
+    <dt>IFC</dt><dd>صيغة الموديل المفتوحة بين البرامج.</dd>
+    <dt>BCF</dt><dd>صيغة القضايا المفتوحة: قضية مع العناصر وزاوية الكاميرا، تنتقل بين البرامج.</dd>
+    <dt>Ledger</dt><dd>السجل: كل قرار صف مسلسل بالهاش، لا يُعدَّل ولا يُحذف.</dd>
+    <dt>Receipt</dt><dd>إيصال: بصمة صف في السجل يتحقق منها أي أحد.</dd>
+    <dt>Artefact</dt><dd>معيار كملف بنسخة (مثل <code>naming@2</code>) مثبّت على المكتب أو المشروع.</dd>
+    <dt>Gate</dt><dd>بوابة: فحص يقرر هل يمر الشيء أم يُرفض.</dd>
+    <dt>Holding Area</dt><dd>مكان الملفات المرفوضة حتى يصل الملف المصحّح أو يرفضها lead بسبب.</dd>
+    <dt>Review chain</dt><dd>سلسلة المراجعة: خطوات بشرية مسجّلة قبل النشر.</dd>
+    <dt>Ghost · Changeset</dt><dd>عنصر مقترح، ومجموعة اقتراحات يوافق عليها شخص في Revit قبل أن تُبنى.</dd>
+    <dt>Bridge · Funnel</dt><dd>الجسر هو الخادم الحَكَم على حاسوبك. الـ Funnel هو نفق Tailscale الذي يوصل إليه من الإنترنت.</dd>
+    <dt>MCP</dt><dd>البروتوكول الذي يستعمله Claude للتحدث مع أدوات سنتينل.</dd>
+  </dl>
+</section>
+
+<footer>
+  <p><strong>كيف كُتب هذا التقرير.</strong> قرأتُ الكود والوثائق في المستودع على الفرع <code>claude/sentinel-project-assessment-k7jxip</code> (نفس <code>master</code> عند 5202f46)، وتاريخ التعديلات كاملاً، وتوثيق حزمة That Open المنشورة. لم أشغّل التطبيق في هذه الجلسة. الحالات مأخوذة من سجلات التجارب الحيّة في المستودع.</p>
+  <p class="src-list">المصادر: <code>README.md</code> · <code>ROADMAP.md</code> · <code>docs/handbook/</code> · <code>docs/strategy/2026-10-19-sentinel-technical-market-evaluation.md</code> · <code>docs/testing/SNOWDON_LIFECYCLE_ROADMAP_DRAFT_2026-10.md</code> · <code>docs/testing/snowdon-lifecycle/P0</code> و<code>P1</code> · <code>docs/superpowers/specs/2026-10-24-bim-documents-workspace-design.md</code> · <code>docs/research/2026-09-30-thatopen-libraries-for-modelling.md</code> · <code>docs/research/bep-practitioner-pain-points-2026-10.md</code> · <code>docs/SENTINEL_ASSESSMENT_2026-09.md</code> · <code>docs/archive/sentinel-project-summary.md</code> · <code>SentinelAddin/App.cs</code> · <code>WebApp/src/main.ts</code> · <code>git log</code> · توثيق <code>@thatopen/services</code> 0.35.1.</p>
+</footer>
+
+</main>
+</div>
+</div>

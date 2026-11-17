@@ -129,3 +129,40 @@ Full log: [thatopen-evidence/2026-10-01-channel-after-fix.log](thatopen-evidence
 > connection: 0 of 48 failed, against 25 of 48 last week. Thanks for fixing it so quickly.
 
 ## 2. WebGPU (see ROADMAP item 2) — blocked upstream; question already raised.
+
+## 3. Questions before the platform opens (drafted 2026-11-16) — the founder sends them
+
+Context for the founder: these come from reading `@thatopen/services` 0.35.1 against what Sentinel uses
+(`docs/strategy/2026-11-16-thatopen-engine-upgrade.md`, `docs/superpowers/specs/2026-11-16-revit-sync-gate-spike.md`).
+
+### The message to send (plain words)
+
+> Hi That Open team! Sentinel (a governance app on your platform, built by a Founding Member) is getting ready for the
+> public opening. A few questions so we build on the right pieces:
+>
+> 1. **Collider.** Sentinel's exact clash uses `OBC.Collider` from components-beta 3.5.18. The public
+>    `@thatopen/components` 3.6.0 does not export it. Will it become public, or should apps move to the services
+>    `ClashesManager`?
+> 2. **Revit collaboration.** Can an automation start on a new Revit commit (the per-commit
+>    `revitflow_frag_<N>.frag`, or a new version of `revitflow_history.json`)? We would like to check every sync
+>    against the project's IDS and record the result. Do commit `.frag` files carry property sets?
+> 3. **Two add-ins.** Is your Revit add-in (1.3.1+) tested next to another add-in in the same Revit session?
+> 4. **Apps for everyone.** When the platform opens, how will third-party apps like ours be found and installed by
+>    other users? Is there a listing for Founding Members' apps?
+> 5. **CDE and governance apps.** Your CDEManager, ClashesManager and topics panel are now built in. For an app that
+>    adds review chains and an audit ledger on top, which of your stores should we treat as the source of truth?
+> 6. **Licence and data.** Can you confirm in writing the licence of the beta packages, and where project files are
+>    stored and how they are encrypted (region, at rest)? Our users' procurement asks.
+> 7. **Limits.** Three automations per project on the free plan: is that the limit after the opening too?
+>
+> Thanks — happy to show Sentinel on a call.
+
+### What each answer changes
+
+| Question | If yes | If no |
+|---|---|---|
+| 1 Collider public | Move to the public engine in one step | Stay on beta, or move clash to `ClashesManager` (a design change) |
+| 2 Automation on commits | Sync gate as a cloud component (option A of the spike) | The bridge watches the history (option B) |
+| 3 Two add-ins tested | Spike step 2 is a confirmation | Spike step 2 is the main risk |
+| 4 Listing | Publish the Delivery Gate as the free first touch | Distribution through the founder's own network |
+| 5 Source of truth | Sentinel writes ISO states onto their files (already built, switched off: `SENTINEL_PLATFORM_STATE`) | Sentinel keeps its own CDE and mirrors |

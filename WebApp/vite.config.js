@@ -13,11 +13,14 @@ function getBetaAliases() {
   try {
     const config = JSON.parse(readFileSync('.thatopen', 'utf-8'));
     if (!config.beta) return {};
-    return {
+    const pairs = {
       '@thatopen/components': '@thatopen-platform/components-beta',
       '@thatopen/components-front': '@thatopen-platform/components-front-beta',
       '@thatopen/fragments': '@thatopen-platform/fragments-beta',
     };
+    // Alias only to a beta package that is installed: with the public engine installed (no beta registry, or after
+    // the upgrade in docs/strategy/2026-11-16-thatopen-engine-upgrade.md) the stable names resolve as they are.
+    return Object.fromEntries(Object.entries(pairs).filter(([, beta]) => existsSync(resolve(__dirname, 'node_modules', beta))));
   } catch {
     return {};
   }
