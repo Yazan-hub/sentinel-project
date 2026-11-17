@@ -7,8 +7,8 @@ P0 run (`docs/testing/snowdon-lifecycle/P0/P0-RUN_2026-10-22.md`) the bridge sto
 for hours. Hosting the bridge elsewhere waits for the founder's decision (the 2026-10-19 answer: after Sentinel is
 published). Until then, this page makes the PC as dependable as a PC can be.
 
-**Status: written 2026-11-16 in a cloud session that cannot run PowerShell. The scripts are owed their first run on the
-bridge PC (steps A1 and B4 say what to check).**
+**Status: written 2026-11-16 in a cloud session that cannot run PowerShell. Step A1 passed on the bridge PC on 2026-11-17
+(`keeper started`, nothing to repair). A2 and B are owed.**
 
 ## A. Keep the bridge up: the keeper
 
@@ -27,8 +27,9 @@ signed-in user.
 
 1. **First run by hand:** `powershell -ExecutionPolicy Bypass -File tools\sentinel-keeper.ps1 -Once`. Check that
    `keeper.log` says what it found, and that `http://127.0.0.1:4100/health` and the Funnel address both answer.
-2. **At every sign-in:** `tools\keeper-install.cmd` (a scheduled task "Sentinel keeper"). Remove with
-   `tools\keeper-uninstall.cmd`.
+2. **At every sign-in:** `tools\keeper-install.cmd`. From an administrator terminal it makes a scheduled task
+   "Sentinel keeper"; from an ordinary one Windows refuses that ("Access is denied", seen 2026-11-17), so it puts a
+   "Sentinel keeper" shortcut in your Startup folder instead. Remove either with `tools\keeper-uninstall.cmd`.
 3. **Drill:** close the bridge (Task Manager, the `node` process with `bcf-service.mjs`). Within about two minutes
    `keeper.log` says it started the bridge again and refreshed the Funnel; the published app works again after a
    reload.
