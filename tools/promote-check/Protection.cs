@@ -44,9 +44,9 @@ static partial class Check
         Ok(ticked.Count == 1 && ticked.Contains("Shared Levels and Grids") && other.SequenceEqual(new[] { "*Core*", "Gone" }),
            "a saved name that is one of this model's worksets is a tick; a pattern or another model's workset stays in the box");
         var win = Src("Commands.Protection.cs"); var app = Src("App.cs");
-        Ok(app.Contains("Push(st, \"Sentinel_Protection\", \"Protection\", \"Sentinel.Commands.ProtectionCommand\"")
-           && app.IndexOf("Sentinel_Protection") > app.IndexOf("Sentinel_Standards") && app.IndexOf("Sentinel_Protection") < app.IndexOf("Sentinel_Chain"),
-           "Protection sits right after Standards on Standards & Build");
+        Ok(app.Contains("Sub(more, \"Sentinel_Protection\", \"Protection\", \"Sentinel.Commands.ProtectionCommand\"")
+           && app.IndexOf("Sentinel_Protection") > app.IndexOf("Sentinel_More"),
+           "Protection sits under More (setup and standards)");
         Ok(win.Contains("GovernedNotify.InstallArtefact(target, \"protection\", body, actor, readSha ?? \"none\")") && win.Contains("try { Read(); }") && win.Contains("_save.IsEnabled = lead;")
            && win.Contains("foreach (var c in _otherCodes) r.Categories.Add(c);") && win.Contains("Task.Run("),
            "Save installs the next protection@n as the signed-in person, only a lead or owner can press it, a code the window does not show is kept, and no read blocks Revit");
