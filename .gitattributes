@@ -24,3 +24,8 @@ WebApp/bridge/sentinel-core.mjs text eol=lf
 
 # buildingSMART's IDS 1.0 test cases are kept byte-for-byte (CC BY-ND 4.0: no changed copies) — never rewrite their line endings.
 tools/ids-conformance/official/** -text
+
+# Windows batch files must reach Windows with CRLF: cmd.exe misreads LF-only files after pause/goto and runs
+# fragments of lines (keeper-install.cmd on 2026-11-17: "'le' is not recognized", the end ran twice).
+*.cmd text eol=crlf
+*.bat text eol=crlf
