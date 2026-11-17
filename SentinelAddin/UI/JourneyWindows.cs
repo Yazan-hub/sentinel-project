@@ -21,6 +21,45 @@ public sealed class CheckGroup
     public string FixChoice;    // what the command does on Fix
 }
 
+/// F-UX1-5: Check's "Fix all" lists the proposed names first; only the rows a person ticks are filed. Nothing is ticked at
+/// the start; "Tick all" and "Clear" help with long lists.
+public sealed class NamePickWindow : Window
+{
+    public List<int> Ticked { get; } = new();
+    private readonly List<CheckBox> _boxes = new();
+
+    public NamePickWindow(List<(string Current, string Proposed)> rows)
+    {
+        Title = "Sentinel — Fix names";
+        Width = 640; Height = 560; WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        var root = new DockPanel { Margin = new Thickness(12) };
+        var head = new TextBlock { Text = $"{rows.Count} name(s) can be fixed. Tick the ones to propose; they wait for approval in Fix.",
+            TextWrapping = TextWrapping.Wrap, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 8) };
+        DockPanel.SetDock(head, Dock.Top); root.Children.Add(head);
+        // Default colours: a disabled button with white text read blank (drill UX-1 re-check); bold marks it as the main action.
+        var file = new Button { Content = "Propose ticked (0)", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(8, 0, 0, 0), IsEnabled = false,
+            FontWeight = FontWeights.Bold };
+        void Count() { var n = _boxes.Count(b => b.IsChecked == true); file.Content = $"Propose ticked ({n})"; file.IsEnabled = n > 0; }
+        Button B(string t, Action a) { var b = new Button { Content = t, Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(8, 0, 0, 0) }; b.Click += (_, _) => a(); return b; }
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+        bar.Children.Add(B("Tick all", () => { foreach (var b in _boxes) b.IsChecked = true; }));
+        bar.Children.Add(B("Clear", () => { foreach (var b in _boxes) b.IsChecked = false; }));
+        bar.Children.Add(file);
+        bar.Children.Add(B("Cancel", () => DialogResult = false));
+        file.Click += (_, _) => { for (int i = 0; i < _boxes.Count; i++) if (_boxes[i].IsChecked == true) Ticked.Add(i); DialogResult = true; };
+        DockPanel.SetDock(bar, Dock.Bottom); root.Children.Add(bar);
+        var list = new StackPanel();
+        foreach (var (cur, prop) in rows)
+        {
+            var cb = new CheckBox { Margin = new Thickness(0, 2, 0, 2), Content = new TextBlock { Text = $"{cur}  →  {prop}", TextWrapping = TextWrapping.Wrap } };
+            cb.Checked += (_, _) => Count(); cb.Unchecked += (_, _) => Count();
+            _boxes.Add(cb); list.Children.Add(cb);
+        }
+        root.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Content = root;
+    }
+}
+
 public sealed class JourneyWindow : Window
 {
     public string Choice { get; private set; } // null = closed with no action

@@ -34,3 +34,12 @@ Side effects: snowdon-towers got ARC version v2 (WIP). The drill copy holds 400 
 | 11 | F-UX1-3 waiting lag | Fix sets the pane's waiting count when it opens | ✅ pane reads "401 change(s) waiting" right after Fix all | `ux-slice1/11-pane-401-waiting.jpg` |
 
 F-UX1-4 and F-UX1-5 stay open (engine suggester; per-row tick before filing). Revit closed without saving each time; the drill copy is unchanged on disk.
+
+## F-UX1-4 and F-UX1-5 (2026-11-18, branch fix/ux1-suggester-tick)
+
+| # | Finding | Fix | Result on screen | Screenshot |
+|---|---|---|---|---|
+| 12 | F-UX1-4 guessed tokens | Fix all builds names strictly (`NameSynth.BuildStrictName`): a token missing from the name comes from the rule's `token_infer` read off the element (parameter, category, or for a view its view type) or from a fixed literal value; a choice, level or number is never guessed, and the name must pass the rule. The pane's ⚡ Fix keeps its editable pre-filled guess. `tools/naming-check` 93/93 (6 new) | ✅ Naming 639: 19 can be fixed for you (only the fixed `AST_` office prefix added), 620 need a name from you; no schedule proposed as PLAN | `ux-slice1/12-check-19-fixable.jpg` |
+| 13 | F-UX1-5 no per-row choice | Fix all opens "Fix names": every proposed rename listed, nothing ticked, Tick all / Clear, "Propose ticked (n)" | ✅ ticked 1 row, "1 proposed change(s) ready to approve", Fix shows 1 waiting; approved, Revit Undo, Check shows 639 / 19 again | `ux-slice1/13-fix-names-tick-list.jpg`, `ux-slice1/14-after-undo-19-fixable.jpg` |
+
+Seen in this re-check and fixed after it: the disabled "Propose ticked (0)" button read blank (white text on the disabled grey); it now uses the default colours, bold. Built 2021–2027, deployed to 2025; not re-driven on screen after that one-line colour change. Revit closed without saving.
