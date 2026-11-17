@@ -27,8 +27,8 @@ signed-in user.
 
 1. **First run by hand:** `powershell -ExecutionPolicy Bypass -File tools\sentinel-keeper.ps1 -Once`. Check that
    `keeper.log` says what it found, and that `http://127.0.0.1:4100/health` and the Funnel address both answer.
-2. **At every sign-in:** `tools\keeper-install.cmd` (a scheduled task "Sentinel keeper"). Remove with
-   `tools\keeper-uninstall.cmd`.
+2. **At every sign-in:** `tools\keeper-install.cmd` (this account's Run entry "Sentinel keeper", no administrator
+   needed; a scheduled task at log on was refused without one). Remove with `tools\keeper-uninstall.cmd`.
 3. **Drill:** close the bridge (Task Manager, the `node` process with `bcf-service.mjs`). Within about two minutes
    `keeper.log` says it started the bridge again and refreshed the Funnel; the published app works again after a
    reload.

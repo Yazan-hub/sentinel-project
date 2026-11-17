@@ -1,7 +1,9 @@
 @echo off
-rem Stops the Sentinel keeper from starting at sign-in. The bridge and the watcher it started keep running until you
-rem close them or restart the PC; tools\bridge-start.cmd still works by hand.
-schtasks /end /tn "Sentinel keeper" >nul 2>&1
-schtasks /delete /tn "Sentinel keeper" /f
-echo The keeper will no longer start at sign-in.
+rem Stops the Sentinel keeper and stops it from starting at sign-in. The bridge and the watcher it started keep running
+rem until you close them or restart the PC; tools\bridge-start.cmd still works by hand.
+reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "Sentinel keeper" /f >nul 2>&1
+rem An install from before 2026-11-17 made a scheduled task instead; remove it too if it is there.
+schtasks /delete /tn "Sentinel keeper" /f >nul 2>&1
+powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" | Where-Object { $_.CommandLine -like '*sentinel-keeper.ps1*' -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+echo The keeper is stopped and will no longer start at sign-in.
 pause
