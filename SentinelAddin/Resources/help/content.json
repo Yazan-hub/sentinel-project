@@ -2381,5 +2381,213 @@
    "SentinelAddin/Commands.StandardsEditors.cs",
    "SentinelAddin/Engine/IfcExportMapping.cs"
   ]
+ },
+ "Sentinel_Check": {
+  "summary": "Checks the model against the project standards and groups what to fix.",
+  "overview": [
+   "Check runs the full scan and the IFC readiness check together. Results are grouped by what fixes them: Naming, Required data, Families and IFC readiness. Each group has one action: Show selects the elements; Fix all files proposed name changes you approve in Fix."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Check on the Sentinel tab.",
+   "Read the groups. Press Show to select elements, or Fix all for names.",
+   "Press Go to Publish when nothing is left."
+  ],
+  "results": [
+   "Nothing changes in the model until you approve a proposed change in Fix."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_Fix",
+   "Sentinel_PublishNow",
+   "Sentinel_ScanNow",
+   "Sentinel_NamingManager"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_Fix": {
+  "summary": "Proposed changes waiting for approval, and Undo for applied ones.",
+  "overview": [
+   "Fix gathers the places where changes wait for you: name fixes from Check, model changes proposed by AI, and changes already applied (with Undo). It also opens MEP openings."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Fix.",
+   "Open the section you need and approve, apply or undo there."
+  ],
+  "results": [
+   "Each section opens the same window as before."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_Requests",
+   "Sentinel_ReviewChangesets",
+   "Sentinel_AppliedChanges",
+   "Sentinel_MepVoids"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_Issues": {
+  "summary": "Issues raised by the team and clashes between models.",
+  "overview": [
+   "The Issues dropdown holds the issue list and the two clash tools."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Issues and pick a tool."
+  ],
+  "results": [
+   "The chosen window opens."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_BcfIssues",
+   "Sentinel_ClashManager",
+   "Sentinel_ClashRegister"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_PublishNow": {
+  "summary": "Publishes the model, with the pre-publish check shown first in plain words.",
+  "overview": [
+   "Publish first runs the same check as Check and says in plain words what is left to fix. Open Check goes back to fix them; Publish now exports the model to IFC, checks it against the project's requirements and uploads it if it passes. If it fails, nothing is uploaded and the reason is shown; the full report is under Details."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Publish.",
+   "Read the pre-publish check.",
+   "Press Open Check or Publish now."
+  ],
+  "results": [
+   "Published, or Not published with the reason."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_Check",
+   "Sentinel_GovernedPublish"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_More": {
+  "summary": "Setup and standards for the BIM manager.",
+  "overview": [
+   "Project setup, sign in, this PC's settings, office standards, guidelines, IFC export mapping, protection, the review flag and the ROI dashboard."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click More and pick a tool."
+  ],
+  "results": [
+   "The chosen window opens."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_Setup",
+   "Sentinel_SignIn",
+   "Sentinel_PcSettings"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_Checks": {
+  "summary": "The single checks that Check runs together.",
+  "overview": [
+   "In the panel's slide-out (the arrow under the Sentinel panel): Scan Now, Health Scorecard, Rule Set, IFC Pre-Flight, MEP Type Check, Naming Manager and the family tools."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the slide-out, click Checks and pick a tool."
+  ],
+  "results": [
+   "The chosen tool runs as before."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_Check"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_Changes": {
+  "summary": "The single tools that Fix opens.",
+  "overview": [
+   "In the panel's slide-out: Change Requests, Review AI Proposals, Applied AI Changes and MEP Openings."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the slide-out, click Changes and pick a tool."
+  ],
+  "results": [
+   "The chosen window opens."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_Fix"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_PublishTools": {
+  "summary": "Publish without the pre-publish screen, the IFC certificate, and sheet and view images.",
+  "overview": [
+   "In the panel's slide-out: Governed Publish, IFC Delivery Gate, Publish Sheets and Publish Views."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Open the slide-out, click Publish tools and pick a tool."
+  ],
+  "results": [
+   "The chosen tool runs as before."
+  ],
+  "tips": [],
+  "related": [
+   "Sentinel_PublishNow"
+  ],
+  "sources": [
+   "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
  }
 }

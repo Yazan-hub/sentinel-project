@@ -455,88 +455,26 @@ public sealed class App : IExternalApplication
         _asm = Assembly.GetExecutingAssembly().Location;
         _resDir = Path.Combine(Path.GetDirectoryName(_asm)!, "Resources");
 
-        // ── Coordinate — live coordination + issues ──────────────────────────────────────────
-        var co = app.CreateRibbonPanel(tab, "Coordinate");
-        Push(co, "Sentinel_ShowPanel", "Show\nPanel", "Sentinel.Commands.ShowPanelCommand", "dashboard",
-            "Show the Sentinel live coordination panel.");
-        Push(co, "Sentinel_Requests", "Change\nRequests", "Sentinel.Commands.ShowRequestsCommand", "requests",
-            "Review pending change requests. Approve keeps a change or applies a ⚡ Fix proposal; reject reverts a change or drops a proposal.");
-        Push(co, "Sentinel_BcfIssues", "BCF\nIssues", "Sentinel.Commands.BcfIssuesCommand", "issues",
+        // ── UX slice 1 (docs/ux/2026-11-17-simplification-map.md): one panel, seven buttons — Sentinel, Check, Fix, Issues,
+        //    Publish, Build, More. Every earlier tool stays, unchanged, in the panel's slide-out (the arrow under the panel) or under More.
+        var se = app.CreateRibbonPanel(tab, "Sentinel");
+        Push(se, "Sentinel_ShowPanel", "Sentinel", "Sentinel.Commands.ShowPanelCommand", "dashboard",
+            "Open the Sentinel pane: your next step, whether you are connected and signed in, and the model's check result.");
+        Push(se, "Sentinel_Check", "Check", "Sentinel.Commands.CheckCommand", "scan",
+            "Check this model against the project standards. Results are grouped by what fixes them: naming, required data, families and IFC readiness.");
+        Push(se, "Sentinel_Fix", "Fix", "Sentinel.Commands.FixCommand", "apply",
+            "Proposed changes waiting for approval: apply the ones you want, and undo an applied change.");
+        var issues = Pull(se, "Sentinel_Issues", "Issues", "issues",
+            "Issues raised by the team and clashes between models.");
+        Sub(issues, "Sentinel_BcfIssues", "BCF\nIssues", "Sentinel.Commands.BcfIssuesCommand", "issues",
             "Review coordination issues raised by non-Revit users on the web; double-click to zoom to the element + camera.");
-        var clash = Pull(co, "Sentinel_Clash", "Clash", "clash",
-            "Clash detection (author) and the team-wide clash register (review).");
-        Sub(clash, "Sentinel_ClashManager", "Clash Manager", "Sentinel.Commands.ClashManagerCommand", "clash",
+        Sub(issues, "Sentinel_ClashManager", "Clash Manager", "Sentinel.Commands.ClashManagerCommand", "clash",
             "Native clash detection (RVT + IFC links vs structure) with severity grading, 3D clash view and BCF export.");
-        Sub(clash, "Sentinel_ClashRegister", "Clash Register", "Sentinel.Commands.ClashRegisterCommand", "clashreg",
+        Sub(issues, "Sentinel_ClashRegister", "Clash Register", "Sentinel.Commands.ClashRegisterCommand", "clashreg",
             "View the team-wide clash register recorded on the web (status lifecycle + volume), read-only.");
-        Push(co, "Sentinel_ReviewFlag", "Review\nFlag", "Sentinel.Commands.SetupWorkflowCommand", "flag",
-            "One-time: creates the ZZZ_ReviewStatus flag parameter (coordinator only).");
-        Push(co, "Sentinel_ReviewChangesets", "Review AI\nProposals", "Sentinel.Commands.ReviewChangesetsCommand", "gate",
-            "Review staged AI element proposals: the referee's verdict per element, your tick decides what enters the model. Everything is audit-chained.");
-        Push(co, "Sentinel_AppliedChanges", "Applied AI\nChanges", "Sentinel.Commands.AppliedChangesCommand", "apply",
-            "See every applied AI changeset and whether the saved model kept it; revert one days later, row by row, with your reason on the ledger.");
-
-        // ── Validate — compliance, IFC readiness, family hygiene ─────────────────────────────
-        var va = app.CreateRibbonPanel(tab, "Validate");
-        Push(va, "Sentinel_ScanNow", "Scan\nNow", "Sentinel.Commands.ScanNowCommand", "scan",
-            "Run a full compliance scan against the active ruleset.");
-        Push(va, "Sentinel_Scorecard", "Health\nScorecard", "Sentinel.Commands.ScorecardCommand", "scorecard",
-            "Weighted executive compliance score with per-domain breakdown.");
-        Push(va, "Sentinel_Rules", "Rule\nSet", "Sentinel.Commands.ShowRulesetCommand", "rules",
-            "View the ruleset this document is judged by: its web project's ruleset@n (or its office's), with source and sha.");
-        var ifc = Pull(va, "Sentinel_IfcGate", "IFC\nGate", "ifcgate",
-            "IFC deliverable checks: pre-flight before export, and delivery-gate certification after.");
-        Sub(ifc, "Sentinel_IfcPreflight", "IFC Pre-Flight", "Sentinel.Commands.IfcPreFlightCommand", "preflight",
-            "Audit Export-to-IFC mappings and the delivery contract's required properties BEFORE exporting IFC.");
-        Sub(ifc, "Sentinel_IfcGateCmd", "IFC Delivery Gate", "Sentinel.Commands.IfcDeliveryGateCommand", "gate",
-            "Export + certify an IFC against the delivery contract installed on this document's web project (or its office), named contract@n with source and sha; the export uses the contract's IFC schema. FAIL = do not upload to the CDE; no contract = NOT CHECKED, never a pass.");
-        var fam = Pull(va, "Sentinel_FamilyHealth", "Family\nHealth", "family",
-            "Family hygiene: audit an .rfa before loading, or heal families already in the project.");
-        Sub(fam, "Sentinel_SanitizeFamily", "Sanitize .rfa", "Sentinel.Commands.SanitizeFamilyCommand", "family",
-            "Audit an .rfa (geometry budget, nested CAD, shared parameters) before loading it.");
-        Sub(fam, "Sentinel_SanitizeLoaded", "Heal Loaded Families", "Sentinel.Commands.SanitizeLoadedCommand", "heal",
-            "Scan families already in the project; auto-inject missing shared parameters and reload silently.");
-        Push(va, "Sentinel_MepVoids", "MEP\nOpenings", "Sentinel.Commands.MepVoidsCommand", "mep",
-            "Find linked MEP vs structure intersections; place provision-for-void families.");
-        Push(va, "Sentinel_MepTypeCheck", "MEP\nType Check", "Sentinel.Commands.MepTypeCheckCommand", "mep",
-            "Check every duct, pipe, cable tray and conduit in this model against the type catalogue installed on its web project (or its office): type name, and system type for ducts and pipes. Reads only; one ledger row per check; an optional BCF topic file. No size check, no retype.");
-        Push(va, "Sentinel_NamingManager", "Naming\nManager", "Sentinel.Commands.NamingManagerCommand", "family",
-            "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Each batch is one ledger row, and the window says whether it landed.");
-
-        // ── Publish — the one governed path (auto-publish is the project's publish@n, not a button) + sheets and views ──
-        var pu = app.CreateRibbonPanel(tab, "Publish");
-        Push(pu, "Sentinel_GovernedPublish", "Governed\nPublish", "Sentinel.Commands.GovernedPublishCommand", "govern",
-            "The one publish path: export the whole model to IFC in the contract's schema, run the delivery gate, adjudicate against the project IDS and naming, and — on accepted or recorded — register one version (the container is named from the central file) with its verdict on the ledger and stage the upload. A reject uploads nothing; each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit). The dialog names the version and both ledger rows.");
-        var pub = Pull(pu, "Sentinel_Publish", "Publish", "publish",
-            "Sheets and views for the web app's Sheets and Views tabs — images keyed by model name under %AppData%, outside the governed IFC path (no version, no verdict). The model itself publishes only through Governed Publish, or on save when the project's publish@n says auto: true (the pane's strip names it).");
-        Sub(pub, "Sentinel_PublishSheets", "Publish Sheets", "Sentinel.Commands.PublishSheetsCommand", "sheets",
-            "Render all Revit sheets to PNG (sheets never survive IFC export). The Bridge serves them to the web app's Sheets tab. Keyed by model name under %AppData%, not by the web project — outside the governed IFC path.");
-        Sub(pub, "Sentinel_PublishViews", "Publish Views", "Sentinel.Commands.PublishViewsCommand", "views",
-            "Choose which views (plans, sections, elevations, 3D, drafting) to publish. Only checked views appear in the web app's Views tab. Keyed by model name under %AppData%, not by the web project — outside the governed IFC path.");
-
-        // ── Standards & Build — office standards + generation ────────────────────────────────
-        var st = app.CreateRibbonPanel(tab, "Standards & Build");
-        var std = Pull(st, "Sentinel_Standards", "Standards", "standards",
-            "Set up and apply office standards: project setup, build/apply a standards pack, or ingest from documents.");
-        Sub(std, "Sentinel_Setup", "Project Setup", "Sentinel.Commands.ProjectSetupCommand", "setup",
-            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path.");
-        Sub(std, "Sentinel_SignIn", "Sign in", "Sentinel.Commands.SignInCommand", "setup",
-            "Sign in with your Sentinel account (the same as on the web): every governed call from Revit then carries your name on the ledger instead of this PC's shared token. Sign out forgets it on this PC only.");
-        Sub(std, "Sentinel_PcSettings", "PC Settings", "Sentinel.Commands.PcSettingsCommand", "setup",
-            "This PC's own settings in a window: the bridge address, this PC's shared token, the sign-in address and key, the local AI address and models, the cloud opt-in, and Ghost Builder's family library and layer mapping file. A Test per connection says in words whether it answers. Save writes only what changed and keeps a backup of the old file; tokens and keys are never shown.");
-        Sub(std, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
-            "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
-        Sub(std, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",
-            "Load a saved standards pack and build it into the active model — the golden→blank round-trip.");
-        Sub(std, "Sentinel_IngestDocs", "Ingest Docs", "Sentinel.Commands.IngestDocumentsCommand", "ingest",
-            "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack. Requires Ollama.");
-        Sub(std, "Sentinel_GuidelineEditor", "Modelling Guideline", "Sentinel.Commands.GuidelineEditorCommand", "rules",
-            "The office's modelling guideline, in a window: for each category, the rules that type what Sentinel builds and promotes (when a CAD layer, level, discipline or parameter matches, use this family and type) in order, and a default; the sheets Annotate makes; the worksets new elements go on. Families, types, levels, title blocks and worksets are picked from this model. A lead or owner saves it for the project or the office — the next guideline version, recorded in the ledger.");
-        Sub(std, "Sentinel_IfcExportEditor", "IFC Export Mapping", "Sentinel.Commands.IfcExportEditorCommand", "ifcgate",
-            "The property sets Governed Publish asks Revit's IFC exporter to write, in a window: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter picked from this model. A lead or owner saves it for the project or the office — the next ifc_export version, recorded in the ledger.");
-        Push(st, "Sentinel_Protection", "Protection", "Sentinel.Commands.ProtectionCommand", "govern",
-            "What no changeset may edit: grids, levels, structure and the worksets you tick. A row that would change one is kept as it stands, with the reason, and the rest of the changeset is applied. Shows the policy in force for this model's web project (or its office, or the built-in default); a lead or owner changes it here and saves it for the project or the whole office — recorded in the ledger.");
-        var chain = Pull(st, "Sentinel_Chain", "Model from\nDrawings", "ghost",
+        Push(se, "Sentinel_PublishNow", "Publish", "Sentinel.Commands.PublishCommand", "govern",
+            "Publish this model: the pre-publish check first, in plain words, then export, check and upload. If it fails, nothing is uploaded and you see why.");
+        var chain = Pull(se, "Sentinel_Chain", "Build", "ghost",
             "The datum -> model -> annotate chain: read the datum from the drawings, build LOD 200 geometry (from DWG or photos), then create the WIP views of the guideline installed on this document's web project (or its office).");
         Sub(chain, "Sentinel_Datum", "1 · Datum from Drawings", "Sentinel.Commands.DatumFromDrawingsCommand", "ghost",
             "Datum first: read the levels from an imported section's levels layer and the grids from an imported plan's grid layer, then create them — real floor-to-floor heights and a real column grid, measured off the drawings, before any element is modelled.");
@@ -544,7 +482,6 @@ public sealed class App : IExternalApplication
             "Build LOD 200 Revit geometry from a 2D DWG import: CAD layers map by the layers standard installed on this document's web project (or its office) — labelled heuristics and the local LLM for the rest, never pre-ticked — then walls are typed by its guideline and type catalogue. Each is named with source and sha; one not installed reads none.");
         Sub(chain, "Sentinel_Massing", "2b · Photo Massing", "Sentinel.Commands.MassingFromImagesCommand", "ghost",
             "Read a building's storey counts and proportions from the evidence pack's admitted, blurred photos (Files ▸ Evidence) - they give counts and ratios, not lengths - type one known height or width, press Scale, review the numbers, then file one changeset — the missing levels and a mass — for review; nothing is placed until a person applies it in Review AI Proposals; then Shell it (2c · Shell a Mass), one storey per level. It first asks where the mass stands - it picks its footprint (a closed CAD polyline, a property line or model lines) and where it stands.");
-        // MA-6-4 (C6): massing to shell.
         Sub(chain, "Sentinel_ShellMass", "2c · Shell a Mass", "Sentinel.Commands.ShellMassCommand", "ghost",
             "Shell the selected (or picked) mass — an in-place or loaded mass, or a DirectShape mass: it is cut at each Building Story level; typed walls (base level to the next, the exterior face on the mass face — a curtain wall a facade rule names, by Facade N/E/S/W against True North, is centred on it), a floor per level and a flat roof, typed by the exact rules of the guideline and type catalogue installed on this document's web project (or its office), filed for review as one changeset (one per storey above 200 elements). A storey that leans or is not one straight-edged loop goes to a person with why. Shows the plan first (No = read-only); nothing is pre-ticked, and nothing is placed until a person applies it in Review AI Proposals.");
         Sub(chain, "Sentinel_Annotate", "3 · Annotate Views", "Sentinel.Commands.AnnotateViewsCommand", "ghost",
@@ -553,8 +490,71 @@ public sealed class App : IExternalApplication
             "Promote this model's walls, floors, roofs, ceilings, doors and windows to DD by the guideline, type catalogue and LOD matrix installed on its web project (or its office): retype to the exact catalogue type already loaded here, swap doors and windows to an office family type keeping their host, attach wall tops to story levels, and send every ambiguous element to a person with its reason. With no LOD matrix, walls only. Shows the plan first (No = read-only); files one reviewed changeset per storey. No type is ever created; each change is stamped, and an Undo of it is recorded on the ledger.");
         Sub(chain, "Sentinel_Provenance", "5 · Provenance", "Sentinel.Commands.ProvenanceCommand", "ghost",
             "Read where the selected (or picked) element came from — Sentinel's provenance stamp: source, source file sha256, CAD layer, the rule that typed it, the approver, the ledger row and the time. A stamp that came with a copy reads \"copied, not placed by Sentinel\". Reads only.");
-        Push(st, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
+        var more = Pull(se, "Sentinel_More", "More", "standards",
+            "Setup and standards for the BIM manager: project setup, sign in, this PC, office standards and guidelines.");
+        Sub(more, "Sentinel_Setup", "Project Setup", "Sentinel.Commands.ProjectSetupCommand", "setup",
+            "Bind this model to its web project (its ruleset, IDS and naming come from there), plus the template path.");
+        Sub(more, "Sentinel_SignIn", "Sign in", "Sentinel.Commands.SignInCommand", "setup",
+            "Sign in with your Sentinel account (the same as on the web): every governed call from Revit then carries your name on the ledger instead of this PC's shared token. Sign out forgets it on this PC only.");
+        Sub(more, "Sentinel_PcSettings", "PC Settings", "Sentinel.Commands.PcSettingsCommand", "setup",
+            "This PC's own settings in a window: the bridge address, this PC's shared token, the sign-in address and key, the local AI address and models, the cloud opt-in, and Ghost Builder's family library and layer mapping file. A Test per connection says in words whether it answers. Save writes only what changed and keeps a backup of the old file; tokens and keys are never shown.");
+        Sub(more, "Sentinel_BuildOfficeSystem", "Build Office System", "Sentinel.Commands.BuildOfficeSystemCommand", "office",
+            "Extract worksets + shared parameters from the active 'golden' model, review them, then build them into this model and enforce them in the ruleset.");
+        Sub(more, "Sentinel_LoadOfficeSystem", "Apply Standard", "Sentinel.Commands.LoadOfficeSystemCommand", "apply",
+            "Load a saved standards pack and build it into the active model — the golden→blank round-trip.");
+        Sub(more, "Sentinel_IngestDocs", "Ingest Docs", "Sentinel.Commands.IngestDocumentsCommand", "ingest",
+            "Read office-standards documents (PDF/text/CSV) with a local LLM and extract worksets + shared parameters into a reviewable standards pack. Requires Ollama.");
+        Sub(more, "Sentinel_GuidelineEditor", "Modelling Guideline", "Sentinel.Commands.GuidelineEditorCommand", "rules",
+            "The office's modelling guideline, in a window: for each category, the rules that type what Sentinel builds and promotes (when a CAD layer, level, discipline or parameter matches, use this family and type) in order, and a default; the sheets Annotate makes; the worksets new elements go on. Families, types, levels, title blocks and worksets are picked from this model. A lead or owner saves it for the project or the office — the next guideline version, recorded in the ledger.");
+        Sub(more, "Sentinel_IfcExportEditor", "IFC Export Mapping", "Sentinel.Commands.IfcExportEditorCommand", "ifcgate",
+            "The property sets Governed Publish asks Revit's IFC exporter to write, in a window: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter picked from this model. A lead or owner saves it for the project or the office — the next ifc_export version, recorded in the ledger.");
+        Sub(more, "Sentinel_Protection", "Protection", "Sentinel.Commands.ProtectionCommand", "govern",
+            "What no changeset may edit: grids, levels, structure and the worksets you tick. A row that would change one is kept as it stands, with the reason, and the rest of the changeset is applied. Shows the policy in force for this model's web project (or its office, or the built-in default); a lead or owner changes it here and saves it for the project or the whole office — recorded in the ledger.");
+        Sub(more, "Sentinel_ReviewFlag", "Review\nFlag", "Sentinel.Commands.SetupWorkflowCommand", "flag",
+            "One-time: creates the ZZZ_ReviewStatus flag parameter (coordinator only).");
+        Sub(more, "Sentinel_Roi", "ROI\nDashboard", "Sentinel.Commands.RoiDashboardCommand", "roi",
             "Counts from this document's web project ledger — delivery gate runs, naming renames, family heals — priced only by the roi standard installed on the project (or its office); what writes no ledger row is listed as not counted.");
+
+        // The slide-out: every earlier tool as it was, for people who know them.
+        se.AddSlideOut();
+        var checks = Pull(se, "Sentinel_Checks", "Checks", "scan",
+            "The single checks Check runs together, plus the score, the rules in force and the family tools.");
+        Sub(checks, "Sentinel_ScanNow", "Scan\nNow", "Sentinel.Commands.ScanNowCommand", "scan",
+            "Run a full compliance scan against the active ruleset.");
+        Sub(checks, "Sentinel_Scorecard", "Health\nScorecard", "Sentinel.Commands.ScorecardCommand", "scorecard",
+            "Weighted executive compliance score with per-domain breakdown.");
+        Sub(checks, "Sentinel_Rules", "Rule\nSet", "Sentinel.Commands.ShowRulesetCommand", "rules",
+            "View the ruleset this document is judged by: its web project's ruleset@n (or its office's), with source and sha.");
+        Sub(checks, "Sentinel_IfcPreflight", "IFC Pre-Flight", "Sentinel.Commands.IfcPreFlightCommand", "preflight",
+            "Audit Export-to-IFC mappings and the delivery contract's required properties BEFORE exporting IFC.");
+        Sub(checks, "Sentinel_MepTypeCheck", "MEP\nType Check", "Sentinel.Commands.MepTypeCheckCommand", "mep",
+            "Check every duct, pipe, cable tray and conduit in this model against the type catalogue installed on its web project (or its office): type name, and system type for ducts and pipes. Reads only; one ledger row per check; an optional BCF topic file. No size check, no retype.");
+        Sub(checks, "Sentinel_NamingManager", "Naming\nManager", "Sentinel.Commands.NamingManagerCommand", "family",
+            "Review family and type names against the office naming rules: recovered proposals, duplicates blocked, rename only what you tick. Each batch is one ledger row, and the window says whether it landed.");
+        Sub(checks, "Sentinel_SanitizeFamily", "Sanitize .rfa", "Sentinel.Commands.SanitizeFamilyCommand", "family",
+            "Audit an .rfa (geometry budget, nested CAD, shared parameters) before loading it.");
+        Sub(checks, "Sentinel_SanitizeLoaded", "Heal Loaded Families", "Sentinel.Commands.SanitizeLoadedCommand", "heal",
+            "Scan families already in the project; auto-inject missing shared parameters and reload silently.");
+        var changes = Pull(se, "Sentinel_Changes", "Changes", "requests",
+            "The single tools Fix opens: name fixes, AI proposals, applied changes and MEP openings.");
+        Sub(changes, "Sentinel_Requests", "Change\nRequests", "Sentinel.Commands.ShowRequestsCommand", "requests",
+            "Review pending change requests. Approve keeps a change or applies a ⚡ Fix proposal; reject reverts a change or drops a proposal.");
+        Sub(changes, "Sentinel_ReviewChangesets", "Review AI\nProposals", "Sentinel.Commands.ReviewChangesetsCommand", "gate",
+            "Review staged AI element proposals: the referee's verdict per element, your tick decides what enters the model. Everything is audit-chained.");
+        Sub(changes, "Sentinel_AppliedChanges", "Applied AI\nChanges", "Sentinel.Commands.AppliedChangesCommand", "apply",
+            "See every applied AI changeset and whether the saved model kept it; revert one days later, row by row, with your reason on the ledger.");
+        Sub(changes, "Sentinel_MepVoids", "MEP\nOpenings", "Sentinel.Commands.MepVoidsCommand", "mep",
+            "Find linked MEP vs structure intersections; place provision-for-void families.");
+        var tools = Pull(se, "Sentinel_PublishTools", "Publish tools", "publish",
+            "Publish without the pre-publish screen, the IFC certificate on its own, and sheet and view images for the web.");
+        Sub(tools, "Sentinel_GovernedPublish", "Governed\nPublish", "Sentinel.Commands.GovernedPublishCommand", "govern",
+            "The one publish path: export the whole model to IFC in the contract's schema, run the delivery gate, adjudicate against the project IDS and naming, and — on accepted or recorded — register one version (the container is named from the central file) with its verdict on the ledger and stage the upload. A reject uploads nothing; each failing requirement auto-opens as a BCF issue (live-synced to the web and back into Revit). The dialog names the version and both ledger rows.");
+        Sub(tools, "Sentinel_IfcGateCmd", "IFC Delivery Gate", "Sentinel.Commands.IfcDeliveryGateCommand", "gate",
+            "Export + certify an IFC against the delivery contract installed on this document's web project (or its office), named contract@n with source and sha; the export uses the contract's IFC schema. FAIL = do not upload to the CDE; no contract = NOT CHECKED, never a pass.");
+        Sub(tools, "Sentinel_PublishSheets", "Publish Sheets", "Sentinel.Commands.PublishSheetsCommand", "sheets",
+            "Render all Revit sheets to PNG (sheets never survive IFC export). The Bridge serves them to the web app's Sheets tab. Keyed by model name under %AppData%, not by the web project — outside the governed IFC path.");
+        Sub(tools, "Sentinel_PublishViews", "Publish Views", "Sentinel.Commands.PublishViewsCommand", "views",
+            "Choose which views (plans, sections, elevations, 3D, drafting) to publish. Only checked views appear in the web app's Views tab. Keyed by model name under %AppData%, not by the web project — outside the governed IFC path.");
     }
 
     private static string _asm = "";

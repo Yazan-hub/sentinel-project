@@ -37,6 +37,8 @@
         </Border>
         <Border DockPanel.Dock="Top" Padding="8" CornerRadius="4" Background="#F0F3F7">
             <StackPanel>
+                <TextBlock Text="{Binding NextStep}" FontSize="12" FontWeight="SemiBold" Foreground="#1E3A5F" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding StatusDots}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
                 <TextBlock Text="{Binding ScoreText}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap"/>
                 <!-- three lines at most (a ⚡ Fix proposal's status runs to ~130 characters and took the narrow grid's last row); the whole line on hover -->
                 <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#667" TextWrapping="Wrap" MaxHeight="45"
