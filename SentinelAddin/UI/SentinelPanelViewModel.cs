@@ -138,6 +138,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     private string _nextStep = "Next step: Check — run a check of this model";
     public string NextStep { get => _nextStep; private set { _nextStep = value; OnChanged(); } }
     private bool? _connected; private int _waiting;
+    public void SetWaiting(int n) => OnUi(() => { _waiting = n; OnChanged(nameof(StatusDots)); });
     public string StatusDots => (_connected switch { true => "● Connected", false => "○ Not connected", _ => "○ Connecting…" })
         + " · " + (Sentinel.Coordination.UserSession.IsSignedIn ? "Signed in" : "Not signed in")
         + " · " + (_waiting == 0 ? "no changes waiting" : $"{_waiting} change(s) waiting");

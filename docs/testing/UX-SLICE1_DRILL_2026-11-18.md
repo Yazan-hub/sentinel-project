@@ -24,3 +24,13 @@ Side effects: snowdon-towers got ARC version v2 (WIP). The drill copy holds 400 
 - **F-UX1-3 (low):** the pane's "changes waiting" figure refreshes only on the next check (it read "no changes waiting" while Fix said 401).
 - **F-UX1-4 (low, engine):** the name suggester proposes `ARC_L00_PLAN_Door Schedule` for a schedule (type token PLAN). Existing ⚡ Fix behaviour, not new in this slice.
 - **F-UX1-5 (low):** "Fix all" files every fixable name at once (401 here). A per-row tick before filing would suit a first-time user better.
+
+## Re-check after the fixes (2026-11-18, same model, add-in redeployed)
+
+| # | Finding | Fix | Result on screen | Screenshot |
+|---|---|---|---|---|
+| 9 | F-UX1-1 pane jargon | Journey box under a collapsed "Details" (light chip header, so it reads on Revit's dark theme; the Doctor header got the same chip, it was black on black too). `tools/pane-layout-check` lays the pane out with Details open and asserts it starts collapsed: 350/350 | ✅ only "Details", the Next step card and the score show | `ux-slice1/09-pane-details-collapsed.jpg` |
+| 10 | F-UX1-2 IFC readiness noise | Monitor rows ("default category mapping will be used") are notes: counted under Details, not in the group | ✅ IFC readiness 278 (elements that would export as IfcBuildingElementProxy); total 1159 instead of 5065 | `ux-slice1/10-check-ifc-readiness-278.jpg` |
+| 11 | F-UX1-3 waiting lag | Fix sets the pane's waiting count when it opens | ✅ pane reads "401 change(s) waiting" right after Fix all | `ux-slice1/11-pane-401-waiting.jpg` |
+
+F-UX1-4 and F-UX1-5 stay open (engine suggester; per-row tick before filing). Revit closed without saving each time; the drill copy is unchanged on disk.

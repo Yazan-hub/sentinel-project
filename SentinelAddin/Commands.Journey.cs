@@ -41,7 +41,7 @@ internal static class Journey
         var real = scan.Violations.Where(v => v.ElementId >= 0).ToList();
         var naming = real.Where(v => RuleOf(v)?.Target != RuleTarget.Parameter).ToList();
         var data = real.Where(v => RuleOf(v)?.Target == RuleTarget.Parameter).ToList();
-        var ifcRows = ifc.Violations.Where(v => v.ElementId >= 0).ToList();
+        var ifcRows = ifc.Violations.Where(v => v.ElementId >= 0 && v.Mode != EnforcementMode.Monitor).ToList(); // Monitor = "default mapping will be used": a note, under Details
         int fixable = naming.Count(v => Fixable(v, RuleOf(v), rs?.Org) is not null);
 
         r.Groups.Add(Group("Naming", naming, naming.Count == 0 ? "All names follow the project standards."
@@ -59,6 +59,8 @@ internal static class Journey
         r.Details.Add($"Model: {doc.Title} · {scan.ElementsChecked} elements checked in {scan.DurationMs} ms; IFC: {ifc.ElementsChecked} in {ifc.DurationMs} ms");
         r.Details.Add("Project standards: " + src.Label + (scan.NotScored is { } ns ? " — not scored: " + ns : ""));
         r.Details.Add("IFC requirements from: " + contractSource.Label);
+        var notes = ifc.Violations.Count(v => v.ElementId >= 0 && v.Mode == EnforcementMode.Monitor);
+        if (notes > 0) r.Details.Add($"IFC notes (not counted): {notes} element(s) export with their category's default IFC class");
         foreach (var v in scan.Violations.Concat(ifc.Violations).Take(300))
             r.Details.Add($"{v.RuleId} [{v.Mode}] {(v.ElementId >= 0 ? "#" + v.ElementId + " " : "")}{v.ElementName}: {v.MessageEn}");
         return r;
@@ -154,6 +156,7 @@ public sealed class FixCommand : IExternalCommand
     {
         if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
         var waiting = RequestStore.GetPending(doc).Count;
+        App.PanelVm?.SetWaiting(waiting);   // the pane's "changes waiting" follows what Fix shows
         var w = new JourneyWindow("Fix", waiting == 0 ? "No name fixes waiting" : $"{waiting} proposed change(s) waiting for approval");
         w.AddAction("Name fixes", "Proposed renames from Check. Approve applies the new name; Reject drops it. Revit's Undo takes an approved rename back.", "Open", "requests");
         w.AddAction("Model changes from AI", "Elements Sentinel proposes to add or change. Tick what goes into the model, then Apply.", "Open", "proposals");

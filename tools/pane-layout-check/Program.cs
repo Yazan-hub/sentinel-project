@@ -81,6 +81,8 @@ static class Program
         var pane = (UserControl)XamlReader.Parse(xaml);
         pane.DataContext = new PaneVm(blank);
         if (pane.FindName("Journey") is FrameworkElement j) j.MaxHeight = PaneLayout.JourneyCap(h);
+        // UX slice 1: the journey sits under a collapsed Details; laid out open, so every rule below holds when a person opens it.
+        if (pane.FindName("JourneyDetails") is Expander d) d.IsExpanded = true;
         return pane;
     }
 
@@ -199,6 +201,8 @@ static class Program
         string pngDir = args.FirstOrDefault(a => a != "-v");
         Console.WriteLine("The Live Coordination pane in a narrow dock (drill MA2b: lines cut, ↻ off the right edge) — failures and the count");
 
+        Ok(Regex.IsMatch(xaml, "<Expander x:Name=\"JourneyDetails\"[^>]*IsExpanded=\"False\"[^>]*>\\s*(<!--.*?-->\\s*)?<Expander.Header><TextBlock Text=\"Details\"", RegexOptions.Singleline),
+           "the journey (ledger, changeset and artefact words) starts collapsed under Details (UX slice 1 glossary)");
         Ok(code.Contains("if (e.PropertyName == nameof(SentinelPanelViewModel.JourneyKey)) Journey.ScrollToHome();"),
            "a new journey is shown from its key down: the code-behind scrolls the journey box home when the key changes (third review)");
         Ok(Regex.Matches(code, Regex.Escape("SizeChanged += (_, e) => Journey.MaxHeight = PaneLayout.JourneyCap(e.NewSize.Height);")).Count == 1
@@ -215,7 +219,7 @@ static class Program
             string at = $"at {w}x{h} DIP, the Doctor {(doctorOpen ? "open" : "shut")}";
             var pane = Load(xaml, h);
             Lay(pane, w, h);
-            var exp = Tree(pane).OfType<Expander>().First();
+            var exp = Tree(pane).OfType<Expander>().First(x => x.Name != "JourneyDetails"); // the Doctor (the journey's Details is the other one)
             exp.IsExpanded = doctorOpen;
             Lay(pane, w, h);
 
