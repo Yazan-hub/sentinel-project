@@ -4,7 +4,8 @@
 --   empty-TIDP warning skip a ticked team.
 --
 -- Dry-run: PGlite with every migration (bridge/migration-0058.test.mjs). Probe: probes/0058_probe.sql.
--- NOT APPLIED. The bridge reads teams with select=* and works before the apply: a tick it cannot save is refused in plain words.
+-- APPLIED 2026-11-17 on the founder's "Yes, merge and deploy". Probe: part 1 ok = true (13 teams, none ticked).
+-- The bridge reads teams with select=*; before the apply a tick it could not save was refused in plain words.
 -- Rollback (never run casually): alter table public.task_teams drop column owns_no_container;
 
 begin;
