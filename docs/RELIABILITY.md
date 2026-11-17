@@ -7,8 +7,8 @@ P0 run (`docs/testing/snowdon-lifecycle/P0/P0-RUN_2026-10-22.md`) the bridge sto
 for hours. Hosting the bridge elsewhere waits for the founder's decision (the 2026-10-19 answer: after Sentinel is
 published). Until then, this page makes the PC as dependable as a PC can be.
 
-**Status: written 2026-11-16 in a cloud session that cannot run PowerShell. Step A1 passed on the bridge PC on 2026-11-17
-(`keeper started`, nothing to repair). A2 and B are owed.**
+**Status: written 2026-11-16 in a cloud session that cannot run PowerShell. Steps A1 and A2 passed on the bridge PC on 2026-11-17
+(`keeper started`, nothing to repair; the Startup shortcut made, one keeper process running). B is owed.**
 
 ## A. Keep the bridge up: the keeper
 
