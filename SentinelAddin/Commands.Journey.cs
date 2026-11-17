@@ -42,10 +42,11 @@ internal static class Journey
         var naming = real.Where(v => RuleOf(v)?.Target != RuleTarget.Parameter).ToList();
         var data = real.Where(v => RuleOf(v)?.Target == RuleTarget.Parameter).ToList();
         var ifcRows = ifc.Violations.Where(v => v.ElementId >= 0 && v.Mode != EnforcementMode.Monitor).ToList(); // Monitor = "default mapping will be used": a note, under Details
-        int fixable = naming.Count(v => Fixable(v, RuleOf(v), rs?.Org) is not null);
+        int fixable = naming.Count(v => Fixable(doc, v, RuleOf(v), rs?.Org) is not null);
 
         r.Groups.Add(Group("Naming", naming, naming.Count == 0 ? "All names follow the project standards."
-            : $"{naming.Count} name(s) do not follow the project standards" + (fixable > 0 ? $" — {fixable} can be fixed for you." : "."),
+            : $"{naming.Count} name(s) do not follow the project standards" + (fixable > 0 ? $" — {fixable} can be fixed for you" : "")
+              + (naming.Count > fixable ? $"{(fixable > 0 ? ";" : " —")} {naming.Count - fixable} need a name from you (Show selects them)." : "."),
             fixable > 0 ? "Fix all" : null, "fix-naming"));
         r.Groups.Add(Group("Required data", data, data.Count == 0 ? "Every required value is filled in."
             : $"{data.Count} element(s) miss a value the project needs. Fill them in on the elements (Show selects them).", null, null));
@@ -76,12 +77,36 @@ internal static class Journey
     };
 
     /// The ⚡ Fix rule (ViolationRow.ComputeCanFix): a named element under a token rule, not a type (those go through the Naming
-    /// Manager). Returns the suggested name, or null.
-    internal static string? Fixable(Violation v, Rule? rule, string? org)
+    /// Manager). F-UX1-4: the name is built strictly (NameSynth.BuildStrictName): a token missing from the name is read off the
+    /// element as the rule's token_infer says, never guessed, and the name must pass the rule. Returns that name, or null.
+    internal static string? Fixable(Document doc, Violation v, Rule? rule, string? org)
     {
         if (v.ElementId <= 0 || rule is null || rule.Tokens.Count == 0 || rule.Target == RuleTarget.Type) return null;
         if (v.Mode == EnforcementMode.Monitor) return null;
-        return AutoFixExecution.Suggest(v.ElementName, rule, org);
+        if (doc.GetElement(v.ElementId.ToElementId()) is not { } e) return null;
+        var name = NameSynth.BuildStrictName(v.ElementName, rule, org, token => Infer(e, rule, token));
+        return name is not null && name != v.ElementName && RuleRegex.Matches(rule, org, name, out _) ? name : null;
+    }
+
+    /// The rule's token_infer for one token, read off the element: a parameter's value first, then its category. For a
+    /// view, its view type ("Schedule", "FloorPlan", "Section") also counts as the category. Null when the office says nothing.
+    private static string? Infer(Element e, Rule rule, string token)
+    {
+        if (rule.TokenInfer is null || !rule.TokenInfer.TryGetValue(token, out var inf) || inf is null) return null;
+        if (inf.ByParameter is not null)
+            foreach (var kv in inf.ByParameter)
+                if (e.LookupParameter(kv.Key) is { HasValue: true } p && (p.AsString() ?? p.AsValueString()) is { } val)
+                {
+                    var m = kv.Value.FirstOrDefault(x => x.Key.Equals(val, StringComparison.OrdinalIgnoreCase));
+                    if (m.Key is not null) return m.Value;
+                }
+        if (inf.ByCategory is not null)
+            foreach (var key in new[] { e.Category?.Name, (e as View)?.ViewType.ToString() })
+            {
+                var m = inf.ByCategory.FirstOrDefault(x => key is not null && x.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+                if (m.Key is not null) return m.Value;
+            }
+        return null;
     }
 
     internal static void Show(UIDocument uidoc, IEnumerable<long> ids)
@@ -123,19 +148,26 @@ public sealed class CheckCommand : IExternalCommand
         return Result.Succeeded;
     }
 
-    /// "Fix all": one proposed change per fixable name (RequestManager.CreateProposal, as ⚡ Fix files on a REQUEST rule) in one
-    /// transaction; nothing is renamed until someone approves it in Fix.
+    /// "Fix all" (F-UX1-5): the proposed names are listed first, nothing ticked; one proposed change per ticked row
+    /// (RequestManager.CreateProposal, as ⚡ Fix files on a REQUEST rule) in one transaction; nothing is renamed until someone
+    /// approves it in Fix.
     private static Result FixNaming(ExternalCommandData c, Document doc, ScanReport scan)
     {
         var rs = scan.Ruleset;
+        var rows = new List<(Violation V, string Name)>();
+        foreach (var v in scan.Violations)
+            if (Journey.Fixable(doc, v, rs?.Rules.FirstOrDefault(x => x.Id == v.RuleId), rs?.Org) is { } name && !rows.Any(r => r.V.ElementId == v.ElementId))
+                rows.Add((v, name));
+        var pick = new NamePickWindow(rows.Select(r => (r.V.ElementName, r.Name)).ToList());
+        DialogOwner.Attach(pick, c);
+        if (pick.ShowDialog() != true || pick.Ticked.Count == 0) return Result.Cancelled;
         int filed = 0, skipped = 0;
         using (var t = new Transaction(doc, "Sentinel — propose name fixes"))
         {
             t.Start();
-            foreach (var v in scan.Violations)
+            foreach (var i in pick.Ticked)
             {
-                var rule = rs?.Rules.FirstOrDefault(x => x.Id == v.RuleId);
-                if (Journey.Fixable(v, rule, rs?.Org) is not { } name) continue;
+                var (v, name) = rows[i];
                 if (doc.GetElement(v.ElementId.ToElementId()) is { } e && RequestManager.CreateProposal(doc, v.RuleId, e, name)) filed++;
                 else skipped++;
             }

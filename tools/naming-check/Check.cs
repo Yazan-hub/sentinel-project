@@ -279,6 +279,25 @@ static class Check
         Ok(clock.ElapsedMilliseconds < 2000 && clean == new string('a', 27),
            $"SEC-3: sanitising against a pattern past its bound returns the cleaned text ({clock.ElapsedMilliseconds} ms)");
 
+        // F-UX1-4: Check's "Fix all" files names with no person editing them, so it never guesses a token.
+        var vn = new Rule { Id = "VN-T", Target = RuleTarget.View, Mode = EnforcementMode.Request, Separator = "_", MessageEn = "x",
+            Tokens = ["ORG", "DISCIPLINE", "LEVEL", "TYPE", "DESCRIPTION"],
+            TokenDefs = new() { ["ORG"] = "ACME", ["DISCIPLINE"] = "ARC|STR|MEP", ["LEVEL"] = @"L\d{2}", ["TYPE"] = "PLAN|SCH|SEC", ["DESCRIPTION"] = "[A-Za-z0-9 ]+" } };
+        Ok(Sentinel.Workflow.NameSynth.BuildCompliantName("Door Schedule", vn, null) == "ACME_ARC_L00_PLAN_Door Schedule",
+           "the pane's Fix still pre-fills its editable guess (first alternative)");
+        Ok(Sentinel.Workflow.NameSynth.BuildStrictName("Door Schedule", vn, null, null) == null,
+           "F-UX1-4: with nothing to read DISCIPLINE, LEVEL and TYPE from, Fix all files no name (a schedule is never PLAN)");
+        var facts = new Dictionary<string, string> { ["DISCIPLINE"] = "ARC", ["LEVEL"] = "L01", ["TYPE"] = "SCH" };
+        Ok(Sentinel.Workflow.NameSynth.BuildStrictName("Door Schedule", vn, null, t => facts.TryGetValue(t, out var v) ? v : null) == "ACME_ARC_L01_SCH_Door Schedule",
+           "F-UX1-4: tokens read off the element (token_infer) fill the name; the fixed ORG value is used as is");
+        facts["TYPE"] = "SCHEDULE";
+        Ok(Sentinel.Workflow.NameSynth.BuildStrictName("Door Schedule", vn, null, t => facts.TryGetValue(t, out var v) ? v : null) == null,
+           "F-UX1-4: a read value the token does not allow is not used, and nothing is filed");
+        Ok(Sentinel.Workflow.NameSynth.BuildStrictName("ARC_L02_SEC_Core", vn, null, null) == "ACME_ARC_L02_SEC_Core",
+           "F-UX1-4: tokens already in the name are kept; only the fixed value is added");
+        Ok(Sentinel.Workflow.NameSynth.IsLiteral("ACME") && !Sentinel.Workflow.NameSynth.IsLiteral(@"L\d\d") && !Sentinel.Workflow.NameSynth.IsLiteral("ARC|STR"),
+           "a fixed value is literal; a pattern or a choice is not");
+
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");
         return _fail == 0 ? 0 : 1;
     }

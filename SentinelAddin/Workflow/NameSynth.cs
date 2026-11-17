@@ -17,7 +17,18 @@ namespace Sentinel.Workflow;
 /// </summary>
 public static class NameSynth
 {
-    public static string BuildCompliantName(string current, Rule rule, string? org)
+    public static string BuildCompliantName(string current, Rule rule, string? org) => Build(current, rule, org, null, strict: false)!;
+
+    /// <summary>F-UX1-4: the name Check's "Fix all" may file without a person editing it. A token not in the current name
+    /// comes from <paramref name="infer"/> (the rule's token_infer read off the element) or from a def that is one fixed
+    /// value; an enum, a level or a number is never guessed. Null when any token is left unknown: that name needs a person.</summary>
+    public static string? BuildStrictName(string current, Rule rule, string? org, Func<string, string?>? infer) =>
+        Build(current, rule, org, infer, strict: true);
+
+    /// A def with no regex syntax: its default is the value itself, not a guess.
+    public static bool IsLiteral(string? def) => !string.IsNullOrEmpty(def) && !Regex.IsMatch(def!, @"[\\|\[\]\(\)\.\*\+\?\{\}\^\$]");
+
+    private static string? Build(string current, Rule rule, string? org, Func<string, string?>? infer, bool strict)
     {
         var sep = rule.Separator;
         var segments = current.Split(new[] { sep }, StringSplitOptions.RemoveEmptyEntries);
@@ -41,10 +52,19 @@ public static class NameSynth
                 output.Add(rest.Length > 0 ? rest : DefaultFor(def, token));
                 consumed = segments.Length;
             }
-            else
+            else if (!strict)
             {
                 output.Add(DefaultFor(def, token));               // synthesize
             }
+            else if (infer?.Invoke(token) is { Length: > 0 } read && (rx is null || Fits(rx, read)))
+            {
+                output.Add(read);                                 // read off the element, as the office's token_infer says
+            }
+            else if (IsLiteral(def))
+            {
+                output.Add(def!);                                 // one fixed value: no guess
+            }
+            else return null;                                     // unknown: a person names it
         }
         return string.Join(sep, output);
     }
