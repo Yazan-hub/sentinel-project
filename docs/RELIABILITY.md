@@ -8,7 +8,9 @@ for hours. Hosting the bridge elsewhere waits for the founder's decision (the 20
 published). Until then, this page makes the PC as dependable as a PC can be.
 
 **Status: written 2026-11-16 in a cloud session that cannot run PowerShell. Steps A1 and A2 passed on the bridge PC on 2026-11-17
-(`keeper started`, nothing to repair; the Startup shortcut made, one keeper process running). B is owed.**
+(`keeper started`, nothing to repair; the Startup shortcut made, one keeper process running). Steps B1 to B4 passed on the
+bridge PC on 2026-11-17 (pg_dump 17.12; a 4.5 MB dump that `pg_restore --list` reads, `audit_log` data included; the task
+"Sentinel backup" made without an administrator and run once from Task Scheduler, result 0). B5, the restore drill, is owed.**
 
 ## A. Keep the bridge up: the keeper
 
@@ -50,9 +52,13 @@ Steps:
 
 1. **B1. pg_dump.** Install PostgreSQL 17 command line tools (the EDB installer, tick only "Command Line Tools"), and
    add `C:\Program Files\PostgreSQL\17\bin` to PATH. Check: `pg_dump --version`.
-2. **B2. The connection string.** Supabase dashboard ▸ the project ▸ Connect ▸ Session pooler. Then, once:
-   `setx SENTINEL_BACKUP_DB_URL "postgresql://…"` (it holds the database password; it stays in your Windows user
-   settings, never in the repository or the backup folder).
+2. **B2. The connection string.** Supabase dashboard ▸ the project ▸ Connect ▸ Session pooler; copy the URI and put
+   the database password in place of `[YOUR-PASSWORD]`. Then, once:
+   `powershell -ExecutionPolicy Bypass -File tools\backup-set-db-url.ps1` and paste it at the hidden prompt. It is
+   saved as the user variable `SENTINEL_BACKUP_DB_URL` (it holds the database password; it stays in your Windows user
+   settings, never in the repository or the backup folder). Do not use `setx` or paste the URI at a normal prompt:
+   PowerShell keeps every typed line in its history file. If that happens, reset the database password (nothing in
+   Sentinel uses it besides the backup) and run the script again.
 3. **B3. Where to.** The default is `%USERPROFILE%\SentinelBackups`. A folder synced by OneDrive or on an external
    drive survives the PC: pass `-Destination`.
 4. **B4. Daily:** `tools\backup-install.cmd` (a scheduled task "Sentinel backup" at 21:10, and one run now). Check
