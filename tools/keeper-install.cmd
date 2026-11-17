@@ -9,6 +9,11 @@ if not exist "%KEEPER%" (
   echo Cannot find %KEEPER% - run this file from the tools folder of the Sentinel repository.
   exit /b 1
 )
+rem A Claude session's worktree copy goes away with the session and has no config\.env: the keeper must run from the main folder.
+if not "%KEEPER:\.claude\worktrees\=%"=="%KEEPER%" (
+  echo This is a Claude worktree copy. Run tools\keeper-install.cmd from the main Sentinel folder instead.
+  exit /b 1
+)
 reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "Sentinel keeper" /t REG_SZ /f /d "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"%KEEPER%\""
 if errorlevel 1 (
   echo The keeper was not set to start at sign-in. Copy the red text above to Claude.
