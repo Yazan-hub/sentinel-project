@@ -1524,7 +1524,7 @@ async function handleRequest(req, res) {
           standards: (key, kind) => art.resolveArtefact(key, kind),
           documents: (key) => bimdocs.listDocs(key),
           containers: (key) => cde.listContainers(key),
-          reviews: (key) => cde.readReviews(key),
+          reviews: (key) => cde.readReviews(key, { all: true }), // finished chains too (F-RUN-18)
           ledgerPage: (key, q) => cde.listAudit(key, q),
           chainPage: (key, q) => cde.listChain(key, q),
           verifier: (({ file, sha256 }) => ({ file, sha256, run: `node ${file} <this pack>`, get: "Project Settings ▸ audit pack ▸ Download the verifier — or WebApp/bridge/ledger-verify.mjs in github.com/Yazan-hub/sentinel-project" }))(verifierFile()),
@@ -1587,7 +1587,7 @@ async function handleRequest(req, res) {
           try {
             const { rejectionTopic } = await import("./review-logic.mjs");
             const topic = cde.newTopicObject(p1, { ...rejectionTopic(r, b.note), topic_type: "Issue", priority: "High" }, new Date().toISOString());
-            await cde.bcfCreateTopic(topic);
+            await cde.bcfCreateTopic(topic, { decision: true }); // F-RUN-1: review_decide accepted this person's decision — a Client's viewer too
             broadcast(p1, { type: "topic", action: "created", guid: topic.guid, title: topic.title });
             bcf = { guid: topic.guid };
           } catch (e) { bcf = { error: String(e?.message || e) }; }

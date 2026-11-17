@@ -54,10 +54,8 @@ public static class TypeCatalogExport
     /// <summary>What Build Office System says after the export: where it is and how to install it on the office.</summary>
     public static string Message(int count, string templateTitle, string path) =>
         $"Type catalogue exported ({count} types from {templateTitle}) → {path}. " +
-        $"Install it on the office: node bridge/artefact-import.mjs \"{path}\" --project <office> --kind type_catalog.\n\n" +
-        "Run it from WebApp; <office> is the office's web project key. Ghost Builder and Photo Massing read the type " +
-        "catalogue installed on the project or its office — never this file.\n\n" +
-        "A lead installs it from the review window too: Install catalogue on office (MA-2a, BOS-3) — no command line.";
+        "A lead installs it from the Standards review window with \"Install catalogue on office\". Ghost Builder and Photo Massing " +
+        "read the type catalogue installed on the project or its office, never this file.";
 
     /// <summary>MA-2a (BOS-3): the body Install on office PUTs — the export plus a top-level <c>source</c> {tool: revit-build,
     /// document}, which the bridge's PUT route lifts into the pointer's provenance (as the ruleset install's does).</summary>

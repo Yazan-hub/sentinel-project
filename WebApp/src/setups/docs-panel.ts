@@ -13,7 +13,7 @@ import { myRoleRead, roleWords } from "./my-role";
 import { escapeHtml as esc, pathSegment } from "./escape-html";
 import type { IngestProposal } from "../workspace/ingest-view";
 import { renderMarkdown } from "../workspace/markdown";
-import { createLine, type Choice } from "./template-form";
+import { createLine, creatable, TIDP_MOVED, type Choice } from "./template-form";
 
 const STATE_COLOR: Record<string, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 type Answer = { value: "yes" | "partial" | "no"; note: string; by: string; at: string };
@@ -194,7 +194,7 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
   async function showCreate() {
     openId = null; onList = false;
     body.replaceChildren();
-    const templates: Choice[] = await api(`/${encodeURIComponent(pid())}/templates`); // the shipped templates, then the office's
+    const templates: Choice[] = creatable(await api(`/${encodeURIComponent(pid())}/templates`)); // the shipped templates, then the office's; no TIDP (F-RUN-6)
     const wrap = document.createElement("div");
     wrap.style.cssText = "max-width:420px;display:flex;flex-direction:column;gap:.5rem";
     const input = document.createElement("input");
@@ -215,6 +215,10 @@ export function docsPanel(_components: OBC.Components, opts: { baseUrl?: string;
       when.textContent = t.when_to_use ?? "";
       wrap.append(b, when);
     }
+    const moved = document.createElement("div");
+    moved.style.cssText = "color:#9a9aa5;font-size:.8rem";
+    moved.textContent = TIDP_MOVED;
+    wrap.append(moved);
     const back = btn("← Back"); back.onclick = showList; wrap.append(back);
     body.append(wrap);
   }

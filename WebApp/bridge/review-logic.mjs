@@ -57,6 +57,28 @@ export function openChains(reviewRows, backToWipRows, versions, { uid = null, ra
   return items.sort((a, b) => Number(b.chain_start_id) - Number(a.chain_start_id));
 }
 
+/** F-RUN-18: every chain the ledger holds, newest first, for the audit pack: one per review:start row, finished or not.
+ *  outcome: open (openChains lists it), rejected (a review:reject row names it), approved (every step has its
+ *  approvals), else closed (sent back to WIP before it finished).
+ *  → [{version_id, container_name, revision, chain_start_id, ref, submitter, started_at, of, approvals, open, outcome}] */
+export function allChains(reviewRows, backToWipRows, versions) {
+  const openIds = new Set(openChains(reviewRows, backToWipRows, versions).map((c) => String(c.chain_start_id)));
+  const byId = new Map((versions || []).map((v) => [v.id, v]));
+  return (reviewRows || []).filter((r) => r.action === "review:start").map((start) => {
+    const s = start.new_value || {}, steps = Array.isArray(s.steps) ? s.steps : [], v = byId.get(start.entity_id);
+    const mine = (reviewRows || []).filter((r) => String(r.new_value?.chain_start_id) === String(start.id));
+    const approvals = mine.filter((r) => APPROVAL.test(String(r.action))).sort((a, b) => Number(a.id) - Number(b.id));
+    const open = openIds.has(String(start.id));
+    const done = steps.length > 0 && steps.every((st, i) => approvals.filter((a) => Number(a.new_value?.step) === i + 1).length >= (st.approvals ?? 1));
+    return {
+      version_id: start.entity_id, container_name: v?.container_name ?? null, revision: v?.revision ?? null, chain_start_id: start.id, ref: s.ref ?? null,
+      submitter: start.actor ?? null, started_at: start.at ?? null, of: steps.length,
+      approvals: approvals.map((a) => ({ step: Number(a.new_value?.step), actor: a.actor ?? null, at: a.at, ledger: { id: a.id ?? null, hash: a.hash ?? null } })),
+      open, outcome: open ? "open" : mine.some((r) => String(r.action).startsWith("review:reject")) ? "rejected" : done ? "approved" : "closed",
+    };
+  }).sort((a, b) => Number(b.chain_start_id) - Number(a.chain_start_id));
+}
+
 /** The one BCF topic a rejection raises (spec Decision 12): {title, description} from review_decide's answer (with the
  *  container's name) and the reviewer's note. The ledger line follows the receipt rule: only with an id and a 64-hex
  *  hash. */

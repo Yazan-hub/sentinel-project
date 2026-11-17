@@ -9,6 +9,8 @@ describe("audit pack (web)", () => {
   it("the words count every part and name the parts not read", () => {
     const pack = { standards: { ids: { ref: "ids@3" }, roi: null }, documents: [{}, {}], containers: [{ versions: [{}] }], reviews: [], ledger: { total: 187, rows: new Array(187), truncated: false }, bundle_sha256: "1f028f686ca3eaac00" };
     expect(packWords(pack, "f.json")).toEqual({ text: "Saved f.json — 1 standard(s), 2 document(s), 1 container(s), 0 review chain(s), 187 of 187 ledger row(s); sealed 1f028f686ca3….", bad: false });
+    // F-RUN-18: the pack holds every chain; the line says how many are still open
+    expect(packWords({ ...pack, reviews: [{ open: false }, { open: false }, { open: true }] }, "f.json").text).toContain("3 review chain(s) (1 open),");
     const partial = { ...pack, reviews: { not_read: "forbidden" }, ledger: { not_read: "no count" } };
     const w = packWords(partial, "f.json");
     expect(w.bad).toBe(true);

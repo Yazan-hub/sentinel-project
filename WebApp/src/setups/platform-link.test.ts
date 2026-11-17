@@ -24,3 +24,15 @@ describe("linkedProject", () => {
     expect(linkedProject([row("b13-review", "p1", true)], "p1")).toEqual({});
   });
 });
+
+describe("F-RUN-15: Platform deliveries show only on the project linked to this platform project", () => {
+  it("a project with no link, or linked elsewhere, hides them; the linked one (or the platform project itself) shows them", async () => {
+    const { showsPlatformDeliveries } = await import("./platform-link");
+    const rows = [{ key: "aster", settings: { platform_project_id: "plat-1" } }, { key: "snowdon", settings: {} }, { key: "other", settings: { platform_project_id: "plat-2" } }];
+    expect(showsPlatformDeliveries(rows, "aster", "plat-1")).toBe(true);
+    expect(showsPlatformDeliveries(rows, "snowdon", "plat-1")).toBe(false);
+    expect(showsPlatformDeliveries(rows, "other", "plat-1")).toBe(false);
+    expect(showsPlatformDeliveries(rows, "plat-1", "plat-1")).toBe(true);
+    expect(showsPlatformDeliveries(rows, "aster", undefined)).toBe(false);
+  });
+});

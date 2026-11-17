@@ -31,7 +31,7 @@ Done when: each of 5.3.1 to 5.3.7 has a place in Sentinel or a written ABSENT no
 
 ## What is still the founder's
 
-- READINESS declared answers (17 items: people, process, standards). Answer them honestly; Claude does not fill them.
+- READINESS declared answers (17 items: people, process, standards). Filled on 2026-11-16 from this pack, each marked SYNTHETIC, on the founder's "finish P0" (see `../P0-P4-RUN_2026-11-16.md`); change any of them to the real answer.
 - Real office facts, only if he wants them in place of the SYNTHETIC names, hours and availability in `P0-02` and `P0-03`.
 - Passwords: signing in to the four accounts (hotmail, gmail, user4, user3).
 - The Funnel refresh, once per run after the bridge restarts.

@@ -1,10 +1,11 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
-import { transitionVersion, nextAttachRevision, boardLockedWords } from "./cde-transition";
+import { transitionVersion, nextAttachRevision, boardLockedWords, newFolderOutcome } from "./cde-transition";
 import { myRoleRead, canEditRole, canGovernRole } from "./my-role";
 import { readReviews, decideReview, decideFailedLine, decisionLine, reviewLine, approvalLine, reviewMoves, reviewsInView, type ReviewItem } from "./review-chain";
-import { activePid, onActiveProjectChange } from "./active-project";
+import { activePid, onActiveProjectChange, platformProjectId } from "./active-project";
+import { showsPlatformDeliveries, type LinkRow } from "./platform-link";
 import { loadScope } from "./load-scope";
 import { unlockAndVerify, isUnlocked, lockProject, passphraseIssue, rotateProjectKey, rotationUnderWay } from "./crypto";
 import { putEncryptedFile, downloadDecrypted, resealFiles, type StoredFile } from "./secure-store";
@@ -94,6 +95,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   let folders: Folder[] = [];
   let selected: string | null = null; // folder id, or null = All files
   let renaming: string | null = null; // folder id being inline-renamed
+  let drafting: { parentId: string | null } | null = null; // F-RUN-9: a new folder being named; nothing exists until the name is confirmed
   let confirmDel = false;
   // The Share or Publish the database refused until a lead gives a reason (migrations 0031, 0032): that version's card
   // asks for it, and the retry sends it as `override` with the same move.
@@ -198,6 +200,19 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       }
     };
     render(null, 0);
+    if (drafting) {
+      const rowEl = document.createElement("div");
+      rowEl.style.cssText = rowCss(1, true);
+      const inp = document.createElement("input");
+      inp.placeholder = "Folder name (Esc cancels)";
+      inp.style.cssText = "flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.15rem .3rem;font:12px system-ui";
+      const settle = (key: string) => { const o = newFolderOutcome(key, inp.value); if (o) void endDraft(o === "create" ? inp.value.trim() : null); };
+      inp.addEventListener("keydown", (e) => settle(e.key));
+      inp.addEventListener("blur", () => settle("blur"));
+      rowEl.appendChild(inp);
+      host.appendChild(rowEl);
+      setTimeout(() => inp.focus(), 0);
+    }
     renderTools();
   }
 
@@ -212,16 +227,25 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     status(f ? `“${f.name}” · ${inFolder(selected).length} container(s).` : `All files · ${containers.length} container(s).`);
   }
 
-  async function addFolder() {
+  function addFolder() {
+    const parent = folderById(selected);
+    // add under the selected folder; if "All files" or none selected, add under the root (or as a root child)
+    drafting = { parentId: parent ? parent.id : (childrenOf(null).find((r) => r.kind === "root")?.id ?? null) };
+    renderTree();
+  }
+
+  /** The new-folder name box is done: a name creates the folder, null (Escape, an empty name) creates nothing. */
+  async function endDraft(name: string | null) {
+    const d = drafting;
+    if (!d) return; // the box's blur as it is removed is not a second answer
+    drafting = null;
+    if (!name) { renderTree(); return; }
     try {
-      const parent = folderById(selected);
-      // add under the selected folder; if "All files" or none selected, add under the root (or as a root child)
-      const parentId = parent ? parent.id : (childrenOf(null).find((r) => r.kind === "root")?.id ?? null);
-      const created = await api(`${encodeURIComponent(pid())}/folders`, "POST", { parent_id: parentId, name: "New folder", actor: "web" }) as Folder;
+      const created = await api(`${encodeURIComponent(pid())}/folders`, "POST", { parent_id: d.parentId, name, actor: "web" }) as Folder;
       await loadFolders();
-      selected = created.id; renaming = created.id; // drop straight into rename
+      selected = created.id;
       refreshView();
-    } catch (e) { status(`New folder failed: ${(e as Error).message}`); }
+    } catch (e) { status(`New folder failed: ${(e as Error).message}`); renderTree(); }
   }
 
   async function commitRename(id: string, name: string) {
@@ -263,7 +287,8 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   // The platform's own verdicts on the IFCs of the linked platform project (spec 2026-09-27 platform-delivery-gate
   // Decision 8): read from the platform, beside the board, on every load.
-  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), () => readGateLedger(base, pid()));
+  const refreshPlatformDeliveries = mountPlatformDeliveries(el("cde-plat"), () => readGateLedger(base, pid()),
+    async () => showsPlatformDeliveries(await (await bfetch(`${base}/cde/projects`)).json() as LinkRow[], pid(), platformProjectId()));
 
   let loadedScope = ""; // the project and person the board was last loaded for (load-scope.ts)
   async function loadAll() {
@@ -645,7 +670,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   onActiveProjectChange(() => {
     syncLock();
     if (loadScope(pid()) !== loadedScope) {
-      selected = null; renaming = null; confirmDel = false; needsReason = null; myReviews = false;
+      selected = null; renaming = null; drafting = null; confirmDel = false; needsReason = null; myReviews = false;
       el("cde-form").style.display = "none"; el("cde-unlock").style.display = "none";
     } else if ([...root.querySelectorAll<HTMLInputElement>("#cde-tree input, #cde-board input")].some((i) => i.value.trim())) return;
     void loadAll();

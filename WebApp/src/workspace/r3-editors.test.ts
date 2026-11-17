@@ -6,7 +6,7 @@ vi.mock("../setups/active-ruleset", () => ({ artefactInForce: vi.fn(async () => 
 
 import { artefactInForce } from "../setups/active-ruleset";
 import { loinEditor } from "./loin-editor";
-import { changeLine, changesFrom, proposedChangesEditor } from "./proposed-changes-editor";
+import { changeLine, changesFrom, namingOf, proposedChangesEditor } from "./proposed-changes-editor";
 import { eirLinkEditor, NO_EIR } from "./eir-link-editor";
 import { tableEditor } from "./grid-editors";
 import { click, fakeDocument, findAll, fire, textOf } from "./fake-dom";
@@ -89,6 +89,25 @@ describe("proposedChangesEditor", () => {
     click(btn(e.el, "Compare with the client's naming")!); await flush();
     expect(textOf(e.el)).toContain("Adds Z");
   });
+  it("F-RUN-4: a naming block saved after the page was drawn is what the client's naming is compared with, not the naming in force", async () => {
+    vi.mocked(artefactInForce).mockClear();
+    vi.mocked(artefactInForce).mockResolvedValueOnce({ body: naming(["a", "z"]) } as any); // the project's installed naming: not what this BEP proposes
+    const ctx = ctxWith({ doc: { id: "d1", doc_type: "BEP", title: "T", responds_to: "e1", sections: [{ id: "s1", heading: "Our naming", blocks: [] }] } }, eirDoc(naming(["a", "b"])));
+    const e = proposedChangesEditor(block("proposed_changes", { changes: [] }), ctx, "s1");
+    ctx.ws.state = () => ({ ...ctx.st, doc: st.doc }); // the naming block was saved since: the page's snapshot (ctx.st) is older than the workspace's row
+    click(btn(e.el, "Compare with the client's naming")!); await flush();
+    expect((e.value().data as any).changes.map((c: any) => c.detail)).toEqual(["Adds C", "Removes B"]);
+    expect(artefactInForce).not.toHaveBeenCalled();
+    vi.mocked(artefactInForce).mockReset(); vi.mocked(artefactInForce).mockResolvedValue(null as any);
+  });
+  it("F-RUN-4 leftover: the naming compared is the first naming block that has fields, the one in the block's own section first, never an empty one", () => {
+    const nb = (keys: string[]) => ({ id: "n" + keys.join(""), kind: "naming", data: { separator: "-", fields: keys.map((k) => ({ key: k, label: k.toUpperCase(), kind: "text" })) } });
+    const sections = [{ id: "s1", heading: "A", blocks: [nb([])] }, { id: "s2", heading: "B", blocks: [nb(["a"])] }, { id: "s3", heading: "C", blocks: [nb(["x", "y"])] }] as any;
+    expect(namingOf(sections)?.fields.map((f: any) => f.key)).toEqual(["a"]);
+    expect(namingOf(sections, "s3")?.fields.map((f: any) => f.key)).toEqual(["x", "y"]);
+    expect(namingOf(sections, "s1")?.fields.map((f: any) => f.key)).toEqual(["a"]);
+    expect(namingOf([sections[0]])).toBeNull();
+  });
 });
 
 describe("eirLinkEditor", () => {
@@ -102,6 +121,8 @@ describe("eirLinkEditor", () => {
     const tick = findAll(e.el, "input").filter((i) => (i as any).type === "checkbox")[1] as any;
     tick.checked = true; fire(tick, "change");
     expect((e.value().data as any).clauses.map((c: any) => c.clause_id)).toEqual(["n1", "s2"]);
+    // F-RUN-3: each clause carries the EIR section's name (a ticked one, and one saved before names were kept), so what is read and frozen says the name
+    expect((e.value().data as any).clauses.map((c: any) => c.heading)).toEqual(["Naming", "Delivery"]);
     expect(textOf(e.el)).toContain("Every EIR clause is answered.");
   });
   it("clauses another EIR link block names are not 'not answered'", async () => {

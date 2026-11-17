@@ -32,6 +32,9 @@ export function createLine(t: Choice): string {
   const n = Array.isArray(t.sections) ? t.sections.length : t.sections;
   return `Create ${t.doc_type} — ${t.name || t.title || t.template_id} (${t.office || t.template_id.startsWith("office-") ? "office template, " : ""}${n} sections)`;
 }
+/** F-RUN-6: a TIDP opens read-only (plans are made in Deliverables), so the start picker does not offer one. */
+export const creatable = (list: Choice[]): Choice[] => list.filter((t) => String(t.doc_type).toUpperCase() !== "TIDP");
+export const TIDP_MOVED = "A task team's delivery plan (TIDP) is made in Deliverables ▸ By task team, not as a document.";
 
 const BLANK: Record<BlockKind, () => unknown> = {
   text: () => ({ markdown: "" }), table: () => ({ columns: [], rows: [], group_by_team: false }),

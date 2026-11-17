@@ -1661,8 +1661,8 @@ const REVIEW_NO_FORWARDING = "this bridge does not forward the session (SUPABASE
  *  their state (listFiles), and this caller: uid, the forwarded JWT's sub — only when this bridge forwards the session,
  *  the one way a decision reaches review_decide — and rank, the role's (myRole; the machine credential ranks 0). A read
  *  that fails is a 502 "not read — …", never an empty list; a non-member's 403 and an unknown key's 404 stay theirs. */
-export async function readReviews(key) {
-  const { openChains } = await import("./review-logic.mjs");
+export async function readReviews(key, { all = false } = {}) { // all: every chain, finished too (the audit pack, F-RUN-18)
+  const { openChains, allChains } = await import("./review-logic.mjs");
   const { myMembership, ROLE_RANK } = await import("./members-store.mjs");
   let reviewRows, backRows, files, me;
   try {
@@ -1678,6 +1678,7 @@ export async function readReviews(key) {
     throw Object.assign(new Error("not read — the review rows or the file list could not be read (the bridge log has the cause)"), { status: 502 });
   }
   const versions = files.flatMap((f) => f.versions.map((v) => ({ id: v.id, container_name: f.iso_name, revision: v.revision, state: v.state })));
+  if (all) return { items: allChains(reviewRows, backRows, versions) };
   const sub = currentSub();
   const uid = sub && forwardingConfigured() ? sub : null;
   return { items: openChains(reviewRows, backRows, versions, { uid, rank: ROLE_RANK[me.role] || 0, party: me.party ?? null, ...(sub && !uid ? { unsigned: REVIEW_NO_FORWARDING } : {}) }) };
@@ -2347,9 +2348,12 @@ export function newTopicObject(pid, b = {}, now = new Date().toISOString()) {
   };
 }
 
-export async function bcfCreateTopic(topic) {
+/** `decision: true` is for the one issue a rejection raises (F-RUN-1): the database has just accepted that person's decision on
+ *  the step, so the issue is the system's record of it and any active member gets it (a Client decides as a viewer). Only the
+ *  two decide paths pass it (the CDE review route, rounds-store rejectionIssue); every other topic write stays a contributor's. */
+export async function bcfCreateTopic(topic, { decision = false } = {}) {
   const { requireMinRole } = await import("./members-store.mjs");
-  await requireMinRole(topic.project_id, "contributor"); // 0038: bcf_topics has no signed-in writer — every topic write is checked here
+  await requireMinRole(topic.project_id, decision ? "viewer" : "contributor"); // 0038: bcf_topics has no signed-in writer — every topic write is checked here
   await sb(`bcf_topics`, { method: "POST", body: bcfRow(topic), prefer: "return=minimal", service: true });
   return topic;
 }

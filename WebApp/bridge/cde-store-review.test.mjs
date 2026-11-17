@@ -16,7 +16,7 @@ const state = vi.hoisted(() => {
 vi.mock("./members-store.mjs", async (orig) => ({ ...(await orig()), myRole: vi.fn(async () => state.role), myMembership: vi.fn(async () => ({ role: state.role, party: state.party ?? null, task_team: null, state: "active" })) }));
 
 import { runWithAuth } from "./bridge-auth.mjs";
-import { readReviews, reviewDecide } from "./cde-store.mjs";
+import { readReviews, reviewDecide, newTopicObject, bcfCreateTopic } from "./cde-store.mjs";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const C = "cccccccc-0000-4000-8000-000000000001";
@@ -54,6 +54,7 @@ beforeEach(() => {
     // ensureProject: the authoritative read by key and, when a session is forwarded, the member's read by id.
     if (table === "projects") return json(q("key") === "eq.aster-tower" || q("id") === `eq.${P}` ? [{ id: P, key: "aster-tower" }] : []);
     if (table === "rpc/review_decide") return rpc();
+    if (table === "memberships") return json(db.memberships || []);
     if (table === "container_versions") {
       const id = q("id")?.slice(3);
       const project_id = { [V1]: P, [VX]: "33333333-3333-4333-8333-333333333333" }[id];
@@ -176,5 +177,27 @@ describe("reviewDecide — a signed-in person's decision, recorded by review_dec
     const e = await asAna(() => reviewDecide("aster-tower", V1, { decision: "approve" })).catch((x) => x);
     expect(e.status).toBeUndefined();
     expect(e.message).toMatch(/^Supabase 404: /);
+  });
+});
+
+describe("F-RUN-1: a rejection's issue is the record of the decision, raised for whoever may decide the step", () => {
+  const asClient = (fn) => runWithAuth(jwt(ANA, "client@example.test"), fn);
+  const topic = () => newTopicObject("aster-tower", { title: "Review: Tower.ifc rejected at step 3 — wrong level names", topic_type: "Issue", priority: "High" });
+  const topicPosts = () => calls.filter((c) => c.table === "bcf_topics" && c.method === "POST");
+
+  it("a Client's viewer who rejected gets the issue raised, authored as that person", async () => {
+    db.memberships = [{ user_id: ANA, role: "viewer", party: "appointing", task_team: null, state: "active" }];
+    const t = await asClient(() => topic());
+    await asClient(() => bcfCreateTopic(t, { decision: true }));
+    expect(topicPosts()).toHaveLength(1);
+    expect(topicPosts()[0].body.data.creation_author).toBe("client@example.test");
+  });
+
+  it("any other issue a viewer writes is still refused, and a non-member gets no decision issue either", async () => {
+    db.memberships = [{ user_id: ANA, role: "viewer", party: "appointing", task_team: null, state: "active" }];
+    await expect(asClient(() => bcfCreateTopic(topic()))).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
+    db.memberships = [];
+    await expect(asClient(() => bcfCreateTopic(topic(), { decision: true }))).rejects.toMatchObject({ status: 403 });
+    expect(topicPosts()).toHaveLength(0);
   });
 });

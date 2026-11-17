@@ -76,7 +76,7 @@ describe("the workspace controller", () => {
   it("a linked EIR's title is read for the page", async () => {
     const t = setup((m, p) => (p === "/bimdocs/a/e1" ? ok(doc({ id: "e1", doc_type: "EIR", title: "SNW EIR" })) : docRoute(doc({ responds_to: "e1", responds_to_version: 2 }))(m, p)));
     await t.ws.open("d1");
-    expect(t.ws.state().respondsTo).toEqual({ title: "SNW EIR", version_no: 2 });
+    expect(t.ws.state().respondsTo).toEqual({ title: "SNW EIR", version_no: 2, clauses: { [S1.id]: S1.heading } }); // F-RUN-3: the EIR's section names, for the EIR link block
   });
   it("a project switch during open drops the late answer (Review Focus 1)", async () => {
     const d = deferred<unknown>(); const t = setup((_m, p) => (p === "/bimdocs/a/d1" ? d.p : ok([])));

@@ -18,7 +18,9 @@ export function packWords(pack: PackSummary, filename: string): { text: string; 
   const std = count("standard(s)", pack.standards, (s: Record<string, unknown>) => Object.values(s).filter(Boolean).length);
   const docs = count("document(s)", pack.documents, (d: unknown[]) => d.length);
   const cont = count("container(s)", pack.containers, (c: { versions?: unknown[] }[]) => c.length);
-  const rev = count("review chain(s)", pack.reviews, (r: unknown[]) => r.length);
+  // F-RUN-18: the pack holds every chain; one from before that held only the open ones carries no `open` and reads as before
+  const openN = Array.isArray(pack.reviews) && pack.reviews.some((r) => typeof (r as { open?: unknown })?.open === "boolean") ? ` (${pack.reviews.filter((r) => (r as { open?: boolean }).open).length} open)` : "";
+  const rev = count("review chain(s)", pack.reviews, (r: unknown[]) => r.length) + openN;
   const led = notRead(pack.ledger) ? count("ledger", pack.ledger, () => 0) : `${(pack.ledger as { rows?: unknown[] })?.rows?.length ?? 0} of ${(pack.ledger as { total?: number })?.total ?? 0} ledger row(s)${(pack.ledger as { truncated?: boolean })?.truncated ? " (cut at the cap)" : ""}`;
   // v2 (ledger verification): the project's own hash chain, checked offline by the verifier
   const chain = pack.chain === undefined ? "" : `, ${count("project chain row(s)", pack.chain, (c: { rows?: unknown[] }) => c.rows?.length ?? 0)}`;

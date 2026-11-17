@@ -118,3 +118,46 @@ describe("0057: the mark not in Sentinel", () => {
     expect(() => validateTeam({ code: "STR", outside_sentinel: "yes" })).toThrow(/true or false/);
   });
 });
+
+describe("0058: owns_no_container", () => {
+  const P = "11111111-1111-4111-8111-111111111111";
+  const T = "77777777-0000-4000-8000-000000000001";
+  const U = "33333333-0000-4000-8000-0000000000aa";
+  const jwt = "eyJhbGciOiJIUzI1NiJ9." + Buffer.from(JSON.stringify({ sub: U, email: "u@example.test", role: "authenticated" })).toString("base64url") + ".sig";
+  const realFetch = globalThis.fetch;
+  let db, rest;
+  const lead = (fn) => { db.memberships = [{ project_id: P, user_id: U, role: "lead" }]; return runWithAuth(jwt, fn); };
+  beforeEach(() => { db = { projects: [{ id: P, key: "demo" }], task_teams: [{ id: T, project_id: P, code: "ARC" }] }; rest = fakePostgrest(db); globalThis.fetch = vi.fn(rest.fetch); });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  it("is kept only when carried, and is true or false", () => {
+    expect(validateTeam({ code: "INT", owns_no_container: true })).toMatchObject({ owns_no_container: true });
+    expect("owns_no_container" in validateTeam({ code: "INT" })).toBe(false);
+    expect(() => validateTeam({ code: "INT", owns_no_container: "yes" })).toThrow(/true or false/);
+  });
+  it("is saved and returned when the column exists", async () => {
+    expect(await lead(() => updateTeam("demo", T, { owns_no_container: true }, "web"))).toMatchObject({ id: T, owns_no_container: true });
+    expect(await lead(() => createTeam("demo", { code: "INT", owns_no_container: true }, "web"))).toMatchObject({ code: "INT", owns_no_container: true });
+  });
+  it("a change of the tick is on the ledger, both ways, like the not-in-Sentinel tick; an edit that leaves it alone does not name it", async () => {
+    const rows = () => rest.calls.filter((c) => c.table === "audit_log").map((c) => JSON.parse(JSON.stringify(c.body)));
+    const pick = (r) => [r.action, r.old_value?.owns_no_container, r.new_value?.owns_no_container];
+    await lead(() => updateTeam("demo", T, { owns_no_container: true }, "web"));
+    await lead(() => updateTeam("demo", T, { name: "Architecture" }, "web"));
+    await lead(() => updateTeam("demo", T, { owns_no_container: false }, "web"));
+    await lead(() => createTeam("demo", { code: "INT", owns_no_container: true }, "web"));
+    expect(rows().map(pick)).toEqual([["updated", false, true], ["updated", undefined, undefined], ["updated", true, false], ["created", undefined, true]]);
+  });
+  it("before the migration: a team without the column reads as not set, other edits save, and a tick is refused in plain words", async () => {
+    expect(await lead(() => updateTeam("demo", T, { name: "Architecture" }, "web"))).toMatchObject({ name: "Architecture" });
+    expect(db.task_teams[0].owns_no_container).toBeUndefined();
+    const noCol = async (url, init) => (init?.body && /owns_no_container/.test(init.body) && !/audit_log/.test(String(url))
+      ? new Response(JSON.stringify({ code: "PGRST204", message: "Could not find the 'owns_no_container' column of 'task_teams' in the schema cache" }), { status: 400 })
+      : rest.fetch(url, init));
+    globalThis.fetch = vi.fn(noCol);
+    const plain = { status: 409, message: "This needs a database update that has not been applied yet, so the tick could not be saved." };
+    await expect(lead(() => updateTeam("demo", T, { owns_no_container: true }, "web"))).rejects.toMatchObject(plain);
+    await expect(lead(() => createTeam("demo", { code: "INT", owns_no_container: true }, "web"))).rejects.toMatchObject(plain);
+    expect(await lead(() => createTeam("demo", { code: "STR" }, "web"))).toMatchObject({ code: "STR" });
+  });
+});

@@ -8,7 +8,7 @@ export interface BlockData {
   facts: { labels: string[]; layout: "text" | "table" };
   live_view: { source: "midp" | "tidp" | "office_register" | "risk_register" | "mobilisation" | "capability"; filter: { team: string | null; stage: string | null; register_part: string | null } };
   proposed_changes: { changes: { field_key: string; change: "added" | "removed" | "changed"; detail: string; reason: string }[] };
-  eir_link: { clauses: { clause_id: string; note: string }[] };
+  eir_link: { clauses: { clause_id: string; note: string; heading?: string }[] };
   loin: { rows: { id: string; element: string; milestone: string; property: string; value: string; used_by: string; why: string }[] };
   naming: { separator: string; enforce: "reject" | "warn" | "off"; fields: { key: string; label: string; pattern: string | null; enum: string[]; placeholders: string[]; description: string }[] };
   references: { rows: { id: string; role: "protocol" | "information_standard" | "production_methods" | "eir" | "other"; title: string; version: string; sha: string | null; issuer: string; received: string | null; incorporated_in: string[] }[] };

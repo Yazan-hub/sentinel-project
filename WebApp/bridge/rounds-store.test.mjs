@@ -98,6 +98,7 @@ describe("decide, withdraw, appointment indicated", () => {
     const r = await runWithAuth(jwt("lead2"), () => decide("k", RND, { decision: "reject", note: "scope missing" }));
     expect(r.bcf).toEqual({ guid: "g1" });
     expect(bcfCreateTopic).toHaveBeenCalledTimes(1);
+    expect(bcfCreateTopic.mock.calls[0][1]).toEqual({ decision: true }); // F-RUN-1: raised for whoever decided, a viewer too
     const t = bcfCreateTopic.mock.calls[0][0];
     expect(t).toMatchObject({ topic_type: "Issue", priority: "High" });
     expect(t.title).toContain("Our BEP");

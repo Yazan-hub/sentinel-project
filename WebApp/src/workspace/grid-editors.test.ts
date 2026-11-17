@@ -313,6 +313,36 @@ describe("matrixEditor", () => {
     expect((e.value().data as any).columns.map((c: any) => c.key)).toEqual(["str", "team_mep"]);
     expect((e.value().data as any).rows[0].marks).toEqual({});
   });
+  // F-RUN-2: a column is tied to a declared task team, so "One responsible task team per element" can pass
+  const teamSelects = (el: HTMLElement) => findAll(el, "select").filter((s) => (s as any).dataset.field === "team");
+  it("a new or renamed column whose name is a declared team code is tied to that team", async () => {
+    const e = matrixEditor(block("matrix", { ...matrix(), columns: [] }), ctxWith({ get: [{ code: "ARC" }, { code: "STR" }] }), "s1"); await flush();
+    vi.mocked(askText).mockResolvedValueOnce("arc");
+    click(btn(e.el, "Add column")!); await flush();
+    expect((e.value().data as any).columns).toEqual([{ key: "arc", label: "arc", team: "ARC" }]);
+    vi.mocked(askText).mockResolvedValueOnce("Client");
+    click(btn(e.el, "Add column")!); await flush();
+    expect((e.value().data as any).columns[1]).toEqual({ key: "client", label: "Client", team: null });
+    vi.mocked(askText).mockResolvedValueOnce("STR");
+    click(findAll(e.el, "button").filter((b) => textOf(b) === "Rename")[1]); await flush();
+    expect((e.value().data as any).columns[1]).toEqual({ key: "client", label: "STR", team: "STR" });
+  });
+  it("the lead ties a column to a task team and unties it; a rename keeps a tie the lead chose", async () => {
+    const e = matrixEditor(block("matrix", { ...matrix(), columns: [{ key: "a", label: "Architect", team: null }] }), ctxWith({ get: [{ code: "ARC" }, { code: "STR" }] }), "s1"); await flush();
+    expect(findAll(teamSelects(e.el)[0], "option").map((o) => textOf(o))).toEqual(["No task team", "ARC", "STR"]);
+    type(teamSelects(e.el)[0], "ARC");
+    expect((e.value().data as any).columns[0].team).toBe("ARC");
+    vi.mocked(askText).mockResolvedValueOnce("Architecture");
+    click(btn(e.el, "Rename")!); await flush();
+    expect((e.value().data as any).columns[0]).toEqual({ key: "a", label: "Architecture", team: "ARC" });
+    type(teamSelects(e.el)[0], "");
+    expect((e.value().data as any).columns[0].team).toBeNull();
+  });
+  it("someone who is not a lead reads the team and gets no select", async () => {
+    const e = matrixEditor(block("matrix", matrix()), ctxWith({ canGovern: false, get: [{ code: "ARC" }] }), "s1"); await flush();
+    expect(teamSelects(e.el)).toHaveLength(0);
+    expect(textOf(e.el)).toContain("Task team ARC");
+  });
 });
 
 describe("referencesEditor", () => {

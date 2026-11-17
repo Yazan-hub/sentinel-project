@@ -176,6 +176,10 @@ describe("R2d-2: Needs a review (revisionReasons)", () => {
       "a member's party or task team changed", "Firm · Team MEP gained a member", "a member's role changed", "the project moved to the coordination stage",
       "the naming standard was reinstalled", "the risk register list changed (strategy)", "the EIR this document answers was republished"]);
     expect(revisionReasons(doc, last, [row("member_joined", "2026-11-06T00:00:00Z")])).toEqual(["a member joined the project"]);
+    // F-RUN-11: a team removed again is not named
+    expect(revisionReasons(doc, last, [row("created", "2026-11-06T00:00:00Z", { entity_type: "task_team", new_value: { code: "ZZT" } }),
+      row("created", "2026-11-06T00:30:00Z", { entity_type: "task_team", new_value: { code: "MEP" } }),
+      row("deleted", "2026-11-06T01:00:00Z", { entity_type: "task_team", old_value: { code: "ZZT" } })])).toEqual(["A task team joined: MEP"]);
     expect(revisionReasons(doc, last, [row("created", "2026-11-06T00:00:00Z", { entity_type: "task_team", new_value: { code: "MEP" } })])).toEqual(["A task team joined: MEP"]);
   });
   it("without a round the clock starts at the document's creation; a dismissal clears what came before it; an old EIR version is not a reason", () => {

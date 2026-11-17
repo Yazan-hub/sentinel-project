@@ -28,7 +28,7 @@ public sealed class ScanNowCommand : IExternalCommand
         }
         // Re-resolve the document's ruleset@n first (an unchanged one is a cheap 304), then scan by it: the
         // scan and the strip land on the API thread once the GET returns.
-        App.ReloadRuleset(doc);
+        App.ReloadRuleset(doc, postScan: true); // the scan report then goes to the bridge as a sync's does (F-RUN-17)
         c.Application.GetDockablePane(App.PaneId).Show();
         return Result.Succeeded;
     }

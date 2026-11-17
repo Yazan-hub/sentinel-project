@@ -62,7 +62,7 @@ const tidp = (deliverables, teams) => {
   const declared = new Set(teams.map((t) => key(t.code)));
   const named = new Set(deliverables.map((x) => key(x.responsible_team)).filter(Boolean));
   const reasons = [
-    ...teams.filter((t) => !named.has(key(t.code))).map((t) => `Team ${t.code} has no deliverable yet`),
+    ...teams.filter((t) => !t.owns_no_container && !named.has(key(t.code))).map((t) => `Team ${t.code} has no deliverable yet`),
     ...[...new Set(deliverables.filter((x) => key(x.responsible_team) && !declared.has(key(x.responsible_team))).map((x) => String(x.responsible_team).trim()))]
       .map((c) => `a deliverable names team ${c}, which is not declared`),
   ];

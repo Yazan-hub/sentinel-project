@@ -14,3 +14,8 @@ export function linkedProject(rows: LinkRow[], platformId: string | undefined): 
   const hits = rows.filter((p) => !p.settings?.archived && p.settings?.platform_project_id === platformId).map((p) => p.key);
   return hits.length === 1 ? { key: hits[0] } : hits.length > 1 ? { conflict: hits } : {};
 }
+
+/** F-RUN-15: the CDE board lists the platform's deliveries only on the Sentinel project linked to the platform project
+ *  the app runs in (or that project itself); on any other project they were judged by another contract. */
+export const showsPlatformDeliveries = (rows: LinkRow[], key: string, platformId: string | undefined): boolean =>
+  !!platformId && (key === platformId || rows.some((p) => p.key === key && p.settings?.platform_project_id === platformId));

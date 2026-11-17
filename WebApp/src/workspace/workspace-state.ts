@@ -23,7 +23,7 @@ export interface WorkspaceDeps {
 export interface WorkspaceState { key: string; doc: DocRow | null; versions: VersionListRow[]; comments: CommentRow[] /* derived: one row per OPEN thread, for the outline */; ex: Executability | null;
   threads: Thread[]; canTeam: boolean; defaultAudience: Audience; members: MemberRow[] | null /* null: the list is for members */; access: MyAccess | null;
   live: LiveSet | null /* the freeze preview: GET …/live, null when refused */; role: string; me: string; problems: string[]; message: string; viewing: VersionRow | null;
-  respondsTo: { title: string; version_no: number | null } | null /* the EIR this document answers, loaded by open */;
+  respondsTo: { title: string; version_no: number | null; clauses?: Record<string, string> } | null /* the EIR this document answers, loaded by open */;
   round: RoundCurrent | null /* R2d: GET …/rounds/current, null when not read */ }
 /** R2d: the document round on screen (the bridge's roundView) and what the caller may do about it. */
 export interface RoundStep { n: number; name: string; party_words: string; owed?: { team: string; decided_by: string | null; skipped?: boolean; outside?: boolean; not_in_sentinel?: boolean }[];
@@ -113,7 +113,10 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     const eir = async () => {
       if (!doc.responds_to) return null;
       const x = await call("GET", `/bimdocs/${pathSegment(key)}/${pathSegment(doc.responds_to)}`);
-      return { title: (x && is2xx(x) && typeof x.body?.title === "string" && x.body.title) || "the linked EIR", version_no: doc.responds_to_version };
+      const secs: unknown[] = x && is2xx(x) && Array.isArray(x.body?.sections) ? x.body.sections : [];
+      const clauses: Record<string, string> = {}; // F-RUN-3: the EIR's section names, so an EIR link block never shows an id
+      for (const s of secs as { id?: unknown; heading?: unknown }[]) if (typeof s?.id === "string" && typeof s.heading === "string" && s.heading) clauses[s.id] = s.heading;
+      return { title: (x && is2xx(x) && typeof x.body?.title === "string" && x.body.title) || "the linked EIR", version_no: doc.responds_to_version, clauses };
     };
     const [versions, tr, ex, live, respondsTo, role, me, access, members, round] = await Promise.all([
       list<VersionListRow>(`${base}/versions`),

@@ -41,9 +41,13 @@ export async function readGateLedger(base: string, key: string): Promise<GateLed
 
 /** Mounts the strip into `host` and returns a refresh function; `refresh()` is called by the board on each load.
  *  `readLedger` reads the board project's platform_gate rows once per load; its failure is each card's "ledger not read". */
-export function mountPlatformDeliveries(host: HTMLElement, readLedger: () => Promise<GateLedgerRow[]>): () => Promise<void> {
+export function mountPlatformDeliveries(host: HTMLElement, readLedger: () => Promise<GateLedgerRow[]>, linked: () => Promise<boolean> = async () => true): () => Promise<void> {
   host.style.cssText = "display:flex;flex-direction:column;gap:.35rem;padding:.4rem .6rem;border-bottom:1px solid #2a2a30";
   return async function refresh() {
+    // F-RUN-15: a project not linked to this platform project shows no strip (a link that could not be read shows it).
+    const show = await linked().catch(() => true);
+    host.style.display = show ? "flex" : "none";
+    if (!show) { host.innerHTML = ""; return; }
     host.innerHTML = `<div style="display:flex;align-items:center;gap:.5rem;font-size:11px"><span style="color:#a1a1aa;text-transform:uppercase;letter-spacing:.06em">Platform deliveries</span><span id="pd-sum" style="color:#9ca3af">reading…</span></div><div id="pd-cards" style="display:flex;gap:.5rem;overflow-x:auto"></div>`;
     const sum = host.querySelector("#pd-sum") as HTMLElement;
     const cards = host.querySelector("#pd-cards") as HTMLElement;
