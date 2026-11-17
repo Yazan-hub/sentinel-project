@@ -232,7 +232,7 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
     <li><span class="k">ما هو</span><span>سنتينل هو <strong>الحَكَم</strong> في مشروع BIM. لا يرسم ولا يخزّن. يحكم: هل هذا الموديل أو الملف أو المستند مطابق للمعيار المتفق عليه؟ ينشر فقط ما ينجح، ويسجّل كل حكم في سجل لا يمكن تعديله أو حذفه.</span></li>
     <li><span class="k">ماذا يفعل</span><span><strong>يفحص</strong> موديلات Revit وملفات IFC والمستندات مقابل معايير المكتب والعميل. <strong>يصلّح بموافقة</strong>: يقترح تعديلات، وشخص يوافق عنصراً عنصراً، ثم تُطبَّق داخل Revit. <strong>يوثّق</strong>: من رفع، من وافق، بأي معيار، ومتى.</span></li>
     <li><span class="k">أين يقف</span><span>النواة مُثبتة حيّاً منذ تموز: زر واحد في Revit يصدّر IFC، يحكم عليه، ينشره إن نجح، ويرجع القضايا إلى Revit إن فشل. حولها بُنيت منصة كاملة: CDE بحالات ISO 19650، مستندات BEP/EIR حيّة، MIDP/TIDP، أدوات نمذجة من الرسومات والمسح، 4D إلى 7D، وخادم للذكاء الاصطناعي.</span></li>
-    <li><span class="k">الاختبار الكامل</span><span>اختبار دورة الحياة (مشروع Snowdon) أنهى <strong>P0 العطاء</strong> بين 22 و24 ت1. بعدها توقف ثلاثة أسابيع لبناء مساحة المستندات (R1a إلى R3) لأن P0 كشف ضعفها. حزمة <strong>P1 التعيين</strong> جاهزة اليوم ولم تُشغّل بعد. P2 إلى P6 لم تُشغّل.</span></li>
+    <li><span class="k">الاختبار الكامل</span><span>اختبار دورة الحياة (مشروع Snowdon) أنهى <strong>P0 العطاء</strong> بين 22 و24 ت1. بعدها توقف ثلاثة أسابيع لبناء مساحة المستندات (R1a إلى R3) لأن P0 كشف ضعفها. <strong>تحديث 17 ت2:</strong> في 16 ت2 شُغّلت P0 وP1 وP2 وP4 للمرحلة M1 في جلسة أخرى (F-RUN-1 إلى 18، أُصلحت في 1.0.126 و1.0.127). بقي <strong>P3</strong> (M2 وM3) وقبولهما، ثم P5 وP6.</span></li>
     <li><span class="k">أكبر خطر</span><span>ليس ميزة ناقصة. (1) المنصة كلها تعمل على حاسوبك عبر Tailscale Funnel، وخلال P0 توقف الجسر مرتين وتعطّل النفق ساعات. (2) شخص واحد يحمل النظام، والوثائق تأخرت عن الكود. (3) That Open تبني الآن CDE وتعارضات وقضايا وتعاون Revit خاصاً بها، فمكان سنتينل يجب أن يكون <strong>فوقها</strong> لا بجانبها.</span></li>
     <li><span class="k">الخطوة التالية</span><span>أوقف الميزات الجديدة حتى تُكمل P1 إلى P4. اعمل جولة That Open (ترقية الحزم وتجربة تعاون Revit المحكوم). جهّز تشغيلاً يعتمد عليه، ثم اختر أول مستخدم حقيقي.</span></li>
   </ul>
@@ -420,22 +420,22 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
     <p><strong>ما وجده الاختبار:</strong> الطباعة تُظهر Markdown خاماً (F-LC-1)، فحص السلامة بنموذج محلي 7B أخطأ في 2 من 3 (F-LC-2)، شريط Next لا يتحدّث وحده (F-LC-3)، وعنوان النسخة لا يُطلب داخل المنصة (F-LC-6، أُصلح في نفس اليوم). مساحة المستندات بُنيت بعده لتعالج ضعف المستندات.</p>
   </div></details>
 
-  <details class="phase"><summary>P1 · التعيين <span class="iso">5.4</span> <span class="st part">الحزمة جاهزة، لم يُشغَّل</span></summary><div class="body">
+  <details class="phase"><summary>P1 · التعيين <span class="iso">5.4</span> <span class="st ok">شُغّل 16 ت2</span></summary><div class="body">
     <p><strong>يغطي:</strong> EIR يكتبه الـ lead مع العميل، Compile to IDS وتثبيته، الفرق الخمسة ومن ليس في سنتينل (0057)، رجوع الـ BEP إلى مسودة وربطه بالـ EIR، بلوكات الأشخاص والمصفوفة وLOIN وقاعدة التسمية، لصق MIDP، TIDP، وجولة تأكيد الـ BEP إلى "Confirmed C01".</p>
     <p><strong>الفجوات:</strong> لا يوجد سجل "تعيين" ككيان، عقد تسليم واحد لكل مشروع (MEP يُرفض بعقد المعماري)، لصق MIDP بلا عمود غرض.</p>
   </div></details>
 
-  <details class="phase"><summary>P2 · التعبئة <span class="iso">5.5</span> <span class="st no">لم يُشغَّل</span></summary><div class="body">
+  <details class="phase"><summary>P2 · التعبئة <span class="iso">5.5</span> <span class="st ok">شُغّل 16 ت2، مع ملاحظات</span></summary><div class="body">
     <p><strong>يغطي:</strong> الدعوات بالإيميل مع الدور والطرف والفريق، تسجيل الدخول في Revit لكل شخص، إعدادات الحاسوب، تثبيت سلسلة المراجعة، شريط الخطوة التالية.</p>
     <p><strong>الفجوات:</strong> لا توجد سلسلة مراجعة افتراضية، وثلاث خطوات ISO تحتاج أربعة أشخاص.</p>
   </div></details>
 
-  <details class="phase"><summary>P3 · إنتاج التصميم <span class="iso">5.6</span> <span class="st part">اختُبر جزئياً في جلسة Snowdon، لا في دورة الحياة</span></summary><div class="body">
+  <details class="phase"><summary>P3 · إنتاج التصميم <span class="iso">5.6</span> <span class="st part">النشر لكل فريق في P2؛ M2 وM3 لم تُشغّلا</span></summary><div class="body">
     <p><strong>يغطي:</strong> أقوى منطقة في سنتينل: كل أدوات Revit، Governed Publish، Federation Gate، التعارضات، القضايا، Fix in Revit.</p>
     <p><strong>الفجوات:</strong> PDF اللوحات يفشل دائماً في قاعدة التسمية (F-SNW-7)، نسخ Revit تحمل vN لا P01، الحالة S0 دائماً عند النشر من Revit.</p>
   </div></details>
 
-  <details class="phase"><summary>P4 · التسليم والقبول <span class="iso">5.7</span> <span class="st no">لم يُشغَّل</span></summary><div class="body">
+  <details class="phase"><summary>P4 · التسليم والقبول <span class="iso">5.7</span> <span class="st part">M1 قُبلت 16 ت2؛ M2 وM3 لا</span></summary><div class="body">
     <p><strong>يغطي:</strong> Share ثم سلسلة المراجعة (فحص الفريق، اعتماد الـ lead، قبول العميل) ثم Published، وملف التدقيق.</p>
     <p><strong>الفجوات:</strong> لا شاشة للـ transmittals. قبول العميل لموديل لا يضع رمز A (للمستندات حُلّ في R2d، للموديلات بقي فجوة حسب آخر سجل).</p>
   </div></details>
@@ -483,8 +483,7 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
   </div>
   <h3>ما ينتظرك أنت</h3>
   <ul>
-    <li>الموافقة على دعوة العطاء P0-01 بصفتك العميل.</li>
-    <li>الإجابة على 17 سؤالاً معلناً في READINESS. Claude لا يملؤها عنك.</li>
+    <li><s>الموافقة على P0-01 وأسئلة READINESS الـ 17</s>: انعملت في 16 ت2 (إجابات SYNTHETIC من حزمة P0).</li>
     <li>قراءة حزمة P1، وخاصة الـ EIR (P1-01).</li>
     <li>اختيار EIR عام حقيقي ليُجرَّب عليه المترجم بدون ترتيب مسبق.</li>
   </ul>
@@ -617,7 +616,7 @@ footer{border-top:1px solid var(--line);padding-top:18px;font-size:.86rem;color:
   <div class="tw"><table>
     <thead><tr><th>التوصية</th><th>ما تم</th><th>ما بقي عليك</th><th>الحالة</th></tr></thead>
     <tbody>
-      <tr><td>1. أكمل P1 إلى P4</td><td>التجميد مسجّل، وورقة تشغيل بالترتيب: <code>docs/testing/snowdon-lifecycle/RUN-SHEET_P1-P4.md</code></td><td>التشغيل نفسه يحتاج جهازك والحسابات الأربعة</td><td><span class="st part">جاهز للتشغيل</span></td></tr>
+      <tr><td>1. أكمل P1 إلى P4</td><td>P0 وP1 وP2 وP4-M1 شُغّلت في 16 ت2. ورقة التشغيل للباقي: <code>docs/testing/snowdon-lifecycle/RUN-SHEET_P1-P4.md</code></td><td>P3 (M2، M3) وقبولهما، على جهازك</td><td><span class="st part">بقي P3</span></td></tr>
       <tr><td>2. تشغيل موثوق</td><td>Keeper يعيد تشغيل الجسر والـ watcher والـ Funnel، ونسخ احتياطي يومي، وخطوات BitLocker: <code>docs/RELIABILITY.md</code></td><td>أول تشغيل على جهازك (الخطوات A1 وB4). 2FA للـ leads أول بناء بعد التجميد</td><td><span class="st built">مبني، لم يُشغَّل</span></td></tr>
       <tr><td>3. جولة That Open</td><td>الكود صار يشتغل على المحرك التجريبي والعام، و5,464 من 5,465 اختبار نجحت على حزم 3.6 العامة. التطبيق يجاوب <code>help</code> و<code>ping</code> لـ MCP الرسمي. خطة تجربة "بوابة المزامنة" لتعاون Revit، ورسالة أسئلة جاهزة</td><td>النسخة العامة 3.6 ما فيها Collider (التعارض الدقيق)، فالإنتاج باقي على التجريبي لحد ما يجاوبوا. ابعت الرسالة: <code>docs/THATOPEN_REPORTS.md</code> القسم 3</td><td><span class="st part">جزئي</span></td></tr>
       <tr><td>4. صحّح الوثائق</td><td>صفحة الحالة في الـ handbook فيها صفوف تشرين الأول والثاني مع دليل كل واحد، وصحّحت الأرقام والمسارات القديمة</td><td>دليل الإضافة يحتاج إعادة كتابة كاملة (مهمة رخيصة لـ Sonnet)</td><td><span class="st ok">تم</span></td></tr>

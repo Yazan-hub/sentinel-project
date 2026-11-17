@@ -76,7 +76,7 @@ The honest map. This is the page to trust when someone asks "but does it actuall
 | R2d: review rounds, the client outside Sentinel, stages and suitability, "Accepted C0n" labels | ✅ Verified | Drills R2d, R2d-2, R2d-3, migrations 0053–0056 (2026-11-14) |
 | R3: adoption and templates (LOIN to IDS, office templates, every block editable, Summary) | ✅ Verified | Drill R3 including the published app at 1.0.122 (2026-11-14/15) |
 | A task team that is not in Sentinel, recorded by a lead | ✅ Verified | Migration 0057, drill on snowdon-lifecycle (2026-11-16) |
-| Lifecycle test P1 to P6 | ⬜ Not run | P1 pack ready (`docs/testing/snowdon-lifecycle/P1/`); P2–P6 not run |
+| Lifecycle test P1 to P6 | 🟨 Partial | P0, P1, P2 and P4 for M1 run on 2026-11-16 (`docs/testing/snowdon-lifecycle/P0-P4-RUN_2026-11-16.md`, F-RUN-1..18); P3, P4 for M2/M3, P5 and P6 not run |
 | Runs on the public That Open engine | 🟨 Partial | Code compatible and 5,464 of 5,465 tests green on the public 3.6 packages (2026-11-16); production stays on the beta; no Collider in public 3.6 (`docs/strategy/2026-11-16-thatopen-engine-upgrade.md`) |
 | Keeper (bridge, watcher, Funnel) and daily backups | 🟩 Built, not run | `docs/RELIABILITY.md`; first run on the bridge PC owed |
 | Two-step sign-in for leads and owners | ⬜ Planned | First build after the freeze (`docs/RELIABILITY.md` section D) |

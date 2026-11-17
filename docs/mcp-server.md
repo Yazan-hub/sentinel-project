@@ -139,4 +139,4 @@ To use it from Claude Desktop, beside Sentinel's own server:
 
 Credentials come from `thatopen login` (`~/.thatopen/config.json`); never put the token in this file. Pass the URL of
 the open Sentinel app tab as `project`. Not yet run against the published app: it needs the app published after this
-change (web 1.0.126 or later) and an open, signed-in tab.
+change (the first web version after 1.0.127) and an open, signed-in tab.

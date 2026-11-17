@@ -25,7 +25,8 @@ Haiku 5.5 ≈ 1/40 of Opus, Sonnet 5.5 ≈ 1/2 of Opus, Opus 5.5 = 1, Fable 5.2 
 
 ## Standing rules
 
-- Freeze (2026-11-16): no new features until the Snowdon lifecycle test P1 to P4 has run
-  (`docs/testing/snowdon-lifecycle/`). Fixes that block a phase are allowed.
+- Freeze (2026-11-16): no new features until the Snowdon lifecycle test P1 to P4 has run. P0, P1, P2 and P4-M1 ran on
+  2026-11-16; P3 (M2, M3) and P4 for M2/M3 remain (`docs/testing/snowdon-lifecycle/RUN-SHEET_P1-P4.md`). Fixes that block
+  a phase are allowed.
 - Before the founder approves a change, say in one Arabic sentence what will change on screen.
 - Every status claim says whether it was run live, built, partial or absent (the handbook's legend).
