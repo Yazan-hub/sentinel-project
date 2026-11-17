@@ -9,7 +9,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { getAppManager } from "../app";
 import { escapeHtml as esc, fmtDate } from "./escape-html";
-import { importSummary, exportSummary, topicChanges, supersededWords, STATUSES, type ImportReply, type ExportInfo } from "./bcf-files";
+import { importSummary, exportSummary, topicChanges, supersededWords, historyWords, STATUSES, type ImportReply, type ExportInfo } from "./bcf-files";
 import { saveAs } from "./audit-pack";
 
 /**
@@ -234,7 +234,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     h += row("Author", `${t.creation_author || "—"}  ${fmtDate(t.creation_date)}`);
     if (t.description) h += `<div style="margin-top:.3rem"><span style="color:#9ca3af">Description:</span><br>${esc(t.description)}</div>`;
     if (t.comments?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">Comments (${t.comments.length}):</div>`; for (const c of t.comments) h += `<div>• ${esc(c.author)}: ${esc(c.comment)}</div>`; }
-    if (t.history?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">History (${t.history.length}):</div>`; for (const e of t.history) h += `<div style="font-size:11px">${fmtDate(e.date)} · ${esc(e.author)} — ${esc(e.action)}${e.ledger_id ? ` <span style="color:#22c55e">· recorded in the ledger #${esc(String(e.ledger_id))}</span>` : ""}</div>`; }
+    if (t.history?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">History (${t.history.length}):</div>`; for (const e of t.history) h += `<div style="font-size:11px">${fmtDate(e.date)} · ${esc(e.author)} — ${esc(historyWords(t, e.action))}${e.ledger_id ? ` <span style="color:#22c55e">· recorded in the ledger #${esc(String(e.ledger_id))}</span>` : ""}</div>`; }
     h += "</div>";
     // The snapshot Revit (or a BCF file) attached: a data URL the bridge stores on the viewpoint.
     const snap = t.viewpoints?.find((v) => v.snapshot)?.snapshot;

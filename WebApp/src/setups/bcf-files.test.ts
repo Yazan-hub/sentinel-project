@@ -33,7 +33,19 @@ describe("topicChanges — the quick edit PUTs only what changed", () => {
   });
 });
 
-import { supersededWords } from "./bcf-files";
+import { supersededWords, historyWords } from "./bcf-files";
+
+describe("F-RUN-10 leftover: the History line names the scope by the same rule", () => {
+  const t = { ids_ref: "ids@1", ids_source: "office" };
+  it("the same label reads with the other scope; a different label as written", () => {
+    expect(historyWords(t, "Superseded by ids@1")).toBe("Superseded by ids@1 · project");
+    expect(historyWords(t, "Superseded by ids@3")).toBe("Superseded by ids@3");
+  });
+  it("every other line is shown as written", () => {
+    expect(historyWords(t, "Created")).toBe("Created");
+    expect(historyWords(t, "Status: Open → Closed (superseded by ids@1)")).toBe("Status: Open → Closed (superseded by ids@1)");
+  });
+});
 
 describe("F-RUN-10: a superseded IDS issue names the scope when both labels are the same", () => {
   it("office ids@1 superseded by the project ids@1 says so", () => {

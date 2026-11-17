@@ -52,3 +52,10 @@ export function supersededWords(t: { ids_ref?: string | null; ids_source?: strin
   const other = t.ids_source === "office" ? "project" : t.ids_source === "project" ? "office" : "";
   return `superseded by ${t.superseded_by}${t.superseded_by === t.ids_ref && other ? ` · ${other}` : ""}`;
 }
+
+/** F-RUN-10 leftover: a History line the bridge wrote as "Superseded by ids@1" names the scope by the same rule; every
+ *  other line is shown as written. */
+export function historyWords(t: { ids_ref?: string | null; ids_source?: string | null }, action: string): string {
+  const m = /^Superseded by (\S+)$/.exec(action);
+  return m ? "S" + supersededWords({ ...t, superseded_by: m[1] }).slice(1) : action;
+}
