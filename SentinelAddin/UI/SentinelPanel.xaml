@@ -5,7 +5,12 @@
          is wider - lines cut and the refresh button out of reach (drill MA2b). Every line wraps to the dock instead;
          tools/pane-layout-check lays this XAML out at 160, 193 and 420 DIP wide, 720 and 900 high. -->
     <DockPanel Margin="8">
-        <Border DockPanel.Dock="Top" Padding="8,6" CornerRadius="4" Background="#EEF3EA" Margin="0,0,0,6">
+        <!-- UX slice 1: the journey reads ledger, changeset and artefact words - technical detail, collapsed under Details.
+             tools/pane-layout-check opens it before laying the pane out. -->
+        <Expander x:Name="JourneyDetails" DockPanel.Dock="Top" FontSize="11" IsExpanded="False" Margin="0,0,0,2">
+            <!-- a light chip: Revit's dark theme leaves a plain header black on black -->
+            <Expander.Header><TextBlock Text="Details" Background="#E6EBF2" Foreground="#1E2A38" Padding="4,0"/></Expander.Header>
+        <Border Padding="6,2" CornerRadius="4" Background="#EEF3EA">
             <DockPanel>
                 <Button DockPanel.Dock="Right" Content="↻" Width="24" Height="22" VerticalAlignment="Top"
                         Margin="6,0,0,0" Click="OnJourneyRefreshClick"
@@ -35,8 +40,11 @@
                 </ScrollViewer>
             </DockPanel>
         </Border>
+        </Expander>
         <Border DockPanel.Dock="Top" Padding="8" CornerRadius="4" Background="#F0F3F7">
             <StackPanel>
+                <TextBlock Text="{Binding NextStep}" FontSize="12" FontWeight="SemiBold" Foreground="#1E3A5F" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding StatusDots}" FontSize="11" Foreground="#667" TextWrapping="Wrap"/>
                 <TextBlock Text="{Binding ScoreText}" FontSize="20" FontWeight="Bold" TextWrapping="Wrap"/>
                 <!-- three lines at most (a ⚡ Fix proposal's status runs to ~130 characters and took the narrow grid's last row); the whole line on hover -->
                 <TextBlock Text="{Binding Status}" FontSize="11" Foreground="#667" TextWrapping="Wrap" MaxHeight="45"
@@ -48,7 +56,7 @@
                   Margin="0,6,0,0" IsExpanded="False">
             <Expander.HeaderTemplate>
                 <DataTemplate>
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Background="#E6EBF2" Foreground="#1E2A38"/>
                 </DataTemplate>
             </Expander.HeaderTemplate>
             <ListBox ItemsSource="{Binding DoctorLog}" MaxHeight="140" FontSize="11"

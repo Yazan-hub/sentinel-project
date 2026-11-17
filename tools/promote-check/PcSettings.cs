@@ -85,9 +85,9 @@ static partial class Check
 
         // the wiring: the button, the window's save path, and no secret on screen or in a log
         var app = Src("App.cs"); var win = Src("Commands.PcSettings.cs");
-        Ok(app.Contains("Sub(std, \"Sentinel_PcSettings\", \"PC Settings\", \"Sentinel.Commands.PcSettingsCommand\"")
+        Ok(app.Contains("Sub(more, \"Sentinel_PcSettings\", \"PC Settings\", \"Sentinel.Commands.PcSettingsCommand\"")
            && app.IndexOf("Sentinel_PcSettings") > app.IndexOf("Sentinel_SignIn") && app.IndexOf("Sentinel_PcSettings") < app.IndexOf("Sentinel_BuildOfficeSystem"),
-           "PC Settings sits under Standards, after Sign in");
+           "PC Settings sits under More, after Sign in");
         Ok(win.Contains("PcSettings.Write(SettingsManager.ConfigJsonPath, PcSettings.Merged(_cfg ?? new JsonObject(), cfgSet)")
            && win.Contains("PcSettings.Write(BcfConfig.FilePath, PcSettings.Merged(_bcf ?? new JsonObject(), bcfSet)")
            && win.Contains("if (_shown.TryGetValue(kv.Key, out var was) && was == kv.Value) continue;"),

@@ -25,7 +25,7 @@ namespace Sentinel.Commands;
 [Transaction(TransactionMode.Manual)]
 public sealed class GovernedPublishCommand : IExternalCommand
 {
-    private const string Title = "Sentinel — Governed Publish";
+    private const string Title = "Sentinel — Publish";
 
     public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
     {
@@ -70,7 +70,8 @@ public sealed class GovernedPublishCommand : IExternalCommand
             if (!plan.Ready)
             {
                 progress.Close();
-                TaskDialog.Show(Title, PublishLines.Dialog(plan));
+                ShowResult(plan.GateFailed ? "Not published: the model failed the pre-publish check" : "Not published",
+                       "Nothing was uploaded. Fix the items in Check, then publish again.", PublishLines.Dialog(plan));
                 return plan.GateFailed ? Result.Succeeded : Result.Failed;
             }
 
@@ -78,7 +79,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
             //    stays usable; Cancel stops the wait. 3) Stage back on the API thread through the hub: accepted or
             //    recorded → the sidecar {project, container, version_id}, then the IFC into the outbox; anything else →
             //    the temp IFC is deleted and nothing is staged. One dialog says what happened.
-            progress.Step(3, "Referee — judging the IDS and the name on " + projectKey + " (up to 120 s). Revit is free to use.");
+            progress.Step(3, "Checking the model against the project's requirements (up to 120 s). You can keep working in Revit.");
             var ct = progress.Token;
             Task.Run(() => Publisher.Judge(plan, "Governed Publish", ct)).ContinueWith(t => events.Enqueue(_ =>
             {
@@ -88,7 +89,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
                         : PublishOutcome.From(new ProposalResult { Error = t.Exception?.GetBaseException().Message ?? "the verdict call did not finish" });
                     // Step 4 first: a Cancel from here says "too late"; one before it (even after the verdict arrived,
                     // while this job waited for Revit) is honoured — nothing staged, as the window promised.
-                    progress.Step(4, "Register — staging the registered version for upload.");
+                    progress.Step(4, "Preparing the upload.");
                     string text;
                     if (ct.IsCancellationRequested) { Publisher.Discard(plan); text = PublishLines.CancelledAtReferee(plan); }
                     else text = PublishLines.Dialog(plan, outcome, Publisher.Stage(plan, outcome, PlatformExporter.OutboxDir()));
@@ -96,7 +97,12 @@ public sealed class GovernedPublishCommand : IExternalCommand
                     progress.Close();
                     // Without an office code the Pset_<org>.* rows were dropped from the read table (PsetMap), so the
                     // referee saw them as missing. Said with the result — the verdict is still honest and still recorded.
-                    TaskDialog.Show(Title, (plan.OrgWarning is null ? "" : plan.OrgWarning + "\n\n") + text);
+                    var (head, body) = ct.IsCancellationRequested ? ("Not published: cancelled", "Nothing was uploaded.")
+                        : outcome.Accepted ? ("Published", "The model passed the pre-publish check and is uploading.")
+                        : outcome.Publishable ? ("Published", "The model is recorded and uploading.")
+                        : outcome.Rejected ? ("Not published: the model does not meet the project's requirements", "Nothing was uploaded. Each failing item is now an Issue. Fix them, then publish again.")
+                        : ("Not published: Sentinel could not be reached", "Nothing was uploaded. Check the Connected dot in the Sentinel pane and try again.");
+                    ShowResult(head, body, (plan.OrgWarning is null ? "" : plan.OrgWarning + "\n\n") + text);
                 }
                 finally { Publisher.InFlight = false; progress.Close(); }
             }), TaskScheduler.Default);
@@ -108,4 +114,8 @@ public sealed class GovernedPublishCommand : IExternalCommand
             if (!handedOff) { Publisher.InFlight = false; progress.Close(); }
         }
     }
+
+    // UX slice 1: a plain headline; the full report (versions, history rows, what judged) stays under Details.
+    private static void ShowResult(string head, string body, string details) =>
+        new TaskDialog(Title) { MainInstruction = head, MainContent = body, ExpandedContent = details }.Show();
 }

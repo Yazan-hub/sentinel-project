@@ -87,6 +87,13 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
                 ? $"{report.DocTitle} — {why}"
                 : $"{report.DocTitle} — {report.ElementsChecked} elements in {report.DurationMs} ms";
         });
+        var real = report.Violations.Count(v => v.ElementId >= 0);
+        var waiting = Sentinel.Workflow.RequestStore.GetPending(doc).Count; // read here, on the API thread
+        OnUi(() =>
+        {
+            NextStep = real > 0 ? $"Next step: Check — {real} thing(s) to fix" : waiting > 0 ? "Next step: Fix — approve the waiting changes" : "Next step: Publish — nothing to fix";
+            _waiting = waiting; OnChanged(nameof(StatusDots));
+        });
     }
 
     /// DMU delta: replace rows belonging to the changed elements only.
@@ -127,6 +134,14 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
 
     // ── Next strip: the project's journey from the web (read-only; GET /cde/:key/journey) ──────────
     private string _journeyKey = "Journey — open or scan a document bound to a web project";
+    // UX slice 1: the pane's "Next step" card and its status line (Connected · signed in · changes waiting).
+    private string _nextStep = "Next step: Check — run a check of this model";
+    public string NextStep { get => _nextStep; private set { _nextStep = value; OnChanged(); } }
+    private bool? _connected; private int _waiting;
+    public void SetWaiting(int n) => OnUi(() => { _waiting = n; OnChanged(nameof(StatusDots)); });
+    public string StatusDots => (_connected switch { true => "● Connected", false => "○ Not connected", _ => "○ Connecting…" })
+        + " · " + (Sentinel.Coordination.UserSession.IsSignedIn ? "Signed in" : "Not signed in")
+        + " · " + (_waiting == 0 ? "no changes waiting" : $"{_waiting} change(s) waiting");
     public string JourneyKey { get => _journeyKey; private set { _journeyKey = value; OnChanged(); } }
     private string _standardsLine = "";
     public string StandardsLine { get => _standardsLine; private set { _standardsLine = value; OnChanged(); } }
@@ -171,6 +186,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             if (seq != _journeySeq) return;
             var (j, why) = journey.Status == TaskStatus.RanToCompletion ? journey.Result : (null, journey.Exception?.GetBaseException().Message);
             JourneyKey = j is null ? $"Journey · {projectKey}" : $"Journey · {j.Key} ({j.Kind})";
+            _connected = j is not null; OnChanged(nameof(StatusDots));
             StandardsLine = j?.StandardsLine ?? "";
             LodLine = j?.LodLine ?? "";
             NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";

@@ -181,7 +181,7 @@ public static class Publisher
         var dir = Path.Combine(tempDir, Guid.NewGuid().ToString("N"));
         var schema = contract?.IfcSchema ?? "IFC2X3";
         if (progress?.Token.IsCancellationRequested == true) { plan.Refusal = PublishLines.CancelledBeforeExport; return plan; }
-        progress?.Step(1, "Export — the whole model to IFC (" + schema + "). Revit is busy until the export ends.");
+        progress?.Step(1, "Exporting the whole model to IFC (" + schema + "). Revit is busy until the export ends.");
         if (progress is not null) doc.Application.ProgressChanged += progress.OnRevitProgress;
         (PlatformExporter.State state, string path, long, string? error) export;
         try { export = PlatformExporter.ExportToDir(doc, dir, plan.ContainerName, schema, mapping); }
@@ -209,7 +209,7 @@ public static class Publisher
         //    refusal that discards it, so nothing lingers under %TEMP% unnamed — on either caller's path.
         try
         {
-            progress?.Step(2, "Delivery gate — checking the IFC against " + contractSource.Label + ".");
+            progress?.Step(2, "Pre-publish check of the IFC.");
             plan.Gate = IfcDeliveryGate.Validate(path, contract, contractSource);
             plan.SizeBytes = plan.Gate.FileSizeBytes;
             plan.Sha256 = plan.Gate.FileSha256;
@@ -222,7 +222,7 @@ public static class Publisher
             //    rows are dropped from the read table (PsetMap) and the referee reports them missing: the plan says so.
             if (string.IsNullOrWhiteSpace(App.OrgFor(doc)))
                 plan.OrgWarning = PublishLines.NoOrg(App.Engine?.SourceFor(doc).Label ?? "none");
-            progress?.Step(2, "Reading the model's elements for the referee.");
+            progress?.Step(2, "Reading the model's elements.");
             plan.Elements = GovernedElementExtractor.Extract(doc, key);
             if (progress?.Token.IsCancellationRequested == true)
             {
