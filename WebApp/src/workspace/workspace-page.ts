@@ -184,7 +184,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     pane = null;
     if (carry && (carry.scope !== scope || (c.st.doc && carry.docId !== c.st.doc.id))) carry = null;
     if (ingest) { centre.replaceChildren(ingest.el); return; }
-    if (!c.st.doc) { centre.replaceChildren(h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from the project's Documents tab.")); return; }
+    if (!c.st.doc) { centre.replaceChildren(h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from Documents ▸ Project documents.")); return; }
     const strip = view === "edit" ? startStrip(c) : null; // above the editing pane, never on the read views
     const kind = c.st.doc.doc_type;
     const note = view === "read" && kind === "TIDP" ? h(d, "div", `color:${C.muted};font:12px system-ui;margin:0 0 .8rem`, READ_ONLY_NOTE.TIDP) : null; // read-only types: old plans are read here

@@ -510,7 +510,7 @@ async function main() {
 
   app.elements = {
     viewer: () => BUI.html`${viewerEl}`,
-    strip: () => BUI.html`${nextStripEl}`, // the Next strip: one node, a grid row above every area
+    strip: () => BUI.html`${nextStripEl}`, // the Next strip: one node, above every area's panel (left column; full width it ran under the floating switcher)
     home: () => BUI.html`${homeTabsEl}`,
     models: () => BUI.html`${modelsEl}`,
     documents: () => BUI.html`${docsAreaEl}`,
@@ -522,11 +522,11 @@ async function main() {
       BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
   };
   app.layouts = {
-    Home: { label: "Home", icon: "mdi:home-outline", template: `"strip strip" auto "home viewer" 1fr / 32rem 1fr` },
-    Models: { label: "Models", icon: "mdi:cube-outline", template: `"strip strip" auto "models viewer" 1fr / 32rem 1fr` },
-    Documents: { label: "Documents", icon: "mdi:file-document-multiple-outline", template: `"strip strip" auto "documents viewer" 1fr / 40rem 1fr` },
-    Issues: { label: "Issues", icon: "mdi:alert-circle-outline", template: `"strip strip" auto "issues viewer" 1fr / 48rem 1fr` },
-    Settings: { label: "Settings", icon: "mdi:cog", template: `"strip strip" auto "settings viewer" 1fr / 32rem 1fr` },
+    Home: { label: "Home", icon: "mdi:home-outline", template: `"strip viewer" auto "home viewer" 1fr / 32rem 1fr` },
+    Models: { label: "Models", icon: "mdi:cube-outline", template: `"strip viewer" auto "models viewer" 1fr / 32rem 1fr` },
+    Documents: { label: "Documents", icon: "mdi:file-document-multiple-outline", template: `"strip viewer" auto "documents viewer" 1fr / 40rem 1fr` },
+    Issues: { label: "Issues", icon: "mdi:alert-circle-outline", template: `"strip viewer" auto "issues viewer" 1fr / 48rem 1fr` },
+    Settings: { label: "Settings", icon: "mdi:cog", template: `"strip viewer" auto "settings viewer" 1fr / 32rem 1fr` },
   };
   app.layout = "Home";
   app.sidebar = true;

@@ -29,7 +29,7 @@ describe("UX slice 2: nothing is lost in the five areas (founder rule)", () => {
   it("the sidebar holds exactly the five areas, each with the Next strip above it", () => {
     const block = main.slice(main.indexOf("app.layouts = {", main.indexOf("// </five-areas>")), main.indexOf("app.layout = \"Home\";"));
     expect([...block.matchAll(/^\s+(\w+): \{ label: "\1"/gm)].map((m) => m[1])).toEqual(["Home", "Models", "Documents", "Issues", "Settings"]);
-    expect(block.match(/"strip strip" auto/g)).toHaveLength(5);
+    expect(block.match(/"strip viewer" auto/g)).toHaveLength(5);
     expect(main).toContain("strip: () => BUI.html`${nextStripEl}`");
   });
 
