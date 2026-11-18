@@ -3,19 +3,22 @@ import { readFileSync } from "node:fs";
 
 const main = readFileSync(new URL("../main.ts", import.meta.url), "utf8");
 
-describe("main.ts mounts the workspace (founder decision 2026-10-25, layout A)", () => {
-  it("the Workspace layout shows the workspace alone and keeps its activity-bar icon", () => {
+describe("main.ts mounts the workspace (founder decision 2026-10-25, layout A; UX slice 2: a full-page overlay, not a sidebar icon)", () => {
+  it("the editor is a full-page overlay over the shell, hidden until opened, under the switcher and account corner", () => {
     expect(main).toMatch(/import \{ workspacePage(, type View)? \} from "\.\/workspace\/workspace-page";/);
-    expect(main).toContain("workspace: () => BUI.html`${workspaceEl}`,");
-    expect(main).toContain('Workspace: { icon: "mdi:file-document-edit-outline", template: `"workspace" 1fr / 1fr` },');
+    expect(main).toContain('Object.assign(workspaceEl.style, { position: "fixed", inset: "0", height: "auto", zIndex: "20", display: "none" });');
+    expect(main).toContain("container.appendChild(workspaceEl);");
+    expect(main).not.toContain("workspace: () => BUI.html`${workspaceEl}`"); // never a layout element: the sidebar holds the five areas only
+    expect(main).toContain('{ label: "Document editor", go: () => showWorkspace() }'); // the old icon's reopen-last-document, from Documents
   });
-  it("Back returns to the project space, not the hub", () => expect(main).toContain('onBack: () => { app.layout = "Projects"; showSpace(); }'));
+  it("Back closes the editor and leaves the person on the area they opened it from", () => expect(main).toContain("onBack: () => hideWorkspace()"));
+  it("every jump to an area closes the editor first", () => expect(main).toContain("const go = (layout: string, group: HTMLElement, labels: string[], label: string) => { hideWorkspace(); app.layout = layout; showTabOf(group, labels, label); };"));
   it("the workspace exists before the panels that open it", () => expect(main.indexOf("const workspaceEl =")).toBeLessThan(main.indexOf("const docsEl =")));
 });
 
 describe("entry points (spec section 5)", () => {
   it("Documents, Deliverables and the Next strip open the workspace", () => {
-    expect(main).toContain('const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { app.layout = "Workspace"; void workspaceEl.open(docId, at); };');
+    expect(main).toContain("const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { showWorkspace(); void workspaceEl.open(docId, at); };");
     expect(main).toContain("onOpenWorkspace: (id) => openWorkspace(id)"); // Task 17 adds onIngested to the same docsPanel options
     expect(main).toContain("deliverablesPanel(components, { baseUrl: SERVICE_URL, onOpenBep: () => void openBep() })");
     expect(main).toContain('if (label === "Workspace") return void openBep();');
@@ -26,7 +29,7 @@ describe("entry points (spec section 5)", () => {
 });
 describe("R1b hand-over wiring", () => {
   it("an upload in the old panel opens its review in the workspace", () =>
-    expect(main).toContain('onIngested: (p) => { app.layout = "Workspace"; workspaceEl.openIngest(p); }'));
+    expect(main).toContain("onIngested: (p) => { showWorkspace(); workspaceEl.openIngest(p); }"));
   it("leaving the Workspace layout (Back, the activity bar, any path) makes the old panel re-read what it shows", () => {
     expect(main).toContain("onLeave: () => docsEl.refresh()");
     expect(main).toContain("const docsEl = docsPanel("); // docsEl is read only when the person leaves, after it exists
@@ -36,8 +39,8 @@ describe("R2c: My work opens a document from the Dashboard and from the workspac
   it("the Dashboard and the workspace share one open-a-document callback and one Review desk opener", () => {
     expect(main).toContain("onOpenDoc: (id, at) => openWorkspace(id, at), onOpenReview: () => openReviewDesk() });");
     expect(main).toContain("onLeave: () => docsEl.refresh(), onOpenReview: () => openReviewDesk() });");
-    expect(main).toContain('openReviewDesk = () => { app.layout = "BIM Tools";');
-    expect(main).toContain('tabIndex(bimToolTabs.map((t) => t.label), "Review")');
+    expect(main).toContain('openReviewDesk = () => go("Documents", docsAreaEl, DOC_TABS, "Proposed changes");'); // UX slice 2: the desk is Documents ▸ Proposed changes
+    expect(main).toContain('{ label: "Proposed changes", el: reviewEl },');
   });
   it("the Dashboard draws the My work card", () => {
     const shell = readFileSync(new URL("../setups/project-shell.ts", import.meta.url), "utf8");

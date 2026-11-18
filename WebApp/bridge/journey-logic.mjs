@@ -5,31 +5,31 @@
 // `total` are counts, never a percentage.
 
 const web = (tab, hint) => ({ tab, hint });
-const GOVERNED_PUBLISH = "Sentinel ▸ Publish ▸ Governed Publish";
+const GOVERNED_PUBLISH = "Sentinel ▸ Publish";
 const TEAM = { id: "team", label: "Team in place", how: { web: web("Settings", "Members — add an owner and a lead by e-mail (they sign up first)"), revit: null, who: "owner" } };
 
 /** `how` is static text naming where each step is done: a project-space tab of main.ts's tabbed([...]) (or
  *  null when no project tab does it) and a real ribbon path from SentinelAddin/App.cs BuildRibbon. */
 export const OFFICE_STEPS = [
   TEAM,
-  { id: "standards", label: "Office standards installed", how: { web: web("Settings", "Standards in force — install on this office: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
-  { id: "snapshot", label: "Template snapshot received", how: { web: null, revit: "Sentinel ▸ Standards ▸ Build Office System ▸ Send office snapshot to Sentinel", who: "member" } },
+  { id: "standards", label: "Office standards installed", how: { web: web("Settings", "Standards in force — install on this office: Settings ▸ Standards library ▸ Install; Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
+  { id: "snapshot", label: "Template snapshot received", how: { web: null, revit: "Sentinel ▸ More ▸ Build Office System ▸ Send office snapshot to Sentinel", who: "member" } },
   { id: "readiness", label: "Readiness assessed", how: { web: web("Documents", "+ New document ▸ Create READINESS"), revit: null, who: "lead" } },
   { id: "projects", label: "First project attached", how: { web: web("Settings", "on a project: Settings ▸ Office ▸ pick this office"), revit: null, who: "lead" } },
 ];
 
 export const PROJECT_STEPS = [
   TEAM,
-  { id: "standards", label: "Standards in force", how: { web: web("Settings", "Standards in force — inherited from the office, or install here: Standards sidebar ▸ Install a pack; Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
-  { id: "bep", label: "BEP drafted", how: { web: web("Workspace", "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP"), revit: null, who: "lead" } },
+  { id: "standards", label: "Standards in force", how: { web: web("Settings", "Standards in force — inherited from the office, or install here: Settings ▸ Standards library ▸ Install; Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
+  { id: "bep", label: "BEP drafted", how: { web: web("Workspace", "the project's BEP; none yet? Documents ▸ Project documents ▸ + New document ▸ Create BEP"), revit: null, who: "lead" } },
   // Paperwork slice 4 (ISO 19650-2 §5.4): each task team's delivery plan is a governed document too.
   // R1c (call 7): measured on the deliverables — every declared task team has at least one, and none names an undeclared team. A TIDP document no longer satisfies it.
   { id: "tidp", label: "TIDP drafted", how: { web: web("Deliverables", "Teams ▸ Declare team, then + Add a deliverable per team"), revit: null, who: "lead" } },
-  { id: "model", label: "Model connected", how: { web: null, revit: "Sentinel ▸ Standards ▸ Project Setup (bind this project), then Synchronize with Central — the scan report is sent after each sync", who: "member" } },
+  { id: "model", label: "Model connected", how: { web: null, revit: "Sentinel ▸ More ▸ Project Setup (bind this project), then Synchronize with Central — the scan report is sent after each sync", who: "member" } },
   { id: "verdict", label: "First governed verdict", how: { web: null, revit: GOVERNED_PUBLISH, who: "member" } },
   // A2: Governed Publish only registers versions as `wip`; the Published state is set on the web (Coordination ▸ CDE), so how.revit is null here.
-  { id: "published", label: "Accepted and published", how: { web: web("Project Files", "the live version needs an accepted verdict, then set the Published state on the web (Coordination ▸ CDE)"), revit: null, who: "lead" } },
-  { id: "federated", label: "Federated", how: { web: web("Project Files", "the live models (one is judged on its own), then Coordination ▸ Clash ▸ Run gate"), revit: null, who: "member" } },
+  { id: "published", label: "Accepted and published", how: { web: web("Project Files", "the live version needs an accepted verdict, then set the Published state on the web (Documents ▸ Folders)"), revit: null, who: "lead" } },
+  { id: "federated", label: "Federated", how: { web: web("Project Files", "the live models (one is judged on its own), then Models ▸ Clash ▸ Run gate"), revit: null, who: "member" } },
   // A4: no screen does this yet on either surface — surfaces render "no screen for this step yet".
   { id: "issued", label: "Issued", how: { web: null, revit: null, who: "lead" } },
 ];

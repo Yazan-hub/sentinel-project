@@ -53,13 +53,13 @@ describe("standardsLine", () => {
 
   it("says where to install a kind with nothing installed", () => {
     expect(standardsLine(journey({ standards: { ids: none, ruleset: ref("ruleset", 1, "3f07376a1b2cffee"), naming: none } }))).toBe(
-      "Standards in force: IDS none — install from Settings/Packs · Rules ruleset@1 · office · 3f07376a1b2c… · Naming none — install from Settings/Packs");
+      "Standards in force: IDS none — install from Settings ▸ Standards library · Rules ruleset@1 · office · 3f07376a1b2c… · Naming none — install from Settings ▸ Standards library");
   });
 
   // B1: a failed standards read shows its "unavailable — …" label as is, never as an install hint.
   it("shows a failed read's own label, never an install hint", () => {
     expect(standardsLine(journey({ standards: { ids: unavailable, ruleset: ref("ruleset", 1, "3f07376a1b2cffee"), naming: none } }))).toBe(
-      "Standards in force: IDS unavailable — bridge unreachable · Rules ruleset@1 · office · 3f07376a1b2c… · Naming none — install from Settings/Packs");
+      "Standards in force: IDS unavailable — bridge unreachable · Rules ruleset@1 · office · 3f07376a1b2c… · Naming none — install from Settings ▸ Standards library");
   });
 });
 

@@ -1,14 +1,14 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { fetchJourney, standardsLine, stepDetail } from "./next-strip";
+import { fetchJourney, journeyPlace, standardsLine, stepDetail } from "./next-strip";
 import { escapeHtml as escHtml } from "./escape-html";
 
 /**
  * Guide — the active project's journey on top (live: GET /cde/:key/journey, the same fetcher as the Next
  * strip — every step with its status, evidence and where it is done), and below it, under "All features",
  * the in-app teaching content: what Sentinel is and every feature + how to use it, by lifecycle stage.
- * Read-only; docked as the "Guide" sidebar tab. Pure DOM.
+ * Read-only; docked as Home ▸ Guide. Pure DOM.
  */
 
 const MARK = { done: "✓", todo: "○", not_checkable: "?" } as const;
@@ -25,14 +25,15 @@ governed dataset</b>: every dimension (2D–7D) is a <i>view</i> of the same mod
 re-typed or re-checked at each hand-off, and the owner receives a living asset record instead of a pile of
 PDFs.</p>
 <p><b>How it's used.</b> Load your model, install your office standard, and work the lifecycle left-to-right
-down the sidebar: <b>Tender → Design → Coordination → Construction → Handover → Operate</b>. At each stage
+through the stages <b>Tender → Design → Coordination → Construction → Handover → Operate</b>. At each stage
 boundary a <b>gate</b> checks the standard and only lets you advance when it's met.</p>
-<div class="tip">Tip: the sidebar is ordered like the project lifecycle. Start at <b>Project</b> (the command
-center), then follow the stages downward. Every panel reads the <i>same</i> model, so numbers never disagree.</div>
+<div class="tip">Tip: the sidebar has five areas — <b>Home</b> (what needs you now), <b>Models</b>, <b>Documents</b>,
+<b>Issues</b> and <b>Settings</b>. Start at <b>Home ▸ Overview</b> (the command center). Every panel reads the <i>same</i>
+model, so numbers never disagree.</div>
 `;
 
 const TOPICS: Topic[] = [
-  { id: "project", stage: "Overview", title: "Project — Command Center", body: `
+  { id: "project", stage: "Overview", title: "Home ▸ Overview — Command Center", body: `
 <p><b>What it is.</b> The home screen: your project's lifecycle rail + live KPIs (health, compliance, open
 issues, cost) + the current <b>stage gate</b>.</p>
 <p><b>How to use it.</b></p><ol>
@@ -41,19 +42,19 @@ issues, cost) + the current <b>stage gate</b>.</p>
 <li>Press <b>Run gate → advance</b> — the bridge measures the gate itself, records it on the ledger and moves the project forward only on a pass; a check nothing measured leaves it not checkable, never passed.</li></ol>
 <div class="tip">This is the payoff of the whole platform: standards-as-code gating the lifecycle.</div>` },
 
-  { id: "copilot", stage: "Overview", title: "Copilot — grounded assistant", body: `
+  { id: "copilot", stage: "Overview", title: "Home ▸ Copilot — grounded assistant", body: `
 <p><b>What it is.</b> A chat assistant that answers from your project's <i>real</i> data (QA, cost, issues) and
 cites its sources — it never guesses. Optional local LLM (Ollama) adds free-form phrasing.</p>
 <p><b>How to use it.</b> Tap a suggestion or type a question: "What's the model health?", "How many walls fail
 naming?", "Total cost?". Answers with elements offer an <b>Isolate</b> button to highlight them in the 3D view.</p>` },
 
-  { id: "guide", stage: "Overview", title: "Guide (this panel)", body: `
+  { id: "guide", stage: "Overview", title: "Home ▸ Guide (this panel)", body: `
 <p><b>What it is.</b> The top section is the active project's journey: every step, whether it is done (with the
-evidence that proves it), and where it is done — the Next strip above the project tabs shows its first open
+evidence that proves it), and where it is done — the Next strip above every area shows its first open
 step. Below, under <b>All features</b>, pick any feature on the left to learn what it does and how to use it,
 grouped by lifecycle stage.</p>` },
 
-  { id: "tender", stage: "Tender", title: "Tender — BoQ-driven bidding", body: `
+  { id: "tender", stage: "Tender", title: "Documents ▸ Reports ▸ Tender — BoQ-driven bidding", body: `
 <p><b>What it is.</b> The front of the lifecycle. The tender scope <i>is</i> the model's Bill of Quantities, so
 bids are compared against a model-derived estimate.</p>
 <p><b>How to use it.</b></p><ol>
@@ -62,13 +63,13 @@ bids are compared against a model-derived estimate.</p>
 <li>Add more bids → the comparison table highlights the <b>lowest price per line</b> and the total variance.</li>
 <li><b>Award</b> the winner — logged with a full history.</li></ol>` },
 
-  { id: "model", stage: "Design", title: "Explorer · Assets · Data", body: `
-<p><b>What they are.</b> The base viewer: <b>Assets</b> loads models (IFC / .frag), <b>Explorer</b> is the
+  { id: "model", stage: "Design", title: "Models — the viewer, Browser, Model tree, Data table", body: `
+<p><b>What they are.</b> The base viewer: <b>Documents ▸ Files ▸ Open 3D</b> loads a model, <b>Models ▸ More ▸ Model tree</b> is the
 model tree + properties, <b>Data</b> is the tabular view.</p>
-<p><b>How to use it.</b> Start in <b>Assets</b> → add your model. It appears in the 3D viewer that every panel
+<p><b>How to use it.</b> Start in <b>Documents ▸ Files</b> → open your model in 3D. It appears in the 3D viewer that every panel
 shares. Everything else reads from it.</p>` },
 
-  { id: "standards", stage: "Design", title: "Standards — the marketplace", body: `
+  { id: "standards", stage: "Design", title: "Settings ▸ Standards library", body: `
 <p><b>What it is.</b> A marketplace of office/regional standards packs. <b>Installing a pack makes it the
 project's rulebook</b> — QA, the Copilot and every gate immediately enforce it.</p>
 <p><b>How to use it.</b></p><ol>
@@ -76,12 +77,12 @@ project's rulebook</b> — QA, the Copilot and every gate immediately enforce it
 <li><b>Fork</b> a pack to adapt it; <b>Publish</b> your current standard to share it.</li>
 <li>Edit the rules themselves in Revit (Standards Engine), then re-publish a new version.</li></ol>` },
 
-  { id: "qa", stage: "Design", title: "QA — standards scan", body: `
+  { id: "qa", stage: "Design", title: "Models ▸ Check — standards scan", body: `
 <p><b>What it is.</b> Scans the model against the installed standard and scores it (grade + %).</p>
 <p><b>How to use it.</b> Press <b>Scan</b> → read the grade and the violations by domain. Click any violation
 to isolate + zoom to the offending element. Fix, re-scan, watch the score rise.</p>` },
 
-  { id: "cost", stage: "Design", title: "Cost · 5D — model-driven BoQ", body: `
+  { id: "cost", stage: "Design", title: "Documents ▸ Reports ▸ Cost — model-driven BoQ", body: `
 <p><b>What it is.</b> Quantities pulled from the model priced against an editable rate library — so the cost
 plan can't drift from design. Includes change tracking.</p>
 <p><b>How to use it.</b></p><ol>
@@ -91,13 +92,13 @@ plan can't drift from design. Includes change tracking.</p>
 <li>Click a line → isolate its elements. <b>CSV</b> exports the BoQ.</li></ol>
 <div class="tip">Banners flag elements with no quantities or no rate — gaps are shown, never hidden.</div>` },
 
-  { id: "carbon", stage: "Design", title: "6D — embodied carbon", body: `
+  { id: "carbon", stage: "Design", title: "Documents ▸ Reports ▸ Carbon — embodied carbon", body: `
 <p><b>What it is.</b> The same quantities × carbon factors → whole-project embodied carbon, hotspots and
 intensity (kgCO₂e/m²).</p>
 <p><b>How to use it.</b> <b>Take off ▶</b> → total tCO₂e + a hotspot chart. Edit factors to match your EPD data
 (defaults are indicative). Click a line to isolate. Export CSV.</p>` },
 
-  { id: "timeline", stage: "Construction", title: "4D — sequence simulation", body: `
+  { id: "timeline", stage: "Construction", title: "Documents ▸ Reports ▸ Construction sequence (4D)", body: `
 <p><b>What it is.</b> Turns the programme into a view of the model — scrub the timeline and watch the building
 rise.</p>
 <p><b>How to use it.</b></p><ol>
@@ -105,20 +106,20 @@ rise.</p>
 <li>Drag the scrubber or press ▶: done = shown, active = highlighted, not-started = hidden.</li>
 <li>Click a task → isolate its elements.</li></ol>` },
 
-  { id: "issues", stage: "Coordination", title: "Issues (BCF)", body: `
+  { id: "issues", stage: "Coordination", title: "Issues ▸ Issues", body: `
 <p><b>What it is.</b> Zero-licence coordination issues that sync two-way with the Revit plugin.</p>
 <p><b>How to use it.</b> Select an element in the 3D view → <b>＋ New</b> → fill in the details → Send. It appears
 in the list here <i>and</i> in the Revit BCF window, which zooms straight to the element + camera. Filter by
 status / type / priority; open one for full details, comments and history.</p>` },
 
-  { id: "rfis", stage: "Coordination", title: "RFIs / approvals", body: `
+  { id: "rfis", stage: "Coordination", title: "Issues ▸ RFIs / approvals", body: `
 <p><b>What it is.</b> Requests for Information as first-class objects: raise → answer → approve & close, with a
 history trail.</p>
 <p><b>How to use it.</b> Select elements to link them, <b>Raise</b> an RFI (subject, discipline, assignee,
 question). The responder <b>answers</b> it (auto-moves to Answered); a coordinator <b>Approves & closes</b> it.</p>
 <div class="tip">Open RFIs block the coordination gate — you can't advance with them unresolved.</div>` },
 
-  { id: "cobie", stage: "Handover", title: "7D — handover / COBie", body: `
+  { id: "cobie", stage: "Handover", title: "Documents ▸ Reports ▸ Handover (COBie export)", body: `
 <p><b>What it is.</b> The asset register the FM team uses: maintainable components + their FM data, scored for
 handover readiness, exportable as COBie.</p>
 <p><b>How to use it.</b> <b>Assets ▶</b> → readiness % + coverage bars (serial / manufacturer / warranty / install
@@ -126,7 +127,7 @@ date). Red chips show what's missing on each asset. <b>COBie</b> exports the reg
 required to pass the handover gate.</p>
 <div class="tip">On a design model this reads low — correct: those fields get filled during construction.</div>` },
 
-  { id: "owner", stage: "Operate", title: "Owner / FM portal", body: `
+  { id: "owner", stage: "Operate", title: "Documents ▸ Reports ▸ Owner view", body: `
 <p><b>What it is.</b> The read-only stakeholder view — the golden thread the owner receives.</p>
 <p><b>How to use it.</b> It shows the project at a glance (readiness, health, value, carbon, open items) from the
 saved snapshot — no model needed. <b>Load from model</b> to search the asset register and locate any component
@@ -209,7 +210,7 @@ export function guidePanel(_components: OBC.Components, opts: { baseUrl?: string
       live.innerHTML = head(`Journey · ${j.key} · ${j.kind} · ${j.done} of ${j.total} done`) +
         `<p class="gd-muted">${escHtml(standardsLine(j))}</p>` +
         j.steps.map((s) => {
-          const where = [s.how.web && `Web: ${s.how.web.tab} ▸ ${s.how.web.hint}`, s.how.revit && `Revit: ${s.how.revit}`, `who: ${s.how.who}`].filter(Boolean).join(" · ");
+          const where = [s.how.web && `Web: ${journeyPlace(s.how.web.tab)} ▸ ${s.how.web.hint}`, s.how.revit && `Revit: ${s.how.revit}`, `who: ${s.how.who}`].filter(Boolean).join(" · ");
           const detail = stepDetail(s, j.next);
           return `<div class="gd-step${s.id === j.next ? " gd-next" : ""}"><b>${MARK[s.status]} ${escHtml(s.label)}</b>` +
             `<div class="gd-muted" title="${escHtml(s.evidence?.ref)}">${escHtml(detail)}</div><div class="gd-muted">${escHtml(where)}</div></div>`;

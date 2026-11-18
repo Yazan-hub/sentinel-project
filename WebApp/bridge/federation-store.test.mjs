@@ -119,7 +119,7 @@ describe("raiseGate — the lock on the clash register", () => {
   const run = (verdict, checks = []) => ({ latest: { result: { verdict, checks } }, stale: false });
   it("opens only on a pass that is not stale, and names the one thing to do otherwise", () => {
     expect(raiseGate(run("pass"))).toEqual({ ok: true, why: null });
-    expect(raiseGate({ latest: null, stale: false })).toEqual({ ok: false, why: "the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate)" });
+    expect(raiseGate({ latest: null, stale: false })).toEqual({ ok: false, why: "the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate)" });
     expect(raiseGate({ ...run("pass"), stale: true })).toEqual({ ok: false, why: "the Federation Gate's last run is stale — a live model changed since; run it again" });
     expect(raiseGate(run("fail", [{ id: "FG-02", status: "fail" }, { id: "FG-03", status: "pass" }, { id: "FG-05", status: "fail" }])))
       .toEqual({ ok: false, why: "the Federation Gate failed (FG-02, FG-05) — fix those and run it again" });

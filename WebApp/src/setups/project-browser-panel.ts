@@ -146,7 +146,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
         host.appendChild(holder);
       }
     }
-    if (!models.length) host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.5">No model loaded. Open one from <b>Projects ▸ Project Files ▸ Open 3D</b>; the tree builds itself.</div>';
+    if (!models.length) host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.5">No model loaded. Open one from <b>Documents ▸ Files ▸ Open 3D</b>; the tree builds itself.</div>';
     else if (filter) status(`Filter “${filter}” · ${shown} element(s) in matching groups.`);
   }
 

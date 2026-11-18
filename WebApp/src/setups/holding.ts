@@ -176,7 +176,7 @@ export async function dismissHold(baseUrl: string, key: string, containerName: s
 /** How a held file is sent again. Nothing is kept (Decision 2), so the corrected file comes from its source: the web
  *  picker (through intake) for a web or intake refusal, the model in Revit for Governed Publish and auto-publish. */
 export function resubmitFor(source: HoldSource): { upload: boolean; text: string } {
-  if (source === "revit") return { upload: false, text: "Fix the model in Revit, then Sentinel ▸ Publish ▸ Governed Publish again." };
+  if (source === "revit") return { upload: false, text: "Fix the model in Revit, then Sentinel ▸ Publish again." };
   if (source === "auto-publish") return { upload: false, text: "Fix the model in Revit and save — auto-publish judges it again (or run Governed Publish)." };
   if (source === "evidence") return { upload: false, text: "Put the right file in the project's evidence folder, then Admit it again under Evidence." }; // MA-4a
   return { upload: true, text: "Upload the corrected file" };

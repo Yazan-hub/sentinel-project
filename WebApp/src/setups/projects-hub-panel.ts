@@ -273,7 +273,7 @@ export function projectsHubPanel(
     root.querySelectorAll<HTMLElement>(".ph-del-open").forEach((b) =>
       b.addEventListener("click", () => {
         open(b.dataset.key!);
-        status(`Opened “${b.dataset.key}” — the file is under Project Files ▸ Deleted items.`, "#22c55e", "del");
+        status(`Opened “${b.dataset.key}” — the file is under Documents ▸ Files ▸ Deleted items.`, "#22c55e", "del");
       }),
     );
     root.querySelectorAll<HTMLButtonElement>(".ph-del-restore").forEach((b) =>

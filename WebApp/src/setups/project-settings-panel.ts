@@ -203,7 +203,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const invitations = invR.ok ? (((await invR.json().catch(() => ({ items: [] }))) as { items: InvitationRow[] }).items || []) : null;
       if (mine !== memSeq) return;
       const myId = user?.id ?? null;
-      const teamOpts: [string, string][] = teams.length ? teams.map((t) => [t, `Team ${t}`] as [string, string]) : [["", "no task teams declared yet (Deliverables tab)"]];
+      const teamOpts: [string, string][] = teams.length ? teams.map((t) => [t, `Team ${t}`] as [string, string]) : [["", "no task teams declared yet (Documents ▸ Delivery plan)"]];
       const partyOpts = (parties: Party[]): [string, string][] => [["", NO_PARTY], ...parties.map((p) => [p, PARTY_WORDS[p]] as [string, string])];
 
       const head = document.createElement("div");

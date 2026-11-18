@@ -245,7 +245,7 @@ describe("projects-hub-panel wiring — the Deleted models view", () => {
     expect(src).toContain("Loading…");
   });
   it("Open project opens it and says where the file is; Restore posts to the project's own route with an encoded key", () => {
-    expect(src).toMatch(/open\(b\.dataset\.key!\);\n\s*status\(`Opened “\$\{b\.dataset\.key\}” — the file is under Project Files ▸ Deleted items\.`/);
+    expect(src).toMatch(/open\(b\.dataset\.key!\);\n\s*status\(`Opened “\$\{b\.dataset\.key\}” — the file is under Documents ▸ Files ▸ Deleted items\.`/);
     expect(src).toContain('restoreDeleted(base, r.project_key, r, "web")');
     expect(items).toContain("/cde/${encodeURIComponent(key)}/files/${path}");
     expect(src).toContain("Not restored — ${(e as Error).message}");

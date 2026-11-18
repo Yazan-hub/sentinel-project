@@ -42,12 +42,11 @@ describe("the step lists", () => {
   it("office has five steps and project eight, in spec order, each with a how naming a real project tab or none", () => {
     expect(OFFICE_STEPS.map((s) => s.id)).toEqual(["team", "standards", "snapshot", "readiness", "projects"]);
     expect(PROJECT_STEPS.map((s) => s.id)).toEqual(["team", "standards", "bep", "tidp", "model", "verdict", "published", "federated", "issued"]);
-    // A3: read real tab labels from main.ts itself rather than a hand-copied list.
-    // Task 3 named the literal `spaceTabs` (reused for tabIndex()); anchor on that instead of the
-    // `tabbed([...])` call it used to be inlined into.
+    // A3: read real tab labels from main.ts itself rather than a hand-copied list. UX slice 2: the journey keeps its tab
+    // names and main.ts JOURNEY_TABS sends each to its new area; every name a step uses must be a key of that table.
     const src = readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8");
-    const block = src.slice(src.indexOf("const spaceTabs ="), src.indexOf("];", src.indexOf("const spaceTabs =")));
-    const tabs = [...block.matchAll(/label: "([^"]+)", el:/g)].map((m) => m[1]);
+    const block = src.slice(src.indexOf("const JOURNEY_TABS"), src.indexOf("};", src.indexOf("const JOURNEY_TABS")));
+    const tabs = [...block.matchAll(/"([^"]+)": \(\) => go\(/g)].map((m) => m[1]);
     expect(tabs.length).toBeGreaterThan(0);
     for (const s of [...OFFICE_STEPS, ...PROJECT_STEPS]) {
       expect(s.label).toBeTruthy();
@@ -58,13 +57,13 @@ describe("the step lists", () => {
 });
 
 describe("R1b journey", () => {
-  it("the BEP step opens the workspace, and main.ts has the Workspace layout", () => {
-    expect(PROJECT_STEPS.find((s) => s.id === "bep").how.web).toEqual({ tab: "Workspace", hint: "the project's BEP; none yet? Documents ▸ + New document ▸ Create BEP" });
-    expect(readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8")).toContain('Workspace: { icon: "mdi:file-document-edit-outline"');
+  it("the BEP step opens the workspace, and main.ts opens the editor for it", () => {
+    expect(PROJECT_STEPS.find((s) => s.id === "bep").how.web).toEqual({ tab: "Workspace", hint: "the project's BEP; none yet? Documents ▸ Project documents ▸ + New document ▸ Create BEP" });
+    expect(readFileSync(fileURLToPath(new URL("../src/main.ts", import.meta.url)), "utf8")).toContain('if (label === "Workspace") return void openBep();');
   });
   it("R1b: no hint sends anyone to the old panel's Compile to IDS", () => {
     for (const s of [...OFFICE_STEPS, ...PROJECT_STEPS]) expect(s.how.web?.hint ?? "", s.id).not.toContain("Documents ▸ EIR ▸ Compile to IDS");
-    expect(PROJECT_STEPS.find((s) => s.id === "standards").how.web.hint).toContain("Documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project");
+    expect(PROJECT_STEPS.find((s) => s.id === "standards").how.web.hint).toContain("Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project");
   });
 });
 
@@ -215,7 +214,7 @@ describe("amendments (controller cross-check)", () => {
     expect(step.how.revit).toBeNull();
     expect(step.how.web.tab).toBe("Project Files");
     expect(step.how.web.hint).toMatch(/web/i);
-    expect(step.how.web.hint).toMatch(/CDE/);
+    expect(step.how.web.hint).toMatch(/Documents ▸ Folders/); // UX slice 2: the container board (was "CDE")
   });
   it("A4: issued has no screen on either surface yet (both web and revit null)", () => {
     const step = PROJECT_STEPS.find((s) => s.id === "issued");
