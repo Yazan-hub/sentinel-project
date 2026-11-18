@@ -83,8 +83,8 @@ built at start-up (now on first view, as before).
 ## Not changed by this slice (and why)
 
 - **The platform file list** (`<top-models-list>`) is still registered and still in no area, as before. It is the only
-  way to open a reality-capture `.3tz` scan, so that viewer is unreachable today and stays so. Founder decision owed:
-  the list shows every project's files and bypasses the per-project Files path.
+  way to open a reality-capture `.3tz` scan, so that viewer is unreachable today and stays so. Founder decided 2026-11-18:
+  keep it hidden (the list shows every project's files and bypasses the per-project Files path).
 - **Four features the handbook describes that have no web screen today** (two-step sign-in, public receipt check, the MCP
   agent interface, the shareable explainer) and **bridge routes only Revit or agents call** were never on the web; nothing
   is lost.
