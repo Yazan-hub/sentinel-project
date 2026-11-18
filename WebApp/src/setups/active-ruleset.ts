@@ -11,7 +11,7 @@ import { canGovernRole } from "./my-role";
  */
 
 /** What every scan surface says when no ruleset is installed on the project or its office. */
-export const NO_RULESET = "No ruleset installed for this project — install one from Packs";
+export const NO_RULESET = "No ruleset installed for this project — install one from Settings ▸ Standards library";
 
 /** One artefact kind in force, as the bridge resolved it. */
 export interface InForce<T = unknown> {

@@ -100,7 +100,7 @@ describe("facts blocks", () => {
 describe("live lists", () => {
   it("midp lists every deliverable, filtered by stage when asked", async () => {
     const b = (await run([live("midp")])).blocks.l1;
-    expect(b).toMatchObject({ kind: "live_view", source: "midp", edit_hint: "Edit in Deliverables" });
+    expect(b).toMatchObject({ kind: "live_view", source: "midp", edit_hint: "Edit in Documents ▸ Delivery plan" });
     expect(b.columns.map((c) => c.key)).toEqual(["container", "title", "team", "stage", "due", "status"]);
     expect(b.rows.map((r) => r.container)).toEqual(["a", "b"]);
     expect((await run([live("midp", { stage: "coord" })])).blocks.l1.rows.map((r) => r.container)).toEqual(["b"]);
@@ -134,8 +134,8 @@ describe("live lists", () => {
   it("risk register and mobilisation read the annex rows with their hints", async () => {
     const r = (await run([live("risk_register", {}, "a"), live("mobilisation", {}, "b")])).blocks;
     expect(r.a.rows).toEqual([{ id: "r-1", risk: "Late survey", owner: "Ana" }]);
-    expect(r.a.edit_hint).toBe("Edit in Deliverables ▸ Risks");
-    expect(r.b.edit_hint).toBe("Edit in Deliverables ▸ Mobilisation");
+    expect(r.a.edit_hint).toBe("Edit in Documents ▸ Delivery plan ▸ Risks");
+    expect(r.b.edit_hint).toBe("Edit in Documents ▸ Delivery plan ▸ Mobilisation");
     expect(r.a.columns[0]).toEqual({ key: "risk", words: "Risk" });
   });
   it("capability: the Lead firm group first, then one group per declared team that has rows, prospective before appointment, with a summary", async () => {

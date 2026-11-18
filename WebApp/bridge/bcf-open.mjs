@@ -281,7 +281,7 @@ export async function answerOpen(route, ctx) {
       if (route.kind === "documents") return send(res, 200, page(docs, url.searchParams));
       const d = docs.find((x) => x.guid === route.sub);
       if (!d) return notFound("document");
-      return send(res, 409, { message: `${d.filename} is end-to-end encrypted on this CDE — its bytes open in Sentinel (Project Files), not over BCF; nothing was sent` });
+      return send(res, 409, { message: `${d.filename} is end-to-end encrypted on this CDE — its bytes open in Sentinel (Documents ▸ Files), not over BCF; nothing was sent` });
     }
     case "events": {
       if (!useCde) return send(res, 503, { message: "events are listed from the CDE — not configured on this bridge" });

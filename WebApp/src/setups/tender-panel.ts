@@ -208,7 +208,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
       const d = await bwrite<Delta>(`${base}/cde/${encodeURIComponent(pid())}/snapshots/delta?from=${encodeURIComponent(t.revision_id!)}`);
       if (current !== t) return;
       box.textContent = !d.comparable ? `Model since issue: not compared — ${d.reason}`
-        : d.to?.id === t.revision_id ? "Model since issue: no take-off since the tender was issued — take off in Cost 5D to compare"
+        : d.to?.id === t.revision_id ? "Model since issue: no take-off since the tender was issued — take off in Documents ▸ Reports ▸ Cost to compare"
         : `Model since issue: ${String(d.headline ?? "").replace(/^This revision: /, "")} (newest take-off ${d.to?.rev_code ?? "?"}, at ${d.basis?.rates ?? "reference rates"})`;
     } catch (e) { if (current === t) box.textContent = `Model since issue: not read — ${(e as Error).message}`; }
   };

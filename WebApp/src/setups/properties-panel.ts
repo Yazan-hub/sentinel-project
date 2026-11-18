@@ -41,7 +41,7 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
   const empty = () => {
     body.innerHTML =
       '<div style="color:#9ca3af;font-size:12px;line-height:1.6;padding:.5rem">' +
-      "Click an element in a <b>loaded model</b> (Assets ▸ load an IFC, or Bake your sketch and re-import) — " +
+      "Click an element in a <b>loaded model</b> (Documents ▸ Files ▸ Open 3D, or Bake your sketch and re-import) — " +
       "its identity and IFC property sets appear here, Revit-Properties-Palette style." +
       "</div>";
     status("No selection.");

@@ -101,7 +101,7 @@ describe("workspace page: READINESS and TIDP", () => {
     const p = page();
     await p.el.open("d1");
     await tick();
-    expect(textOf(p.centre).startsWith("Old task team plans are read here; plan deliveries in Deliverables.")).toBe(true);
+    expect(textOf(p.centre).startsWith("Old task team plans are read here; plan deliveries in Documents ▸ Delivery plan.")).toBe(true);
   });
   it("a READINESS document's Read centre is the readiness view", async () => {
     answers["/bimdocs/k/d1"] = row("READINESS", [{ id: "r1", heading: "12. Training", kind: "declared", question: "Is there a training plan?", answer: null, due: null }]);
@@ -110,7 +110,7 @@ describe("workspace page: READINESS and TIDP", () => {
     await p.el.open("d1");
     await tick();
     const t = textOf(p.centre);
-    expect(t).toContain("Answer the questions and plan in the Documents tab: Open, on this document's row.");
+    expect(t).toContain("Answer the questions and plan in Documents ▸ Project documents: Open, on this document's row.");
     expect(t).toContain("Standards: Measured 0 met");
     expect(t).toContain("Is there a training plan?");
   });

@@ -51,7 +51,7 @@ function eirLinker(ctx: PaneCtx): { el: HTMLElement; open(): Promise<void>; star
     slot.replaceChildren();
     if (!rows) { say(refusal(ctx, "The document list could not be read.")); return; }
     const choices = eirChoices(rows);
-    if (!choices.length) { say("No EIR in this project yet: ingest it from the Documents tab first."); return; }
+    if (!choices.length) { say("No EIR in this project yet: ingest it from Documents ▸ Project documents first."); return; }
     const sel = h(d, "select", `background:${C.bg};color:${C.soft};border:1px solid ${C.btnBorder};border-radius:.3rem;font:11px system-ui;padding:.2rem;min-width:0`);
     for (const c of choices) { const o = h(d, "option", "", c.title); o.value = c.id; sel.append(o); }
     sel.value = choices[0].id;

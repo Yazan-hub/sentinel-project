@@ -165,6 +165,6 @@ describe("F-RUN-6: + New document does not offer a TIDP", () => {
   it("drops the TIDP templates and says where task team plans are made", () => {
     const list = [{ template_id: "bep", doc_type: "BEP", sections: 1 }, { template_id: "tidp", doc_type: "TIDP", sections: 1 }, { template_id: "t2", doc_type: "tidp", sections: 1 }];
     expect(creatable(list).map((t) => t.template_id)).toEqual(["bep"]);
-    expect(TIDP_MOVED).toContain("Deliverables ▸ By task team");
+    expect(TIDP_MOVED).toContain("Documents ▸ Delivery plan ▸ By task team");
   });
 });

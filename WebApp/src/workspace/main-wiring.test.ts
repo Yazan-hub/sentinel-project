@@ -21,7 +21,7 @@ describe("entry points (spec section 5)", () => {
     expect(main).toContain("const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { showWorkspace(); void workspaceEl.open(docId, at); };");
     expect(main).toContain("onOpenWorkspace: (id) => openWorkspace(id)"); // Task 17 adds onIngested to the same docsPanel options
     expect(main).toContain("deliverablesPanel(components, { baseUrl: SERVICE_URL, onOpenBep: () => void openBep() })");
-    expect(main).toContain('if (label === "Workspace") return void openBep();');
+    expect(main).toContain("if (EDITOR_STEPS.includes(label)) return void openBep();");
     expect(main).toContain('openWorkspace(id, { section: "delivery-plans" })');
   });
   it("Deliverables offers Open in BEP", () =>

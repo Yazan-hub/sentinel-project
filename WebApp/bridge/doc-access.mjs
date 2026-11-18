@@ -69,7 +69,7 @@ export function validateAccess(access, members, teams) {
   }
   for (const [code, v] of Object.entries(access.teams ?? {})) {
     const found = (teams || []).find((c) => String(c).toLowerCase() === String(code).toLowerCase());
-    if (!found) throw err(400, `${code} is not a task team of this project — declare it under Deliverables, Task teams, first`);
+    if (!found) throw err(400, `${code} is not a task team of this project — declare it under Documents ▸ Delivery plan, Task teams, first`);
     out.teams[found] = level(v, `team ${found}`);
   }
   return out;

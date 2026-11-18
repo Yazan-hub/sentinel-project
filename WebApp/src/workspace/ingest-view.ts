@@ -83,7 +83,7 @@ export function ingestView(ctx: PaneCtx, p: IngestProposal, onCancel: () => void
     create.textContent = "Created"; // stays disabled: a second click would make a second document
     await ctx.openDoc(row.id);
     const after = ctx.ws.state();
-    if (after.key === key && after.doc?.id !== row.id) say.textContent = "Created. Open it from the Documents tab.";
+    if (after.key === key && after.doc?.id !== row.id) say.textContent = "Created. Open it from Documents ▸ Project documents.";
   });
   return root;
 }

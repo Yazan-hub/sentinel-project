@@ -1604,7 +1604,7 @@ describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verif
 describe("showing a changeset's scan (MA-4f): a signed-in contributor; a view, no row", () => {
   it("the machine credential may not: sign in — its scan is not shown", async () => {
     const rows = db.audit_log.length;
-    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown" } });
+    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown" } });
     expect(db.audit_log.length).toBe(rows);
   });
 });
@@ -1613,7 +1613,7 @@ describe("flagging a stair (MA-8-9): a signed-in contributor's pick, never the m
   const PICK = { kind: "stair", storey: "L01", box: { min: [0, 0, 0], max: [1200, 5400, 3000] } };
   it("POST /changesets/demo/x/flags: the machine credential is a 403 in the bridge's words, a viewer too; no row", async () => {
     const rows = db.audit_log.length;
-    expect(await call("POST", "/changesets/demo/x/flags", "machine", PICK)).toEqual({ status: 403, body: { message: "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved" } });
+    expect(await call("POST", "/changesets/demo/x/flags", "machine", PICK)).toEqual({ status: 403, body: { message: "a stair flag is a person's pick — sign in (More ▸ Sign in); nothing was saved" } });
     expect(await call("POST", "/changesets/demo/x/flags", "viewer", PICK)).toEqual(refused("contributor", "viewer"));
     expect(db.audit_log.length).toBe(rows);
   });

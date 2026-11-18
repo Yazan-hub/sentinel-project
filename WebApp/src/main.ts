@@ -264,7 +264,13 @@ async function main() {
   const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL, components });
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
-  const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });
+  // UX slice 2: now a tab (Models ▸ Check), so it sits in a plain column: tabbed() sets display:flex on the tab element,
+  // which would shrink the <bim-panel> host to its content.
+  const qaEl = document.createElement("div");
+  qaEl.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0";
+  const qaHost = qaPanel(components, { baseUrl: SERVICE_URL });
+  Object.assign(qaHost.style, { flex: "1", minHeight: "0" });
+  qaEl.appendChild(qaHost);
   // Standards-pack marketplace — browse/install/fork/publish; install → QA + gates enforce it (Phase 4).
   const packsEl = packsPanel(components, { baseUrl: SERVICE_URL });
   // 5D Cost panel — model-driven quantity take-off → live BoQ + change tracking (Phase 1/2).
@@ -340,25 +346,37 @@ async function main() {
     },
   });
   // UX slice 2: the project space keeps its header and the Dashboard (Home ▸ Overview); Project Files, Documents,
-  // Deliverables and Settings moved to the Documents and Settings areas. The bridge's journey still names those old
-  // tabs (journey-logic.mjs): this table sends each to its new place, and an unknown one to Home ▸ Overview, never to a
-  // blank area (journey-logic.test.mjs reads the table).
+  // Deliverables and Settings moved to the Documents and Settings areas. The bridge's journey names each step's place
+  // (journey-logic.mjs: "Documents ▸ Files", …, read by the web strip, the Guide and the Revit pane alike); this table
+  // opens it, and an unknown one opens Home ▸ Overview, never a blank area (journey-logic.test.mjs reads the table). The
+  // old tab names stay as aliases for a bridge that has not been restarted since.
   const JOURNEY_TABS: Record<string, () => void> = {
+    "Home ▸ Overview": () => go("Home", homeTabsEl, HOME_TABS, "Overview"),
+    "Documents ▸ Files": () => go("Documents", docsAreaEl, DOC_TABS, "Files"),
+    "Documents ▸ Project documents": () => go("Documents", docsAreaEl, DOC_TABS, "Project documents"),
+    "Documents ▸ Delivery plan": () => go("Documents", docsAreaEl, DOC_TABS, "Delivery plan"),
+    "Settings ▸ Project": () => go("Settings", settingsAreaEl, SETTINGS_TABS, "Project"),
     "Dashboard": () => go("Home", homeTabsEl, HOME_TABS, "Overview"),
     "Project Files": () => go("Documents", docsAreaEl, DOC_TABS, "Files"),
     "Documents": () => go("Documents", docsAreaEl, DOC_TABS, "Project documents"),
     "Deliverables": () => go("Documents", docsAreaEl, DOC_TABS, "Delivery plan"),
     "Settings": () => go("Settings", settingsAreaEl, SETTINGS_TABS, "Project"),
   };
-  // The Next strip (spec 2026-09-24): standards in force + the next journey step — a grid row above all five areas.
+  const EDITOR_STEPS = ["Documents ▸ Document editor", "Workspace"]; // the BEP step: opens the project's BEP in the editor
+  // The Next strip (spec 2026-09-24): standards in force + the next journey step, above every area's panel.
   const nextStripEl = nextStrip({
     baseUrl: SERVICE_URL,
     onOpenTab: (label) => {
-      if (label === "Workspace") return void openBep();
-      (JOURNEY_TABS[label] ?? JOURNEY_TABS["Dashboard"])();
+      if (EDITOR_STEPS.includes(label)) return void openBep();
+      (JOURNEY_TABS[label] ?? JOURNEY_TABS["Home ▸ Overview"])();
     },
     onOpenGuide: () => go("Home", homeTabsEl, HOME_TABS, "Guide"),
   });
+  // Shown only while a project is chosen, as it was inside the project space: with none (signed out, the hub before a
+  // card is opened) the journey read fails and would print a red error above every area. The grid's auto row collapses.
+  const syncStrip = () => { nextStripEl.style.display = hasProjectOverride() ? "flex" : "none"; }; // its own root is a flex column
+  syncStrip();
+  onActiveProjectChange(syncStrip);
   const spaceHeader = document.createElement("div");
   spaceHeader.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;background:#16161a;flex:0 0 auto";
   spaceHeader.innerHTML =
@@ -421,10 +439,17 @@ async function main() {
   const labelsOf = (tabs: { label: string }[]) => tabs.map((t) => t.label);
   // A platform built-in mounted as a node inside an area: it reads top-app's context through the DOM, as
   // <top-viewer-toolbar> inside the viewer does. A plain column wraps it, so tabbed() styles the wrapper, never the host.
+  // Created the first time its tab is on screen, as the old layouts created them only while shown: built at start-up, a
+  // hidden tree or data table would index every model opened in Models.
   const builtIn = (...tags: string[]) => {
     const w = document.createElement("div");
     w.style.cssText = "display:flex;flex-direction:column;gap:.4rem;height:100%;min-height:0;overflow:auto";
-    for (const t of tags) { const el = document.createElement(t); el.style.flex = "1"; el.style.minHeight = "0"; w.appendChild(el); }
+    const io = new IntersectionObserver((seen) => {
+      if (!seen.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      for (const t of tags) { const el = document.createElement(t); el.style.flex = "1"; el.style.minHeight = "0"; w.appendChild(el); }
+    });
+    io.observe(w);
     return w;
   };
 

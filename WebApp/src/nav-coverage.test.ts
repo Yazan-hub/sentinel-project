@@ -58,4 +58,37 @@ describe("UX slice 2: nothing is lost in the five areas (founder rule)", () => {
     for (const old of ["Projects", "Guide", "Copilot", "BIM Tools", "Coordination", "Lifecycle", "Explorer", "Data", "Standards", "QA", "Workspace"])
       expect(main, old).not.toContain(`app.layout = "${old}"`);
   });
+
+  // Fable review 2026-11-18: a dropped group or a dropped area root left every leaf check above green.
+  it("each area's root is mounted and its layout names it", () => {
+    const roots: Record<string, [string, string]> = {
+      Home: ["home", "homeTabsEl"], Models: ["models", "modelsEl"], Documents: ["documents", "docsAreaEl"], Issues: ["issues", "issuesAreaEl"], Settings: ["settings", "settingsAreaEl"],
+    };
+    for (const [layout, [key, el]] of Object.entries(roots)) {
+      expect(main, layout).toContain(`${key}: () => BUI.html\`\${${el}}\``);
+      expect(main, layout).toMatch(new RegExp(`${layout}: \\{ label: "${layout}", icon: "[^"]+", template: \`"strip viewer" auto "${key} viewer" 1fr`));
+    }
+  });
+
+  it("the nested groups are tabs of their area (Models ▸ More, Documents ▸ Reports, Settings ▸ Advanced)", () => {
+    for (const group of ["el: tabbed(modelsMore) }", "el: reportsEl }", "el: advancedEl }"]) expect(areas.split(group).length - 1, group).toBe(1);
+  });
+
+  it("every jump pairs an area with its own tab group and list", () => {
+    const pairs = new Set(["Home homeTabsEl HOME_TABS", "Documents docsAreaEl DOC_TABS", "Settings settingsAreaEl SETTINGS_TABS"]);
+    const jumps = [...main.matchAll(/go\("(\w+)", (\w+), (\w+_TABS), "/g)];
+    expect(jumps.length).toBeGreaterThan(10);
+    for (const [, layout, el, list] of jumps) expect(pairs.has(`${layout} ${el} ${list}`), `${layout}, ${el}, ${list}`).toBe(true);
+    expect(main.match(/showTabOf\((\w+), (\w+_TABS),/g)?.every((m) => m === "showTabOf(reportsEl, REPORT_TABS,")).toBe(true);
+  });
+
+  it("every journey place the web strip and the Guide know opens a place in main.ts", () => {
+    const strip = readFileSync(new URL("./setups/next-strip.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+    const places = strip.slice(strip.indexOf("export const JOURNEY_PLACES"), strip.indexOf("};", strip.indexOf("export const JOURNEY_PLACES")));
+    const table = main.slice(main.indexOf("const JOURNEY_TABS"), main.indexOf("};", main.indexOf("const JOURNEY_TABS")));
+    const opens = new Set([...table.matchAll(/"([^"]+)": \(\) => go\(/g)].map((m) => m[1]).concat(["Documents ▸ Document editor", "Workspace"]));
+    const pairs = [...places.matchAll(/"([^"]+)": "([^"]+)"/g)];
+    expect(pairs.length).toBe(6);
+    for (const [, old, now] of pairs) { expect(opens.has(old), old).toBe(true); expect(opens.has(now), now).toBe(true); }
+  });
 });

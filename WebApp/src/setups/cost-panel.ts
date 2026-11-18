@@ -96,7 +96,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
 
   // ── take-off (reads the model once) ──────────────────────────────────────────
   const takeOff = async () => {
-    if (fragments.list.size === 0) { msg("Load a model from the Assets panel first.", "#eab308"); return; }
+    if (fragments.list.size === 0) { msg("Load a model from Documents ▸ Files ▸ Open 3D first.", "#eab308"); return; }
     const b = el("cp-take") as HTMLButtonElement; b.disabled = true;
     msg("Measuring quantities from the model…");
     try {

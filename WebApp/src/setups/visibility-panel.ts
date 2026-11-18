@@ -65,7 +65,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
   function renderList() {
     const host = el("vg-list");
     host.innerHTML = "";
-    if (!tree.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.5">No model loaded. Load an IFC via <b>Assets</b>, then ↻.</div>'; return; }
+    if (!tree.length) { host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.5">No model loaded. Load an IFC via <b>Documents ▸ Files ▸ Open 3D</b>, then ↻.</div>'; return; }
     for (const cat of tree) {
       const row = document.createElement("div");
       row.style.cssText = "display:flex;align-items:center;gap:.35rem;padding:.3rem .3rem;border-bottom:1px solid #202028";

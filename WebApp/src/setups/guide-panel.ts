@@ -65,7 +65,7 @@ bids are compared against a model-derived estimate.</p>
 
   { id: "model", stage: "Design", title: "Models — the viewer, Browser, Model tree, Data table", body: `
 <p><b>What they are.</b> The base viewer: <b>Documents ▸ Files ▸ Open 3D</b> loads a model, <b>Models ▸ More ▸ Model tree</b> is the
-model tree + properties, <b>Data</b> is the tabular view.</p>
+model tree + properties, <b>Models ▸ More ▸ Data table</b> is the tabular view.</p>
 <p><b>How to use it.</b> Start in <b>Documents ▸ Files</b> → open your model in 3D. It appears in the 3D viewer that every panel
 shares. Everything else reads from it.</p>` },
 

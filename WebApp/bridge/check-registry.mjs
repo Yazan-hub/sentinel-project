@@ -148,7 +148,7 @@ export function classifyVerdicts(auditRows, total) {
     const prev = newest.get(r.entity_id);
     if (!prev || String(r.at) > String(prev.at)) newest.set(r.entity_id, r);
   }
-  if (!newest.size) return result(id, label, "not_checkable", { reason: "No governed verdict has been recorded on this project yet — publish through Governed Publish to produce one." });
+  if (!newest.size) return result(id, label, "not_checkable", { reason: "No governed verdict has been recorded on this project yet — publish through Sentinel ▸ Publish to produce one." });
   const bad = [];
   let acceptedCount = 0, recordedCount = 0;
   for (const [vid, r] of newest) {

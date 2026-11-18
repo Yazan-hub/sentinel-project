@@ -212,7 +212,7 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
   await requireUnlocked(doc);
-  if (String(doc.doc_type).toLowerCase() === "tidp") throw err(409, "A TIDP is never published; its rows live in Deliverables.");
+  if (String(doc.doc_type).toLowerCase() === "tidp") throw err(409, "A TIDP is never published; its rows live in Documents ▸ Delivery plan.");
   if (await chainFor(doc)) throw err(409, THROUGH_ROUND);
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   // R1c: what the preview showed is frozen into the version. Resolved BEFORE the status write: a source that cannot be read refuses the publish with nothing written.
@@ -533,7 +533,7 @@ const auditStructure = (doc, sections, extra, actor) =>
 /** The document, unless it is a readiness assessment: it keeps its fixed questions (spec section 16), so the eight section and
  *  block ops refuse it after openForWrite and before any write. */
 const keepsQuestions = (doc) => {
-  if (doc.doc_type === "READINESS") throw err(422, "A readiness assessment keeps its fixed questions; answer them in the Documents tab. Nothing was saved.");
+  if (doc.doc_type === "READINESS") throw err(422, "A readiness assessment keeps its fixed questions; answer them in Documents ▸ Project documents. Nothing was saved.");
   return doc;
 };
 const findSection = (doc, id) => {

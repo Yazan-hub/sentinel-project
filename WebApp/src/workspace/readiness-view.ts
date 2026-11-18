@@ -6,8 +6,8 @@ import { btn, C, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
 
 export const READ_ONLY_NOTE: Record<"READINESS" | "TIDP", string> = {
-  READINESS: "Answer the questions and plan in the Documents tab: Open, on this document's row.",
-  TIDP: "Old task team plans are read here; plan deliveries in Deliverables.",
+  READINESS: "Answer the questions and plan in Documents ▸ Project documents: Open, on this document's row.",
+  TIDP: "Old task team plans are read here; plan deliveries in Documents ▸ Delivery plan.",
 };
 export const VERSION_NOTE = "These are the answers as published. Measured results are not kept with a version: Back to the current document shows today's.";
 export const ANSWER_WORDS: Record<string, string> = { yes: "Yes", partial: "Partly", no: "No" };

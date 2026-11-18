@@ -1866,7 +1866,7 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
   it("(i) MA-4f: the overlay's refusals say what is not shown — the machine credential, a viewer, not a survey changeset, no wall, the job's chain, viewing not allowed (fails closed), the scan not read again, the slot busy, an answer not the contract's", async () => {
     const no = async (over, cs, status, message) => { const deps = sdeps(over, cs); await expect(scanOverlay("ma4c-drill", ID, deps)).rejects.toMatchObject({ status, message }); return deps; };
     const machine = await no({ myRole: vi.fn(async () => "service") }, CS, 403,
-      "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown");
+      "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown");
     expect([machine.measureJob.mock.calls.length, machine.takeWriteBudget.mock.calls.length]).toEqual([0, 0]);
     await no({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) }, CS, 403,
       "this action requires the contributor role (you are viewer) — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown");
@@ -2403,7 +2403,7 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     const rows = deps.audit.mock.calls.length;
     const machine = person({ myRole: vi.fn(async () => "service"), requireMinRole: vi.fn(async () => "service") });
     machine.saved.set(cs.id, deps.saved.get(cs.id));
-    await expect(flagChangeset("demo", cs.id, PICK, "x", machine)).rejects.toMatchObject({ status: 403, message: "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved" });
+    await expect(flagChangeset("demo", cs.id, PICK, "x", machine)).rejects.toMatchObject({ status: 403, message: "a stair flag is a person's pick — sign in (More ▸ Sign in); nothing was saved" });
     const viewer = person({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) });
     await expect(flagChangeset("demo", cs.id, PICK, "x", viewer)).rejects.toMatchObject({ status: 403, message: "this action requires the contributor role (you are viewer)" });
     await flagChangeset("demo", cs.id, PICK, "x", deps);
