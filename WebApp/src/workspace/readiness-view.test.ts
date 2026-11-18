@@ -26,7 +26,7 @@ describe("renderReadiness", () => {
     expect(t).toContain("Readiness could not be computed; the questions are shown below.");
     expect(t).toContain("Are competences recorded?");
   });
-  it("words the TIDP note", () => expect(READ_ONLY_NOTE.TIDP).toBe("Old task team plans are read here; plan deliveries in Deliverables."));
+  it("words the TIDP note", () => expect(READ_ONLY_NOTE.TIDP).toBe("Old task team plans are read here; plan deliveries in Documents ▸ Delivery plan."));
 });
 
 describe("renderReadiness, odd and partial input", () => {

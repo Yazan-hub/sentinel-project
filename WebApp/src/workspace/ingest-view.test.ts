@@ -57,7 +57,7 @@ describe("foldPassages", () => {
     const ws = { state: () => st, post: vi.fn(async () => ({ id: "new1" })) };
     const el = ingestView(pane(ws, st), one as any, () => {});
     await press(el, "Create document");
-    expect(textOf(el)).toContain("Created. Open it from the Documents tab.");
+    expect(textOf(el)).toContain("Created. Open it from Documents ▸ Project documents.");
   });
   it("says nothing more when the new document is open", async () => {
     const st = { ...emptyState("k"), doc: null as any };
@@ -66,7 +66,7 @@ describe("foldPassages", () => {
     c.openDoc = vi.fn(async () => { st.doc = { id: "new1" }; });
     const el = ingestView(c, one as any, () => {});
     await press(el, "Create document");
-    expect(textOf(el)).not.toContain("Open it from the Documents tab");
+    expect(textOf(el)).not.toContain("Open it from Documents ▸ Project documents");
   });
   it("reads a proposal without fragments or unassigned passages", async () => {
     const st = emptyState("k");

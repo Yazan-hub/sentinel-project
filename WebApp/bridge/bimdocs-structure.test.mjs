@@ -319,7 +319,7 @@ describe("final review: structure, readiness and size", () => {
     doc.doc_type = "READINESS";
     doc.sections[0].blocks = [{ id: "sec1.t0", kind: "text", title: "", data: { markdown: "" } }];
     doc.sections.push({ id: "sec2", heading: "H2", body: "", state: "wip", owner: null, bindings: {} });
-    const message = "A readiness assessment keeps its fixed questions; answer them in the Documents tab. Nothing was saved.";
+    const message = "A readiness assessment keeps its fixed questions; answer them in Documents ▸ Project documents. Nothing was saved.";
     const ops = [
       () => addSection("k", doc.id, { heading: "X" }), () => removeSection("k", doc.id, "sec2", {}),
       () => renameSection("k", doc.id, "sec1", { heading: "Y" }), () => reorderSections("k", doc.id, { order: ["sec2", "sec1"] }),

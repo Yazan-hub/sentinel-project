@@ -122,7 +122,7 @@ export function requireRows(rows, what) {
  *  403-for-not-a-member next to a 404-for-unknown let any signed-in account walk the key space. Every route that
  *  resolves a key comes through ensureProject, so the answer is decided once, here. */
 export const projectNotFound = (key) => Object.assign(
-  new Error(`Project "${key}" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Projects → + New project).`),
+  new Error(`Project "${key}" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Home ▸ Overview → + New project).`),
   { status: 404 },
 );
 
@@ -2084,7 +2084,7 @@ export async function adjudicateProposal(key, b = {}, opts = {}) {
   // 5a): a stamp is what publishing reads, so only the project's or office's installed IDS may make one. Refused
   // before any ledger row, registration or stamp.
   if (idsSource === "client" && (b.version_id || reg)) {
-    throw Object.assign(new Error(`a version is stamped only by the IDS installed on ${key} or its office — install one (Packs or Documents ▸ EIR ▸ Install on this project) or propose without version_id/register`), { status: 400 });
+    throw Object.assign(new Error(`a version is stamped only by the IDS installed on ${key} or its office — install one (Settings ▸ Standards library or Documents ▸ EIR ▸ Install on this project) or propose without version_id/register`), { status: 400 });
   }
   // Delegate to the pure, unit-tested referee core (same code the browser uses).
   const adj = c.adjudicate(spec, elements);

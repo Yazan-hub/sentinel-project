@@ -243,7 +243,7 @@ describe("register — one adjudication registers the version and stamps it", ()
 
 describe("an IDS the caller sent never stamps or registers a version (controller amendment)", () => {
   const register = { name: NAME, size_bytes: 1234, sha256: SHA };
-  const refused = "a version is stamped only by the IDS installed on aster-tower or its office — install one (Packs or Documents ▸ EIR ▸ Install on this project) or propose without version_id/register";
+  const refused = "a version is stamped only by the IDS installed on aster-tower or its office — install one (Settings ▸ Standards library or Documents ▸ EIR ▸ Install on this project) or propose without version_id/register";
 
   it.each([
     ["register", { container_name: NAME, register }],

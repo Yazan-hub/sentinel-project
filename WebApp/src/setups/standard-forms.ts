@@ -86,7 +86,7 @@ function ifcClass(s: string, what: string): string {
 const publish: StandardForm = {
   kind: "publish", title: "Auto-publish",
   intro: "Whether a model saved in Revit is published by itself when it passes the delivery gate.",
-  fields: [{ key: "auto", label: "Publish automatically when a saved model passes the gate", type: "check", hint: "Off: a person publishes with Governed Publish." }],
+  fields: [{ key: "auto", label: "Publish automatically when a saved model passes the gate", type: "check", hint: "Off: a person publishes with Sentinel ▸ Publish." }],
   fromBody: (b) => ({ auto: b?.auto === true }),
   toBody: (m) => ({ auto: m.auto === true }),
 };
@@ -487,12 +487,12 @@ export const STANDARD_FORMS: Record<string, StandardForm> = { naming, contract, 
 export type StandardLink = { open: "docs" | "standards" | "carbon"; label: string } | { text: string };
 export const STANDARD_LINKS: Record<string, StandardLink> = {
   ids: { open: "docs", label: "Edit in Documents" },
-  ruleset: { open: "standards", label: "Choose in Standards" },
+  ruleset: { open: "standards", label: "Choose in Standards library" },
   carbon_factors: { open: "carbon", label: "Edit in Carbon" },
-  type_catalog: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Build Office System" },
-  protection: { text: "Edit in Revit ▸ Standards & Build ▸ Protection" },
-  guideline: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Modelling Guideline" },
-  ifc_export: { text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ IFC Export Mapping" },
+  type_catalog: { text: "Edit in Revit ▸ Sentinel ▸ More ▸ Build Office System" },
+  protection: { text: "Edit in Revit ▸ Sentinel ▸ More ▸ Protection" },
+  guideline: { text: "Edit in Revit ▸ Sentinel ▸ More ▸ Modelling Guideline" },
+  ifc_export: { text: "Edit in Revit ▸ Sentinel ▸ More ▸ IFC Export Mapping" },
   doc_templates: { text: "Edit in the office's settings ▸ Document templates" }, // R3: an office artefact; its form is on the office (template-form.ts)
 };
 

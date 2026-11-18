@@ -313,7 +313,7 @@ describe("the Modeling studio is retired; the desk takes its tab (source scan)",
     const main = readFileSync(new URL("../main.ts", import.meta.url), "utf8");
     expect(main).toContain('import { reviewDeskPanel } from "./setups/review-desk";');
     expect(main).toContain("const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL, components });");
-    expect(main).toContain('{ label: "Review", el: reviewEl },');
+    expect(main).toContain('{ label: "Proposed changes", el: reviewEl },'); // UX slice 2: Documents ▸ Proposed changes
     expect(main).not.toContain("model-panel");
     expect(main).not.toContain('label: "Model"');
     expect(existsSync(new URL("./model-panel.ts", import.meta.url))).toBe(false);

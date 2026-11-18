@@ -76,7 +76,7 @@ import { readGateLedger } from "./setups/platform-deliveries-panel";
  * single sidebar icon (keeps the activity bar short — nothing hidden below the fold). Each child keeps its
  * own state (reused by reference); only the active child is shown. Plain-DOM, iframe-safe.
  */
-function tabbed(tabs: { label: string; el: HTMLElement }[]): HTMLElement {
+function tabbed(tabs: { label: string; el: HTMLElement }[], links: { label: string; go: () => void }[] = []): HTMLElement {
   const root = document.createElement("div");
   root.style.cssText = "display:flex;flex-direction:column;height:100%;overflow:hidden;background:#16161a;border-radius:.5rem";
   const bar = document.createElement("div");
@@ -106,6 +106,15 @@ function tabbed(tabs: { label: string; el: HTMLElement }[]): HTMLElement {
     btns.push(b);
     bar.appendChild(b);
     body.appendChild(t.el);
+  });
+  // UX slice 2: a link goes to a tool that lives in another area (the holding list in Documents ▸ Files, …); it is never
+  // a tab of its own, so showTab(i) still counts panel tabs only.
+  links.forEach((l) => {
+    const b = document.createElement("button");
+    b.textContent = l.label + " →";
+    b.style.cssText = "border:1px dashed #3a3a44;background:transparent;color:#a8b0bf;border-radius:.3rem;padding:.28rem .55rem;font:600 11px system-ui;cursor:pointer";
+    b.addEventListener("click", l.go);
+    bar.appendChild(b);
   });
   root.append(bar, body);
   show(0);
@@ -255,7 +264,13 @@ async function main() {
   const reviewEl = reviewDeskPanel({ baseUrl: SERVICE_URL, components });
   // One stable Sentinel QA panel, built now that the world + components exist.
   // Reused by reference so switching layouts doesn't reset its scan results.
-  const qaEl = qaPanel(components, { baseUrl: SERVICE_URL });
+  // UX slice 2: now a tab (Models ▸ Check), so it sits in a plain column: tabbed() sets display:flex on the tab element,
+  // which would shrink the <bim-panel> host to its content.
+  const qaEl = document.createElement("div");
+  qaEl.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0";
+  const qaHost = qaPanel(components, { baseUrl: SERVICE_URL });
+  Object.assign(qaHost.style, { flex: "1", minHeight: "0" });
+  qaEl.appendChild(qaHost);
   // Standards-pack marketplace — browse/install/fork/publish; install → QA + gates enforce it (Phase 4).
   const packsEl = packsPanel(components, { baseUrl: SERVICE_URL });
   // 5D Cost panel — model-driven quantity take-off → live BoQ + change tracking (Phase 1/2).
@@ -283,7 +298,7 @@ async function main() {
   const projectsHubEl = projectsHubPanel(components, {
     baseUrl: SERVICE_URL,
     onOpen: () => {
-      app.layout = "Projects";
+      go("Home", homeTabsEl, HOME_TABS, "Overview"); // the hub lives in Home ▸ Overview
       enterProjectSpace();
     },
   });
@@ -296,19 +311,25 @@ async function main() {
   // CDE panel — ISO 19650 information-container board (WIP/Shared/Published/Archived) on Supabase.
   const cdeEl = cdePanel(components, { baseUrl: SERVICE_URL });
   const filesEl = filesPanel(components, { baseUrl: SERVICE_URL });
-  // The BIM documents workspace — a full page (layout "Workspace"); the 3D viewer stays hidden, not destroyed, while it is open.
-  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => { app.layout = "Projects"; showSpace(); }, onLeave: () => docsEl.refresh(), onOpenReview: () => openReviewDesk() });
+  // The BIM documents workspace (the document editor). UX slice 2: the BIM documents editor is a full-page overlay over the shell, not a sidebar layout (the sidebar holds the
+  // five areas only). Back hides it and leaves the person on the area they opened it from; hiding it is what its
+  // ResizeObserver reads as leaving (onLeave), as switching layouts was.
+  const workspaceEl = workspacePage({ baseUrl: SERVICE_URL, onBack: () => hideWorkspace(), onLeave: () => docsEl.refresh(), onOpenReview: () => openReviewDesk() });
+  Object.assign(workspaceEl.style, { position: "fixed", inset: "0", height: "auto", zIndex: "20", display: "none" }); // below the switcher and account corner (z 1000)
+  container.appendChild(workspaceEl);
+  const showWorkspace = () => { workspaceEl.style.display = "flex"; };
+  const hideWorkspace = () => { workspaceEl.style.display = "none"; };
   // Documents panel — ISO 19650 project documents (BEP/EIR) with states, versions, print/PDF.
-  const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { app.layout = "Workspace"; void workspaceEl.open(docId, at); };
+  const openWorkspace = (docId: string, at?: { section?: string; view?: View }) => { showWorkspace(); void workspaceEl.open(docId, at); };
   // The project's BEP (newest first from the bridge); none yet: the Documents tab, where "+ New document" makes one.
   const openBep = async (): Promise<void> => {
     const r = await bfetch(`${SERVICE_URL}/bimdocs/${encodeURIComponent(activePid())}`).catch(() => null);
     const list = r && r.ok ? await r.json().catch(() => []) : [];
     const id = pickBep(Array.isArray(list) ? list : []);
     if (id) openWorkspace(id, { section: "delivery-plans" });
-    else (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(spaceTabs.map((t) => t.label), "Documents"));
+    else go("Documents", docsAreaEl, DOC_TABS, "Project documents");
   };
-  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL, onOpenWorkspace: (id) => openWorkspace(id), onIngested: (p) => { app.layout = "Workspace"; workspaceEl.openIngest(p); } });
+  const docsEl = docsPanel(components, { baseUrl: SERVICE_URL, onOpenWorkspace: (id) => openWorkspace(id), onIngested: (p) => { showWorkspace(); workspaceEl.openIngest(p); } });
   // Deliverables — the MIDP/TIDP plan vs what actually arrived (status derived, never stored).
   const deliverablesEl = deliverablesPanel(components, { baseUrl: SERVICE_URL, onOpenBep: () => void openBep() });
 
@@ -316,32 +337,46 @@ async function main() {
   // Standards in force names where a standard with no Settings form is edited (spec 2026-10-19 standards-forms): the
   // Documents tab beside it, the Standards sidebar, or Lifecycle ▸ Carbon 6D.
   const projectSettingsEl = projectSettingsPanel({
-    baseUrl: SERVICE_URL, onDeleted: () => showHub(),
+    // Deleting the project from Settings returns to the hub, which now lives in Home.
+    baseUrl: SERVICE_URL, onDeleted: () => { go("Home", homeTabsEl, HOME_TABS, "Overview"); showHub(); },
     onOpen: (place) => {
-      if (place === "docs") (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(spaceTabs.map((t) => t.label), "Documents"));
-      else if (place === "standards") app.layout = "Standards";
-      else { app.layout = "Lifecycle"; (lifecycleEl as unknown as { showTab: (i: number) => void }).showTab(1); } // Carbon 6D
+      if (place === "docs") go("Documents", docsAreaEl, DOC_TABS, "Project documents");
+      else if (place === "standards") go("Settings", settingsAreaEl, SETTINGS_TABS, "Standards library");
+      else { go("Documents", docsAreaEl, DOC_TABS, "Reports"); showTabOf(reportsEl, REPORT_TABS, "Carbon"); }
     },
   });
-  const spaceTabs = [
-    { label: "Dashboard", el: projectEl },
-    { label: "Project Files", el: filesEl },
-    { label: "Documents", el: docsEl },
-    { label: "Deliverables", el: deliverablesEl },
-    { label: "Settings", el: projectSettingsEl },
-  ];
-  const spaceTabsEl = tabbed(spaceTabs);
-  // The Next strip (spec 2026-09-24): standards in force + the next journey step, on every project tab.
-  // "Open" maps the step's tab label to its index in spaceTabs; "▸ Journey" opens the Guide sidebar layout.
+  // UX slice 2: the project space keeps its header and the Dashboard (Home ▸ Overview); Project Files, Documents,
+  // Deliverables and Settings moved to the Documents and Settings areas. The bridge's journey names each step's place
+  // (journey-logic.mjs: "Documents ▸ Files", …, read by the web strip, the Guide and the Revit pane alike); this table
+  // opens it, and an unknown one opens Home ▸ Overview, never a blank area (journey-logic.test.mjs reads the table). The
+  // old tab names stay as aliases for a bridge that has not been restarted since.
+  const JOURNEY_TABS: Record<string, () => void> = {
+    "Home ▸ Overview": () => go("Home", homeTabsEl, HOME_TABS, "Overview"),
+    "Documents ▸ Files": () => go("Documents", docsAreaEl, DOC_TABS, "Files"),
+    "Documents ▸ Project documents": () => go("Documents", docsAreaEl, DOC_TABS, "Project documents"),
+    "Documents ▸ Delivery plan": () => go("Documents", docsAreaEl, DOC_TABS, "Delivery plan"),
+    "Settings ▸ Project": () => go("Settings", settingsAreaEl, SETTINGS_TABS, "Project"),
+    "Dashboard": () => go("Home", homeTabsEl, HOME_TABS, "Overview"),
+    "Project Files": () => go("Documents", docsAreaEl, DOC_TABS, "Files"),
+    "Documents": () => go("Documents", docsAreaEl, DOC_TABS, "Project documents"),
+    "Deliverables": () => go("Documents", docsAreaEl, DOC_TABS, "Delivery plan"),
+    "Settings": () => go("Settings", settingsAreaEl, SETTINGS_TABS, "Project"),
+  };
+  const EDITOR_STEPS = ["Documents ▸ Document editor", "Workspace"]; // the BEP step: opens the project's BEP in the editor
+  // The Next strip (spec 2026-09-24): standards in force + the next journey step, above every area's panel.
   const nextStripEl = nextStrip({
     baseUrl: SERVICE_URL,
     onOpenTab: (label) => {
-      if (label === "Workspace") return void openBep();
-      const i = tabIndex(spaceTabs.map((t) => t.label), label);
-      if (i >= 0) (spaceTabsEl as unknown as { showTab: (i: number) => void }).showTab(i);
+      if (EDITOR_STEPS.includes(label)) return void openBep();
+      (JOURNEY_TABS[label] ?? JOURNEY_TABS["Home ▸ Overview"])();
     },
-    onOpenGuide: () => { app.layout = "Guide"; },
+    onOpenGuide: () => go("Home", homeTabsEl, HOME_TABS, "Guide"),
   });
+  // Shown only while a project is chosen, as it was inside the project space: with none (signed out, the hub before a
+  // card is opened) the journey read fails and would print a red error above every area. The grid's auto row collapses.
+  const syncStrip = () => { nextStripEl.style.display = hasProjectOverride() ? "flex" : "none"; }; // its own root is a flex column
+  syncStrip();
+  onActiveProjectChange(syncStrip);
   const spaceHeader = document.createElement("div");
   spaceHeader.style.cssText = "display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;background:#16161a;flex:0 0 auto";
   spaceHeader.innerHTML =
@@ -349,9 +384,8 @@ async function main() {
     '<span id="sp-name" style="font:600 13px system-ui;color:#eee"></span>';
   const spaceView = document.createElement("div");
   spaceView.style.cssText = "display:none;flex-direction:column;height:100%;min-height:0;overflow:hidden;border-radius:.5rem;background:#16161a";
-  spaceTabsEl.style.flex = "1";
-  spaceTabsEl.style.minHeight = "0";
-  spaceView.append(spaceHeader, nextStripEl, spaceTabsEl);
+  Object.assign(projectEl.style, { display: "flex", flex: "1", minHeight: "0", minWidth: "0" }); // what tabbed() gave it as a shown tab
+  spaceView.append(spaceHeader, projectEl);
 
   const projectsRootEl = document.createElement("div");
   projectsRootEl.style.cssText = "display:flex;flex-direction:column;height:100%;min-height:0";
@@ -392,120 +426,134 @@ async function main() {
   // rendered to PNG by the plugin (Revit views aren't in the IFC either), served by the Bridge.
   const viewsEl = viewsPanel(components, { baseUrl: SERVICE_URL });
 
-  // Re-dock: the stable viewer + the panels, under the bim-viewer's named layouts
-  // with the activity-bar sidebar (Explorer · Assets · Data · Settings). All panels
-  // are now built-ins that self-wire from top-app's componentsContext/clientContext
-  // — no `components` plumbing in the app.
-  // Consolidate related panels into grouped tabs (internal sub-tabs) so the activity bar stays compact
-  // and nothing is hidden below the fold. Each child panel keeps its own state (reused by reference).
-  const bimToolTabs = [
+  // ── UX slice 2 (docs/ux/2026-11-17-simplification-map.md; coverage: docs/ux/web-coverage.md) ─────────────────────
+  // Five areas replace the twelve sidebar icons: Home, Models, Documents, Issues, Settings. Every panel of the old wiring
+  // is mounted inside them, reused by reference (none rebuilt, none dropped); src/nav-coverage.test.ts pins that list.
+  // <five-areas>
+  const showTabOf = (group: HTMLElement, labels: string[], label: string) => {
+    const i = tabIndex(labels, label);
+    if (i >= 0) (group as unknown as { showTab: (i: number) => void }).showTab(i); // -1 would hide every tab of the group
+  };
+  // Every jump between areas: close the document editor if it is open, show the area, then the tab.
+  const go = (layout: string, group: HTMLElement, labels: string[], label: string) => { hideWorkspace(); app.layout = layout; showTabOf(group, labels, label); };
+  const labelsOf = (tabs: { label: string }[]) => tabs.map((t) => t.label);
+  // A platform built-in mounted as a node inside an area: it reads top-app's context through the DOM, as
+  // <top-viewer-toolbar> inside the viewer does. A plain column wraps it, so tabbed() styles the wrapper, never the host.
+  // Created the first time its tab is on screen, as the old layouts created them only while shown: built at start-up, a
+  // hidden tree or data table would index every model opened in Models.
+  const builtIn = (...tags: string[]) => {
+    const w = document.createElement("div");
+    w.style.cssText = "display:flex;flex-direction:column;gap:.4rem;height:100%;min-height:0;overflow:auto";
+    const io = new IntersectionObserver((seen) => {
+      if (!seen.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      for (const t of tags) { const el = document.createElement(t); el.style.flex = "1"; el.style.minHeight = "0"; w.appendChild(el); }
+    });
+    io.observe(w);
+    return w;
+  };
+
+  // Home — what needs me now? The hub ⇄ the open project's header and Dashboard (Command Center, My work), the Copilot and
+  // the Guide. The Copilot and the Guide sit beside Overview, so they work with no project open (signed out, no projects).
+  const homeTabs = [
+    { label: "Overview", el: projectsRootEl },
+    { label: "Copilot", el: copilotEl },
+    { label: "Guide", el: guideEl },
+  ];
+  const HOME_TABS = labelsOf(homeTabs);
+  const homeTabsEl = tabbed(homeTabs, [
+    { label: "Waiting for approval", go: () => go("Documents", docsAreaEl, DOC_TABS, "Files") }, // the holding list lives in Files
+    { label: "Platform deliveries", go: () => go("Documents", docsAreaEl, DOC_TABS, "Folders") }, // the deliveries list lives on the board
+  ]);
+
+  // Models — what does the model look like, and is it right? The platform's own tree, data table and the list of
+  // sections and measurements (in no layout before) sit under More.
+  const modelsMore = [
+    { label: "Model tree", el: builtIn("top-model-tree", "top-properties-panel") },
+    { label: "Data table", el: builtIn("top-data-table-panel") },
+    { label: "Sections & measurements", el: builtIn("top-objects-panel") },
+  ];
+  const modelTabs = [
     { label: "Browser", el: browserEl },
     { label: "Properties", el: propsEl },
     { label: "Visibility", el: visEl },
     { label: "Views", el: viewsEl },
     { label: "Sheets", el: sheetsEl },
-    { label: "Review", el: reviewEl },
-    { label: "Performance", el: perfEl },
+    { label: "Check", el: qaEl },
+    { label: "Clash", el: clashEl },
+    { label: "More", el: tabbed(modelsMore) },
   ];
-  const bimToolsEl = tabbed(bimToolTabs);
-  // "My work" (Dashboard and the workspace header): a review line opens the Review desk, a tab of BIM Tools.
-  openReviewDesk = () => { app.layout = "BIM Tools"; (bimToolsEl as unknown as { showTab: (i: number) => void }).showTab(tabIndex(bimToolTabs.map((t) => t.label), "Review")); };
-  const coordEl = tabbed([
+  const modelsEl = tabbed(modelTabs, [{ label: "Open a model", go: () => go("Documents", docsAreaEl, DOC_TABS, "Files") }]); // Open 3D is in Files
+
+  // Documents — what's agreed and delivered? Reports (Lifecycle 4D–7D, Tender, Owner) are always here, last tab, never
+  // held back until a stage is reached. The full-page editor opens from Project documents, Delivery plan, My work and
+  // the "Document editor" link (which reopens the last document, as the old Workspace icon did).
+  const reportTabs = [
+    { label: "Cost", el: costEl },
+    { label: "Carbon", el: carbonEl },
+    { label: "Construction sequence", el: timelineEl },
+    { label: "Handover", el: cobieEl },
+    { label: "Tender", el: tenderEl },
+    { label: "Owner view", el: ownerEl },
+  ];
+  const REPORT_TABS = labelsOf(reportTabs);
+  const reportsEl = tabbed(reportTabs);
+  const docTabs = [
+    { label: "Files", el: filesEl },
+    { label: "Project documents", el: docsEl },
+    { label: "Delivery plan", el: deliverablesEl },
+    { label: "Proposed changes", el: reviewEl },
+    { label: "Folders", el: cdeEl },
+    { label: "Reports", el: reportsEl },
+  ];
+  const DOC_TABS = labelsOf(docTabs);
+  const docsAreaEl = tabbed(docTabs, [{ label: "Document editor", go: () => showWorkspace() }]);
+
+  // Issues — what's wrong and who fixes it? Clash groups sent as issues arrive here as issues.
+  const issuesAreaEl = tabbed([
     { label: "Issues", el: issuesEl },
     { label: "RFIs", el: rfiEl },
-    { label: "Clash", el: clashEl },
-    { label: "CDE", el: cdeEl },
   ]);
-  // The governed version history (uploader · when · state · history) IS the Project Files space —
-  // the project's Forma-style asset+version home. filesEl is a single DOM node, reused by reference.
-  const lifecycleEl = tabbed([
-    { label: "Cost 5D", el: costEl },
-    { label: "Carbon 6D", el: carbonEl },
-    { label: "4D Sequence", el: timelineEl },
-    { label: "COBie 7D", el: cobieEl },
-    { label: "Tender", el: tenderEl },
-    { label: "Owner", el: ownerEl },
+
+  // Settings — how is this project set up? Technical tools under Advanced.
+  const advancedEl = tabbed([
     { label: "Data feed", el: feedEl },
+    { label: "Performance", el: perfEl },
+    { label: "Viewer settings", el: builtIn("top-settings-panel") },
   ]);
+  const settingsTabs = [
+    { label: "Project", el: projectSettingsEl },
+    { label: "Standards library", el: packsEl },
+    { label: "Advanced", el: advancedEl },
+  ];
+  const SETTINGS_TABS = labelsOf(settingsTabs);
+  const settingsAreaEl = tabbed(settingsTabs);
+
+  // "My work" (Dashboard and the editor header): a review line opens the review desk, Documents ▸ Proposed changes.
+  openReviewDesk = () => go("Documents", docsAreaEl, DOC_TABS, "Proposed changes");
+  // </five-areas>
 
   app.elements = {
     viewer: () => BUI.html`${viewerEl}`,
-    tree: () => BUI.html`<top-model-tree></top-model-tree>`,
-    properties: () => BUI.html`<top-properties-panel></top-properties-panel>`,
-    // Platform global file pool — kept registered (reality-capture .3tz loader lives on it) but NOT in
-    // any layout: it ignores the active Sentinel project and would show every project's files everywhere.
+    strip: () => BUI.html`${nextStripEl}`, // the Next strip: one node, above every area's panel (left column; full width it ran under the floating switcher)
+    home: () => BUI.html`${homeTabsEl}`,
+    models: () => BUI.html`${modelsEl}`,
+    documents: () => BUI.html`${docsAreaEl}`,
+    issues: () => BUI.html`${issuesAreaEl}`,
+    settings: () => BUI.html`${settingsAreaEl}`,
+    // Platform global file pool — kept registered as before (the reality-capture .3tz loader lives on it) and, as before,
+    // in no area: it ignores the active Sentinel project and lists every project's files. Founder decision owed.
     files: () =>
       BUI.html`<top-models-list .loaders=${modelLoaders}></top-models-list>`,
-    // (filesEl — the governed version registry — lives inside the project space's "Project Files" tab,
-    //  not as a layout element: a single DOM node can only be docked in one place.)
-    dataTable: () => BUI.html`<top-data-table-panel></top-data-table-panel>`,
-    objects: () => BUI.html`<top-objects-panel></top-objects-panel>`,
-    settings: () => BUI.html`<top-settings-panel></top-settings-panel>`,
-    projects: () => BUI.html`${projectsRootEl}`,
-    copilot: () => BUI.html`${copilotEl}`,
-    guide: () => BUI.html`${guideEl}`,
-    qa: () => BUI.html`${qaEl}`,
-    packs: () => BUI.html`${packsEl}`,
-    // Consolidated groups (each hosts internal sub-tabs).
-    bimtools: () => BUI.html`${bimToolsEl}`,
-    coordination: () => BUI.html`${coordEl}`,
-    lifecycle: () => BUI.html`${lifecycleEl}`,
-    workspace: () => BUI.html`${workspaceEl}`,
   };
-  // No `label` → the sidebar renders icon-only activity-bar buttons (matching
-  // the pre-A2 look), background only on the active one.
-  // Sidebar ordered top→bottom as the PROJECT LIFECYCLE, so the activity bar reads like the
-  // stages: overview tools first, then Tender → Design → Construction → Coordination → Handover →
-  // Operate, then Settings. (The activity bar is a flat icon list, so order carries the structure.)
   app.layouts = {
-    // ── Overview / cross-cutting ──
-    Projects: { icon: "mdi:view-grid-outline", template: `"projects viewer" 1fr / 30rem 1fr` },
-    Guide: {
-      icon: "mdi:book-open-page-variant-outline",
-      template: `"guide viewer" 1fr / 32rem 1fr`,
-    },
-    Copilot: {
-      icon: "mdi:robot-outline",
-      template: `"copilot viewer" 1fr / 24rem 1fr`,
-    },
-    // ── Consolidated groups (each hosts internal sub-tabs, so the activity bar stays short) ──
-    "BIM Tools": {
-      icon: "mdi:toolbox-outline",
-      template: `"bimtools viewer" 1fr / 26rem 1fr`,
-    },
-    Coordination: {
-      icon: "mdi:account-group-outline",
-      template: `"coordination viewer" 1fr / 48rem 1fr`,
-    },
-    Lifecycle: {
-      icon: "mdi:chart-timeline-variant",
-      template: `"lifecycle viewer" 1fr / 26rem 1fr`,
-    },
-    // ── Platform built-ins + governance ──
-    Explorer: {
-      icon: "mdi:file-tree",
-      template: `"tree viewer" 1fr "properties viewer" 1fr / 22rem 1fr`,
-    },
-    Data: {
-      icon: "mdi:table",
-      template: `"dataTable viewer" 1fr / 22rem 1fr`,
-    },
-    Standards: {
-      icon: "mdi:store-outline",
-      template: `"packs viewer" 1fr / 24rem 1fr`,
-    },
-    QA: {
-      icon: "mdi:clipboard-check-outline",
-      template: `"qa viewer" 1fr / 24rem 1fr`,
-    },
-    Settings: {
-      icon: "mdi:cog",
-      template: `"settings viewer" 1fr / 22rem 1fr`,
-    },
-    // The BIM documents workspace, full page (founder 2026-10-25, layout A); its icon reopens the last document.
-    Workspace: { icon: "mdi:file-document-edit-outline", template: `"workspace" 1fr / 1fr` },
+    Home: { label: "Home", icon: "mdi:home-outline", template: `"strip viewer" auto "home viewer" 1fr / 32rem 1fr` },
+    Models: { label: "Models", icon: "mdi:cube-outline", template: `"strip viewer" auto "models viewer" 1fr / 32rem 1fr` },
+    Documents: { label: "Documents", icon: "mdi:file-document-multiple-outline", template: `"strip viewer" auto "documents viewer" 1fr / 40rem 1fr` },
+    Issues: { label: "Issues", icon: "mdi:alert-circle-outline", template: `"strip viewer" auto "issues viewer" 1fr / 48rem 1fr` },
+    Settings: { label: "Settings", icon: "mdi:cog", template: `"strip viewer" auto "settings viewer" 1fr / 32rem 1fr` },
   };
-  app.layout = "Projects";
+  app.layout = "Home";
   app.sidebar = true;
 
   // Global project switcher — a persistent floating pill (layout-independent) so you can switch the
@@ -515,7 +563,7 @@ async function main() {
     projectSwitcher({
       baseUrl: SERVICE_URL,
       onManage: () => {
-        app.layout = "Projects";
+        go("Home", homeTabsEl, HOME_TABS, "Overview"); // also closes the document editor if it is open
         showHub();
       },
     }),

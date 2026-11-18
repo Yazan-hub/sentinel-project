@@ -134,10 +134,10 @@ async function readLive(d, c, key, proj, doc, data) {
   const base = (words, extra) => ({ kind: "live_view", source, words, columns: [], rows: [], ...extra });
   if (source === "midp") {
     const rows = (await d.deliverableStatus(key)).rows.filter((r) => !f.stage || r.stage === f.stage).map(delivRow);
-    return base("Master information delivery plan", { columns: DELIV_COLS, rows, edit_hint: "Edit in Deliverables" });
+    return base("Master information delivery plan", { columns: DELIV_COLS, rows, edit_hint: "Edit in Documents ▸ Delivery plan" });
   }
   if (source === "tidp") {
-    const hint = "Edit in Deliverables";
+    const hint = "Edit in Documents ▸ Delivery plan";
     if (!f.team) return base("Task information delivery plan", { columns: DELIV_COLS, edit_hint: hint, note: "Pick a task team" });
     const t = (await d.tidpReport(key)).tidps.find((x) => x.declared !== false && norm(x.code) === norm(f.team)); // review R1c-2: an undeclared team gets the note
     return base(`Task information delivery plan — Team ${f.team}`, { columns: DELIV_COLS, edit_hint: hint,
@@ -156,7 +156,7 @@ async function readLive(d, c, key, proj, doc, data) {
     const a = ANNEXES[source];
     const rows = (await d.readAnnex(proj, source)).rows || [];
     return base(a.words, { columns: a.columns.map(({ key: k, words }) => ({ key: k, words })), rows,
-      edit_hint: `Edit in Deliverables ▸ ${source === "risk_register" ? "Risks" : "Mobilisation"}` });
+      edit_hint: `Edit in Documents ▸ Delivery plan ▸ ${source === "risk_register" ? "Risks" : "Mobilisation"}` });
   }
   if (source === "capability") {
     const groups = [];
@@ -168,7 +168,7 @@ async function readLive(d, c, key, proj, doc, data) {
       const mine = rows.filter((r) => norm(r.team) === norm(t.code));
       if (mine.length) groups.push({ title: `Firm · Team ${t.code}`, prospective: doc.stage === "pre_appointment", rows: mine, summary: summary(mine) });
     }
-    return base(ANNEXES.capability.words, { columns: CAP_COLS, groups, edit_hint: "Edit in Deliverables ▸ Capability" });
+    return base(ANNEXES.capability.words, { columns: CAP_COLS, groups, edit_hint: "Edit in Documents ▸ Delivery plan ▸ Capability" });
   }
   return base(String(source), { note: "not a known list" });
 }

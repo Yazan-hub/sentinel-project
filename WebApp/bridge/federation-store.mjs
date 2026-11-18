@@ -108,7 +108,7 @@ function isStale(recordedSet, liveSet, scope = "all") {
  *  what is locked is recording. `why` names the one thing to do, in words, when it is refused. */
 export function raiseGate(fed) {
   const latest = fed?.latest ?? null;
-  if (!latest) return { ok: false, why: "the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate)" };
+  if (!latest) return { ok: false, why: "the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate)" };
   // A run over a named subset (scope "explicit") is never stale for the live models it left out, so coverage is asked
   // separately: every live model must be in the run (found by the lock's review, 2026-09-28).
   const seen = new Set((latest.set ?? []).map((m) => m.container));

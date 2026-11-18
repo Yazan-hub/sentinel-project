@@ -82,7 +82,7 @@ describe("startStrip sends the start route's body", () => {
   });
   it("no EIR in the project says where to ingest one", async () => {
     const c = live({ list: [{ id: "b1", doc_type: "BEP", title: "B", status: "wip" }] }), root = startStrip(c)!; await press(root, "EIR received…");
-    expect(textOf(root)).toContain("No EIR in this project yet: ingest it from the Documents tab first.");
+    expect(textOf(root)).toContain("No EIR in this project yet: ingest it from Documents ▸ Project documents first.");
     expect(c.write).not.toHaveBeenCalled();
   });
   it("a refusal shows the bridge words and does not refresh", async () => {

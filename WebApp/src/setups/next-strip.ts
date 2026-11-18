@@ -36,7 +36,7 @@ export async function fetchJourney(baseUrl: string, key: string): Promise<Journe
 
 // B1: nothing installed says where to install it; a failed read (label already "unavailable — <message>")
 // is shown as is, never as an install hint.
-const refText = (r: JourneyRef) => (r.ref ? r.label : r.label === "none" ? "none — install from Settings/Packs" : r.label);
+const refText = (r: JourneyRef) => (r.ref ? r.label : r.label === "none" ? "none — install from Settings ▸ Standards library" : r.label);
 
 /** "Standards in force: IDS <label> · Rules <label> · Naming <label>" — labels exactly as the bridge's refLabel. */
 export const standardsLine = (j: Journey): string =>
@@ -65,7 +65,19 @@ export function stepDetail(s: JourneyStep, next: string | null): string {
   return (s.id === next ? "Next" : "To do") + (s.reason ? ` — ${s.reason}` : "");
 }
 
-/** B3: a label's index among the project-space tabs, or -1 when absent (or no label named at all). */
+/** UX slice 2: where a journey step's tab (the bridge's names, unchanged) is now — the Guide prints it; main.ts JOURNEY_TABS
+ *  opens the same places. An unknown name is printed as is. */
+export const JOURNEY_PLACES: Record<string, string> = {
+  "Dashboard": "Home ▸ Overview",
+  "Project Files": "Documents ▸ Files",
+  "Documents": "Documents ▸ Project documents",
+  "Deliverables": "Documents ▸ Delivery plan",
+  "Settings": "Settings ▸ Project",
+  "Workspace": "Documents ▸ Document editor",
+};
+export const journeyPlace = (tab: string): string => JOURNEY_PLACES[tab] ?? tab;
+
+/** B3: a label's index among a tab group's labels, or -1 when absent (or no label named at all). */
 export function tabIndex(labels: string[], label: string | null): number {
   return label == null ? -1 : labels.indexOf(label);
 }

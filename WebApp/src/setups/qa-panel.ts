@@ -221,7 +221,7 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         if (state.status === "scanning")
           return BUI.html`<div class="qa-empty">Scanning…</div>`;
         if (state.status === "empty")
-          return BUI.html`<div class="qa-empty">No model loaded. Add one from the Assets panel first.</div>`;
+          return BUI.html`<div class="qa-empty">No model loaded. Add one from Documents ▸ Files ▸ Open 3D first.</div>`;
         if (state.status === "blocked")
           return BUI.html`<div class="qa-empty">${state.notice}</div>`;
         // A done scan can still carry a note: rules {org} expansion skipped, so the score covers fewer rules.

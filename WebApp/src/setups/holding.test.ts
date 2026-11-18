@@ -196,8 +196,8 @@ describe("resubmitFor — how a held file is sent again", () => {
   it("web and intake: the picker, through intake; Revit and auto-publish: the model in Revit", () => {
     expect(resubmitFor("web")).toEqual({ upload: true, text: "Upload the corrected file" });
     expect(resubmitFor("intake")).toEqual({ upload: true, text: "Upload the corrected file" });
-    expect(resubmitFor("revit")).toEqual({ upload: false, text: "Fix the model in Revit, then Sentinel ▸ Publish ▸ Governed Publish again." });
+    expect(resubmitFor("revit")).toEqual({ upload: false, text: "Fix the model in Revit, then Sentinel ▸ Publish again." });
     expect(resubmitFor("evidence")).toEqual({ upload: false, text: "Put the right file in the project's evidence folder, then Admit it again under Evidence." });
-    expect(resubmitFor("auto-publish")).toEqual({ upload: false, text: "Fix the model in Revit and save — auto-publish judges it again (or run Governed Publish)." });
+    expect(resubmitFor("auto-publish")).toEqual({ upload: false, text: "Fix the model in Revit and save — auto-publish judges it again (or use Sentinel ▸ Publish)." });
   });
 });

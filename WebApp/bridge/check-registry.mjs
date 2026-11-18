@@ -148,7 +148,7 @@ export function classifyVerdicts(auditRows, total) {
     const prev = newest.get(r.entity_id);
     if (!prev || String(r.at) > String(prev.at)) newest.set(r.entity_id, r);
   }
-  if (!newest.size) return result(id, label, "not_checkable", { reason: "No governed verdict has been recorded on this project yet — publish through Governed Publish to produce one." });
+  if (!newest.size) return result(id, label, "not_checkable", { reason: "No governed verdict has been recorded on this project yet — publish through Sentinel ▸ Publish to produce one." });
   const bad = [];
   let acceptedCount = 0, recordedCount = 0;
   for (const [vid, r] of newest) {
@@ -175,7 +175,7 @@ export function classifyVerdicts(auditRows, total) {
 export function classifyDeliverables(status) {
   const id = "midp.milestones", label = "Delivery milestones (MIDP/TIDP)";
   const s = status?.summary || {};
-  if (!s.total) return result(id, label, "not_checkable", { reason: "No deliverables are defined for this project yet — add them in the Deliverables tab to check delivery against plan." });
+  if (!s.total) return result(id, label, "not_checkable", { reason: "No deliverables are defined for this project yet — add them in Documents ▸ Delivery plan to check delivery against plan." });
 
   const problems = (status.rows || []).filter((r) => r.status === "late" || r.status === "overdue" || r.status === "in_wip");
   if (problems.length) {
@@ -207,7 +207,7 @@ export function classifyDeliverables(status) {
 function classifyMidpExpectation(status, axis, id, label, noun) {
   const rows = (status?.rows || []).filter((r) => (axis === "revision" ? r.expected_revision : r.expected_suitability));
   if (!rows.length)
-    return result(id, label, "not_checkable", { reason: `No expected ${noun} is set on any deliverable — add expectations in the Deliverables tab to check delivery evidence.` });
+    return result(id, label, "not_checkable", { reason: `No expected ${noun} is set on any deliverable — add expectations in Documents ▸ Delivery plan to check delivery evidence.` });
   const verdictOf = (r) => r.evidence?.[axis];
   const mismatches = rows.filter((r) => verdictOf(r) === "mismatch");
   if (mismatches.length) {

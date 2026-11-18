@@ -270,7 +270,7 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
 
   it("the register is locked until the Federation Gate passed: not run, or failed, is a 409 in words and nothing is written", async () => {
     expect(await call("POST", "/clash/demo", "contributor", { items: [item] }))
-      .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate) — nothing was saved" } });
+      .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate) — nothing was saved" } });
     db.bridge_docs.push({ store: "federation", project_id: PID, doc_id: "latest", data: { result: { verdict: "fail", checks: [{ id: "FG-01", status: "fail" }] }, set: [], scope: "all" } });
     expect(await call("POST", "/clash/demo", "contributor", { items: [item] }))
       .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate failed (FG-01) — fix those and run it again — nothing was saved" } });
@@ -328,7 +328,7 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
   it("a Clash Issue is refused while the gate has not passed (the register's lock, asked per Issue); other Issues are not", async () => {
     const topics = "/bcf/3.0/projects/demo/topics";
     expect(await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" }))
-      .toEqual({ status: 409, body: { message: "not raised — the Federation Gate has not been run on this project — run it first (Coordination ▸ Clash ▸ Run gate) — nothing was saved" } });
+      .toEqual({ status: 409, body: { message: "not raised — the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate) — nothing was saved" } });
     expect(writes("bcf_topics")).toEqual([]);
     expect((await call("POST", topics, "contributor", { title: "A question", topic_type: "Issue" })).status).toBe(201);
     gatePassed();
@@ -1604,7 +1604,7 @@ describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verif
 describe("showing a changeset's scan (MA-4f): a signed-in contributor; a view, no row", () => {
   it("the machine credential may not: sign in — its scan is not shown", async () => {
     const rows = db.audit_log.length;
-    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown" } });
+    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown" } });
     expect(db.audit_log.length).toBe(rows);
   });
 });
@@ -1613,7 +1613,7 @@ describe("flagging a stair (MA-8-9): a signed-in contributor's pick, never the m
   const PICK = { kind: "stair", storey: "L01", box: { min: [0, 0, 0], max: [1200, 5400, 3000] } };
   it("POST /changesets/demo/x/flags: the machine credential is a 403 in the bridge's words, a viewer too; no row", async () => {
     const rows = db.audit_log.length;
-    expect(await call("POST", "/changesets/demo/x/flags", "machine", PICK)).toEqual({ status: 403, body: { message: "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved" } });
+    expect(await call("POST", "/changesets/demo/x/flags", "machine", PICK)).toEqual({ status: 403, body: { message: "a stair flag is a person's pick — sign in (More ▸ Sign in); nothing was saved" } });
     expect(await call("POST", "/changesets/demo/x/flags", "viewer", PICK)).toEqual(refused("contributor", "viewer"));
     expect(db.audit_log.length).toBe(rows);
   });

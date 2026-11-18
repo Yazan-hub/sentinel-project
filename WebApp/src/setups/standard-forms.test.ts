@@ -243,8 +243,8 @@ describe("the Revit windows (batch 3) — what they save installs on the bridge"
   for (const [kind, file] of [["guideline", "guideline-new.json"], ["ifc_export", "ifc-export-new.json"]] as const)
     it(`${kind} ← fixtures/standard-windows/${file}`, () => expect(validateArtefact(kind, repo(`WebApp/bridge/fixtures/standard-windows/${file}`))).toBe(true));
   it("the guideline and ifc_export rows name the Revit window", () => {
-    expect(STANDARD_LINKS.guideline).toEqual({ text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ Modelling Guideline" });
-    expect(STANDARD_LINKS.ifc_export).toEqual({ text: "Edit in Revit ▸ Standards & Build ▸ Standards ▸ IFC Export Mapping" });
+    expect(STANDARD_LINKS.guideline).toEqual({ text: "Edit in Revit ▸ Sentinel ▸ More ▸ Modelling Guideline" });
+    expect(STANDARD_LINKS.ifc_export).toEqual({ text: "Edit in Revit ▸ Sentinel ▸ More ▸ IFC Export Mapping" });
     expect(Object.values(STANDARD_LINKS).some((l) => "text" in l && /No editor yet/.test(l.text))).toBe(false);
   });
 });

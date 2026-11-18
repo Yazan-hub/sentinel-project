@@ -67,7 +67,7 @@ export async function partyFields(d, proj, { party, task_team } = {}) {
     if (!code) throw err(400, "a Firm member belongs to a task team — pick one");
     const teams = (await d.sb(`task_teams?project_id=eq.${enc(proj.id)}&select=code`, { service: true })) || [];
     const found = teams.find((t) => String(t.code).toLowerCase() === code.toLowerCase());
-    if (!found) throw err(400, `${code} is not a task team of this project — declare it under Deliverables, Task teams, first`);
+    if (!found) throw err(400, `${code} is not a task team of this project — declare it under Documents ▸ Delivery plan, Task teams, first`);
     return { party, task_team: found.code };
   }
   return { party: party ?? null, task_team: null };

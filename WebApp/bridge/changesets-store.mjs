@@ -720,7 +720,7 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   // "nothing was saved" at the end, or mid-sentence before a "; …" (the budget's 429): a view saves nothing, so it says what is not shown.
   const shown = (e) => (e?.status ? err(e.status, `${String(e.message).replace(/(;| —) nothing was saved\.?(?=;|$)/, "")} — its scan is not shown`) : e);
   if ((await d.myRole(key)) === "service")
-    throw err(403, "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: Standards ▸ Sign in) — its scan is not shown");
+    throw err(403, "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown");
   try { await d.requireMinRole(key, "contributor"); }
   catch (e) { throw e.status === 403 ? err(403, `${e.message} — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown`) : e; }
   const proj = await d.ensureProject(key);
@@ -1341,7 +1341,7 @@ export async function reportPersisted(key, id, { how, held, missing, of } = {}, 
 const MAX_PICKS = 50;
 export async function flagChangeset(key, id, b, actor, deps) {
   const d = wire(deps);
-  if ((await d.myRole(key)) === "service") throw err(403, "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved");
+  if ((await d.myRole(key)) === "service") throw err(403, "a stair flag is a person's pick — sign in (More ▸ Sign in); nothing was saved");
   await d.requireMinRole(key, "contributor");
   d.takeWriteBudget("flags", { perUser: 20, all: 60 });
   if (!b || typeof b !== "object" || Array.isArray(b)) throw err(400, 'the body is {kind: "stair", storey, box} — nothing was saved');

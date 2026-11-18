@@ -51,7 +51,7 @@ describe("ensureProject — one answer for an absent project and one that is not
     const absent = await runWithAuth(jwt("u-member"), () => ensureProject("gamma")).catch((e) => e);
     expect(notYours).toMatchObject({ status: 404, message: projectNotFound("beta").message });
     expect(absent).toMatchObject({ status: 404, message: projectNotFound("gamma").message });
-    expect(projectNotFound("beta").message).toBe('Project "beta" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Projects → + New project).');
+    expect(projectNotFound("beta").message).toBe('Project "beta" was not found, or you are not a member of it — ask its lead to add you, or create it in the web app (Home ▸ Overview → + New project).');
   });
   it("a member and the machine credential still resolve the row", async () => {
     await expect(runWithAuth(jwt("u-member"), () => ensureProject("alpha"))).resolves.toMatchObject({ key: "alpha" });

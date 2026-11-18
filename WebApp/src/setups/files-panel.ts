@@ -1265,7 +1265,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       el("fv-compare").innerHTML =
         `<div style="font-weight:600;margin-bottom:.3rem">Compare ${esc(a.revision)} ↔ ${esc(b.revision)}</div>` +
         `<div style="color:#eab308;font-size:11.5px">One or both versions have no element snapshot yet (◇), so there's nothing to diff numerically.<br>` +
-        `Load that version, open <b>Cost 5D</b> / <b>Carbon 6D</b> and press <b>Take off</b> to capture its quantities — then compare.</div>`;
+        `Load that version, open <b>Documents ▸ Reports ▸ Cost</b> / <b>Documents ▸ Reports ▸ Carbon</b> and press <b>Take off</b> to capture its quantities — then compare.</div>`;
       return;
     }
     try {

@@ -217,7 +217,7 @@ describe("transitions honour the chain (every pair)", () => {
     doc.status = "shared";
     await expect(publishDoc("k", DOC, {})).rejects.toMatchObject({ status: 409, message: "This document type is published through a review round on this project." });
     doc.doc_type = "TIDP";
-    await expect(publishDoc("k", DOC, {})).rejects.toMatchObject({ status: 409, message: "A TIDP is never published; its rows live in Deliverables." });
+    await expect(publishDoc("k", DOC, {})).rejects.toMatchObject({ status: 409, message: "A TIDP is never published; its rows live in Documents ▸ Delivery plan." });
     chain = null; doc.doc_type = "BEP";
     await expect(publishDoc("k", DOC, {})).resolves.toMatchObject({ version_no: 1 });
   });

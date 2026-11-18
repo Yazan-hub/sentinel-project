@@ -60,7 +60,7 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
   const msg = (t: string, c = "#9ca3af") => { el("cb-msg").textContent = t; el("cb-msg").style.color = c; };
 
   const scan = async () => {
-    if (fragments.list.size === 0) { msg("Load a model from the Assets panel first.", "#eab308"); return; }
+    if (fragments.list.size === 0) { msg("Load a model from Documents ▸ Files ▸ Open 3D first.", "#eab308"); return; }
     const b = el("cb-scan") as HTMLButtonElement; b.disabled = true;
     msg("Extracting assets + checking FM data…");
     try {
