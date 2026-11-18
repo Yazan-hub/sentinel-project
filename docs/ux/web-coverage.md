@@ -69,8 +69,8 @@ The Next strip shows only while a project is chosen, as it did inside the projec
 - **The document editor** belongs to Documents (it edits the BEP/EIR); what belongs to Home is My work, which opens it.
 - **The editor is an overlay**, not a sixth sidebar icon.
 - **Sections & measurements** (`<top-objects-panel>`, the platform's list of clip planes and measurements with show,
-  hide and delete) was in no layout before; it is now Models ▸ More ▸ Sections & measurements. Founder to confirm: keep
-  it (recommended, it only lists what the viewer already made), or take it out again.
+  hide and delete) was in no layout before; it is now Models ▸ More ▸ Sections & measurements. Founder decided 2026-11-18:
+  keep it (it only lists what the viewer already made).
 
 ## Review (2026-11-18, Fable)
 
