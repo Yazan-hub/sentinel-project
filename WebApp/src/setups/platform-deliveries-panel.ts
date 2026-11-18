@@ -13,14 +13,19 @@ const TONE: Record<DeliveryCard["state"], { border: string; color: string }> = {
   not_read: { border: "#4a3a12", color: "#fbbf24" },
 };
 
+/** The ledger line is also the AI reply's (ask-sentinel.ts): the card says it in the screen's words. */
+const historyWords = (s: string): string => s.replace(/^ledger /, "History ").replace("this project's ledger", "this project's History");
+
 export function cardHtml(c: DeliveryCard, ledger: string): string {
+  const entry = /^ledger #(\d+)$/.exec(ledger)?.[1]; // a plain "ledger #N": say "Recorded in History", number goes in Details
   const t = c.unverified ? TONE.not_read : TONE[c.state];
   return `<div style="min-width:16rem;max-width:22rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid ${t.border};border-radius:.4rem;font-size:12px">` +
     `<div style="display:flex;gap:.5rem;align-items:baseline"><span style="font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}">${esc(c.name)}</span>` +
     `<span style="color:#71717a;font-size:10.5px">${esc(c.versionTag)}</span></div>` +
     `<div style="color:${t.color};font-size:11px;font-weight:600">${esc(c.headline)}</div>` +
     c.lines.map((l) => `<div style="color:${c.state === "refused" ? "#fca5a5" : "#9ca3af"};font-size:11px;padding-left:.6rem">${esc(l)}</div>`).join("") +
-    `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">sha256 ${esc(shortSha(c.sha256))}${c.run ? ` · run ${esc(c.run)}` : ""} · ${esc(ledger)}</div></div>`;
+    `<div style="color:#71717a;font-size:10.5px">${esc(entry ? "Recorded in History" : historyWords(ledger))}</div>` +
+    `<details style="color:#71717a;font-size:10.5px"><summary>Details</summary><code>${entry ? `History entry ${entry} · ` : ""}sha256 ${esc(shortSha(c.sha256))}${c.run ? ` · run ${esc(c.run)}` : ""}</code></details></div>`;
 }
 
 /** Every platform_gate row of Sentinel project `key` on the ledger — every page: an older recorded run must never read
@@ -31,7 +36,7 @@ export async function readGateLedger(base: string, key: string): Promise<GateLed
   for (let offset = 0; ; offset += 1000) {
     let r: Response;
     try { r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/audit?entity_type=platform_gate&limit=1000&offset=${offset}`); }
-    catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message || String(e)})`); }
+    catch (e) { throw new Error(`Sentinel is not connected (${(e as Error)?.message || String(e)})`); }
     const page = (await r.json().catch(() => ({}))) as { rows?: GateLedgerRow[]; total?: number; message?: string };
     if (!r.ok) throw new Error(page?.message || `HTTP ${r.status}`);
     rows.push(...(page.rows ?? []));
@@ -54,7 +59,7 @@ export function mountPlatformDeliveries(host: HTMLElement, readLedger: () => Pro
     try {
       const [list, ledger] = await Promise.all([
         readDeliveries(getAppManager().client as unknown as DeliveriesClient | undefined, platformProjectId()),
-        readLedger().then((rows) => ({ rows, err: null }), (e) => ({ rows: null, err: e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error)?.message || String(e) })),
+        readLedger().then((rows) => ({ rows, err: null }), (e) => ({ rows: null, err: e instanceof TypeError ? `Sentinel is not connected (${e.message})` : (e as Error)?.message || String(e) })),
       ]);
       // SEC-4: "Passed" only with this project's verified ledger row; else "Passed (unverified)".
       const shown = list.map((c) => verifiedPass(c, ledger.rows));

@@ -6,6 +6,7 @@
  * validateArtefact stays the judge. `renderStandardForm` draws any of them as plain DOM (iframe-safe, no prompt/confirm).
  */
 
+import { withDetails } from "./details";
 import { DEFAULT_STAGE_MAP, LOD_CATEGORIES, MATRIX_STAGES, MAX_SNAP_MM, STAGES } from "../sentinel-core/lod-matrix";
 
 export type Cell = string | boolean;
@@ -85,8 +86,8 @@ function ifcClass(s: string, what: string): string {
 // ── the forms ──────────────────────────────────────────────────────────────────────────────────────────────
 const publish: StandardForm = {
   kind: "publish", title: "Auto-publish",
-  intro: "Whether a model saved in Revit is published by itself when it passes the delivery gate.",
-  fields: [{ key: "auto", label: "Publish automatically when a saved model passes the gate", type: "check", hint: "Off: a person publishes with Sentinel ▸ Publish." }],
+  intro: "Whether a model saved in Revit is published by itself when it passes the pre-publish check.",
+  fields: [{ key: "auto", label: "Publish automatically when a saved model passes the pre-publish check", type: "check", hint: "Off: a person publishes with Sentinel ▸ Publish." }],
   fromBody: (b) => ({ auto: b?.auto === true }),
   toBody: (m) => ({ auto: m.auto === true }),
 };
@@ -112,7 +113,7 @@ const DOC_PARTIES: [string, string][] = [["appointing", "Client"], ["lead_appoin
 const docRole = (party: string) => ({ role: party === "appointing" ? "viewer" : party === "lead_appointed" ? "lead" : "contributor", party });
 const review: StandardForm = {
   kind: "review", title: "Review chain",
-  intro: "The sign-offs a shared container needs before it is published, in order. No steps: no review chain. \"Who decides\" names the party whose members decide the step; a viewer step must name one.",
+  intro: "The sign-offs a shared file needs before it is published, in order. No steps: no review chain. \"Who decides\" names the party whose members decide the step; a viewer step must name one.",
   fields: [{
     key: "steps", label: "Steps", type: "rows", add: "Add a step", item: "Step", max: 6, blank: { role: "lead", approvals: "1", party: "" },
     columns: [
@@ -179,10 +180,10 @@ const review: StandardForm = {
   },
 };
 
-const ROI_MINUTES: [string, string][] = [["delivery_gate", "Minutes saved per delivery gate run"], ["naming", "Minutes saved per rename"], ["family_heal", "Minutes saved per family heal"]];
+const ROI_MINUTES: [string, string][] = [["delivery_gate", "Minutes saved per pre-publish check run"], ["naming", "Minutes saved per rename"], ["family_heal", "Minutes saved per family heal"]];
 const roi: StandardForm = {
   kind: "roi", title: "ROI rate card",
-  intro: "What the Revit ROI dashboard multiplies Sentinel's ledger counts by. A blank minutes field is not counted.",
+  intro: "What the Revit ROI dashboard multiplies Sentinel's History counts by. A blank minutes field is not counted.",
   fields: [
     { key: "currency", label: "Currency (three letters, e.g. EUR)", type: "text", width: "6rem" },
     { key: "hourly_rate", label: "Hourly rate", type: "number", width: "8rem" },
@@ -213,8 +214,8 @@ const roi: StandardForm = {
 
 const ENFORCE: [string, string][] = [["reject", "Refuse it"], ["warn", "Warn only"], ["off", "Off"]];
 const naming: StandardForm = {
-  kind: "naming", title: "Container naming",
-  intro: "How file and container names are built: the parts in order, joined by the separator.",
+  kind: "naming", title: "File naming",
+  intro: "How file names are built: the parts in order, joined by the separator.",
   fields: [
     { key: "title", label: "Name of the standard", type: "text" },
     { key: "separator", label: "Separator between parts (one character)", type: "text", width: "4rem" },
@@ -265,10 +266,10 @@ const naming: StandardForm = {
 
 const NO_COUNT_LIMIT = 2147483647; // a C# int's maximum: what the Revit gate reads as "no count limit"
 const contract: StandardForm = {
-  kind: "contract", title: "Delivery contract",
-  intro: "What a delivered IFC must hold to pass the delivery gate (intake, Governed Publish and the platform gate read it).",
+  kind: "contract", title: "Pre-publish check rules",
+  intro: "What a delivered IFC must hold to pass the pre-publish check (intake, Publish and the platform check read it).",
   fields: [
-    { key: "contract_key", label: "Contract name (letters, digits, . _ @ -)", type: "text" },
+    { key: "contract_key", label: "Rules name (letters, digits, . _ @ -)", type: "text" },
     { key: "ifc_schema", label: "IFC schema", type: "select", options: IFC_SCHEMAS.map((s) => [s, s]) },
     {
       key: "required_entities", label: "Classes the model must hold", type: "rows", add: "Add a class", item: "Class", blank: { min_count: "1" },
@@ -303,7 +304,7 @@ const contract: StandardForm = {
   }),
   toBody: (m, prev) => {
     const contract_key = str(m, "contract_key");
-    if (!/^[A-Za-z0-9._@-]{1,100}$/.test(contract_key)) throw new Error("The contract name is 1 to 100 letters, digits, . _ @ or - (no spaces)");
+    if (!/^[A-Za-z0-9._@-]{1,100}$/.test(contract_key)) throw new Error("The rules name is 1 to 100 letters, digits, . _ @ or - (no spaces)");
     const pct = (s: string, what: string) => {
       const n = num(s, what);
       if (n !== null && (n < 0 || n > 100)) throw new Error(`${what} is a share from 0 to 100 %`);
@@ -569,7 +570,7 @@ function rowCards(f: Rows, list: Row[]): HTMLElement {
 
 /** The form for `form`, filled from `model` (edited in place). `onSave` gets the model; its error is shown under the
  *  buttons in its own words and the form stays open. */
-export function renderStandardForm(form: StandardForm, model: Model, opts: { from: string; onSave: (m: Model) => Promise<void>; onCancel: () => void; saveLabel?: string }): HTMLElement {
+export function renderStandardForm(form: StandardForm, model: Model, opts: { from: string; fromDetail?: string; onSave: (m: Model) => Promise<void>; onCancel: () => void; saveLabel?: string }): HTMLElement {
   const saveWords = opts.saveLabel ?? "Save as the project's standard";
   const root = document.createElement("div");
   root.className = "ps-std-form";
@@ -577,7 +578,7 @@ export function renderStandardForm(form: StandardForm, model: Model, opts: { fro
   root.style.cssText = "border:1px solid #6528d7;border-radius:.45rem;padding:.6rem .7rem;margin:.5rem 0;background:#141418";
   const h = document.createElement("div"); h.textContent = `Edit ${form.title}`; h.style.cssText = "font:600 12.5px system-ui;color:#eee";
   const intro = document.createElement("div"); intro.textContent = form.intro; intro.style.cssText = "color:#9ca3af;font-size:11.5px;margin:.2rem 0 .1rem";
-  const from = document.createElement("div"); from.textContent = opts.from; from.style.cssText = "color:#71717a;font-size:11px;margin-bottom:.3rem";
+  const from = document.createElement("div"); from.replaceChildren(withDetails(opts.from, opts.fromDetail)); from.style.cssText = "color:#71717a;font-size:11px;margin-bottom:.3rem";
   root.append(h, intro, from);
   for (const f of form.fields) {
     const wrap = document.createElement("div"); wrap.style.marginTop = ".55rem";

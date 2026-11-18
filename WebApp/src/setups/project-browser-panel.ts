@@ -4,6 +4,7 @@ import { buildModelTree, type TreeCategory, type TreeInstance, type TreeModelNod
 import { livePlanLevels, openLivePlan } from "./live-plan";
 import { detectDrawings } from "../sentinel-core/adapter/drawings-detect";
 import { escapeHtml as esc } from "./escape-html";
+import { detailOf, withDetails } from "./details";
 
 /**
  * Sentinel Project Browser (Phase 4 — Revit-influenced). A Category → Type → Instance tree of every
@@ -34,7 +35,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
     '<div id="pb-tree" style="flex:1;overflow:auto;padding:.35rem"></div>' +
     '<div id="pb-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("pb-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("pb-status").replaceChildren(withDetails(t, detail));
 
   let models: TreeModelNode[] = [];
   let filter = "";
@@ -159,7 +160,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
       // updates too, and the last arg zooms the camera to the selection.
       await highlighter.highlightByID("select", map, true, true);
       status(`Selected ${instances.length} element(s).`);
-    } catch (e) { status("Select failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Select failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   async function refresh() {
@@ -171,7 +172,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
       const total = models.reduce((a, m) => a + m.count, 0);
       const cats = new Set(models.flatMap((m) => m.categories.map((c) => c.category))).size;
       status(`${models.length > 1 ? `${models.length} models · ` : ""}${cats} categories · ${total.toLocaleString("en-US")} elements. Click to select · dbl-click a category${models.length > 1 ? " or a model" : ""} to select all.`);
-    } catch (e) { status("Tree build failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Tree build failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   el("pb-refresh").addEventListener("click", refresh);
@@ -204,7 +205,7 @@ export function projectBrowserPanel(components: OBC.Components): HTMLElement {
       } else {
         status(`Found ${summary} — but no viewable 2D drawing geometry (grids/layers/refs only). For plans: ▦ Plans (live, from the model’s levels), or Views / Sheets (Revit’s).`);
       }
-    } catch (e) { status("2D scan failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("2D scan failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
   (root.querySelector("#pb-2d") as HTMLButtonElement).addEventListener("click", scan2d);
   document.addEventListener("sentinel:live-plan-closed", () => status("Back in 3D — the live plan is closed."));

@@ -11,10 +11,10 @@ describe("verifiedPass — SEC-4: a card is Passed only when this project's ledg
   });
   it("an unverified row, an older row without the field, no row and an unread ledger are Passed (unverified), with the reason", () => {
     for (const [rows, why] of [
-      [[row("pass_unverified", false)], "the ledger's row for this run does not show the contract installed in Sentinel judged it"],
-      [[{ id: 7, new_value: { execution_id: "exec9", result: "pass", file: { name: "tower.ifc", version_tag: "v2" } } }], "the ledger's row for this run does not show the contract installed in Sentinel judged it"],
-      [[], "no ledger row shows this run judged by the contract installed in Sentinel"],
-      [null, "no ledger row shows this run judged by the contract installed in Sentinel"],
+      [[row("pass_unverified", false)], "History's row for this run does not show the pre-publish check rules installed in Sentinel judged it"],
+      [[{ id: 7, new_value: { execution_id: "exec9", result: "pass", file: { name: "tower.ifc", version_tag: "v2" } } }], "History's row for this run does not show the pre-publish check rules installed in Sentinel judged it"],
+      [[], "no History row shows this run judged by the pre-publish check rules installed in Sentinel"],
+      [null, "no History row shows this run judged by the pre-publish check rules installed in Sentinel"],
     ] as Array<[GateLedgerRow[] | null, string]>) {
       const c = verifiedPass(card(), rows);
       expect(c.headline).toBe("Passed (unverified) — contract@1");
@@ -28,7 +28,7 @@ describe("verifiedPass — SEC-4: a card is Passed only when this project's ledg
     const c = verifiedPass(refused, [row("fail_unverified", false)]);
     expect(c.headline).toBe(refused.headline);
     expect(c.unverified).toBeUndefined();
-    expect(c.lines).toEqual([...refused.lines, "the ledger does not show that the contract installed in Sentinel judged it"]);
+    expect(c.lines).toEqual([...refused.lines, "History does not show that the pre-publish check rules installed in Sentinel judged it"]);
   });
   it("the summary counts an unverified pass apart from the passes", () => {
     const cards = [verifiedPass(card(), [row("pass", true)]), verifiedPass(card(), [row("pass", true)]), verifiedPass(card(), [row("pass_unverified", false)])];
@@ -66,7 +66,7 @@ describe("deliveryCard", () => {
     expect(deliveryCard(item(), "v2", labels, null)).toMatchObject({ state: "refused", headline: "Refused — contract@1 — 1 failure(s)", sha256: sha, run: "exec1" });
     expect(deliveryCard(item(), "v2", { ...labels, sentinel_gate: "pass" }, null)).toMatchObject({ state: "passed", headline: "Passed — contract@1" });
     expect(deliveryCard(item(), "v2", { sentinel_gate: "not_checked", sentinel_contract: "none" }, null)).toMatchObject({ state: "not_checked" });
-    expect(deliveryCard(item(), "v2", { sentinel_gate: "error", sentinel_run: "exec2" }, null)).toMatchObject({ state: "did_not_run", headline: "Gate did not run", run: "exec2" });
+    expect(deliveryCard(item(), "v2", { sentinel_gate: "error", sentinel_run: "exec2" }, null)).toMatchObject({ state: "did_not_run", headline: "Pre-publish check did not run", run: "exec2" });
   });
   it("nothing yet: Running — no verdict is claimed", () => {
     expect(deliveryCard(item(), "v2", null, null)).toMatchObject({ state: "running", headline: "Running", sha256: null, run: null });
@@ -213,7 +213,7 @@ describe("readGateLedger — the board's and Ask Sentinel's one ledger reader", 
     expect(await readGateLedger("http://b", "aster tower")).toHaveLength(1001);
     expect(f.mock.calls[1][0]).toBe("http://b/cde/aster%20tower/audit?entity_type=platform_gate&limit=1000&offset=1000");
     f.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    await expect(readGateLedger("http://b", "p")).rejects.toThrow("can't reach the bridge (Failed to fetch)");
+    await expect(readGateLedger("http://b", "p")).rejects.toThrow("Sentinel is not connected (Failed to fetch)");
     f.mockResolvedValueOnce(new Response(JSON.stringify({ message: "not a member of this project" }), { status: 403 }));
     await expect(readGateLedger("http://b", "p")).rejects.toThrow("not a member of this project");
   });

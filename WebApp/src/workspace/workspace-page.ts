@@ -10,7 +10,7 @@ import { loadMyWork, myWorkList, myWorkTotal, type MyWork } from "../setups/my-w
 import { aiPicker } from "../setups/ai-picker";
 import { statusLine, type DocRow } from "../sentinel-core/doc-blocks";
 import { pathSegment } from "../setups/escape-html";
-import { becameVisible, createWorkspace, readsLine, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
+import { becameVisible, showMessage, createWorkspace, readsLine, reopenTarget, resolveSection, reviewLines, rightsOf, type Workspace, type WorkspaceState } from "./workspace-state";
 import { C, btn, h } from "./dom";
 import { editPane, type Carried, type EditorHandle, type EditPaneEl } from "./block-editors";
 import { ingestView, type IngestProposal } from "./ingest-view";
@@ -171,9 +171,9 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     }
   }
   function renderMessage(c: PaneCtx): void {
-    const lines = c.st.doc && !ingest ? [ws.pending() > 0 && "Saving…", c.st.message, ...c.st.problems].filter(Boolean) as string[] : []; // with no document the centre says it
-    msgEl.replaceChildren(...lines.map((t) => h(d, "div", "", t)));
-    msgEl.style.display = lines.length ? "" : "none";
+    const rows: (string | true)[] = c.st.doc && !ingest ? [ws.pending() > 0 && "Saving…", c.st.message && true, ...c.st.problems].filter(Boolean) as (string | true)[] : []; // with no document the centre says it
+    msgEl.replaceChildren(...rows.map((t) => { const row = h(d, "div", ""); if (t === true) showMessage(row, c.st); else row.textContent = t; return row; }));
+    msgEl.style.display = rows.length ? "" : "none";
   }
   function renderOutline(c: PaneCtx): void {
     outlineCol.replaceChildren(...(c.st.doc ? [OUTLINE.pane(c)] : []));
@@ -184,7 +184,7 @@ export function workspacePage(opts: { baseUrl: string; onBack: () => void; onLea
     pane = null;
     if (carry && (carry.scope !== scope || (c.st.doc && carry.docId !== c.st.doc.id))) carry = null;
     if (ingest) { centre.replaceChildren(ingest.el); return; }
-    if (!c.st.doc) { centre.replaceChildren(h(d, "div", `color:${C.muted}`, c.st.message || "Open a document from Documents ▸ Project documents.")); return; }
+    if (!c.st.doc) { centre.replaceChildren((() => { const row = h(d, "div", `color:${C.muted}`); showMessage(row, c.st, "Open a document from Documents ▸ Project documents."); return row; })()); return; }
     const strip = view === "edit" ? startStrip(c) : null; // above the editing pane, never on the read views
     const kind = c.st.doc.doc_type;
     const note = view === "read" && kind === "TIDP" ? h(d, "div", `color:${C.muted};font:12px system-ui;margin:0 0 .8rem`, READ_ONLY_NOTE.TIDP) : null; // read-only types: old plans are read here

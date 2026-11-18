@@ -1,3 +1,4 @@
+import { withDetails } from "./details";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { STANDARD_INSTALLED } from "./active-ruleset";
@@ -30,17 +31,23 @@ export interface Journey {
 export async function fetchJourney(baseUrl: string, key: string): Promise<Journey> {
   const r = await bfetch(`${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/journey`);
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
   return j as Journey;
 }
 
 // B1: nothing installed says where to install it; a failed read (label already "unavailable — <message>")
 // is shown as is, never as an install hint.
-const refText = (r: JourneyRef) => (r.ref ? r.label : r.label === "none" ? "none — install from Settings ▸ Standards library" : r.label);
+const refText = (r: JourneyRef) => (r.ref ? `(${r.source})` : r.label === "none" ? "none — install from Settings ▸ Standards library" : r.label);
 
-/** "Standards in force: IDS <label> · Rules <label> · Naming <label>" — labels exactly as the bridge's refLabel. */
+/** "Standards in force: Data requirements (project) · Project standards (office) · Naming (project)": names and where each
+ *  comes from; the version and fingerprint of each are in `standardsDetail` (a closed Details). */
 export const standardsLine = (j: Journey): string =>
-  `Standards in force: IDS ${refText(j.standards.ids)} · Rules ${refText(j.standards.ruleset)} · Naming ${refText(j.standards.naming)}`;
+  `Standards in force: Data requirements ${refText(j.standards.ids)} · Project standards ${refText(j.standards.ruleset)} · Naming ${refText(j.standards.naming)}`;
+
+/** The bridge's own label (version · source · fingerprint) of every standard that is installed; "" when none is. */
+export const standardsDetail = (j: Journey): string =>
+  ([["Data requirements", j.standards.ids], ["Project standards", j.standards.ruleset], ["Naming", j.standards.naming]] as const)
+    .filter(([, r]) => r.ref).map(([n, r]) => `${n}: ${r.label}`).join("\n");
 
 /** "Next: <label> — <hint>" and the project-space tab that does it (null when the step is not done on the web). */
 export function nextLine(j: Journey): { text: string; tab: string | null } {
@@ -114,7 +121,7 @@ export function nextStrip(opts: { baseUrl: string; onOpenTab: (label: string) =>
       if (mine !== seq) return;
       const n = nextLine(j);
       tab = n.tab;
-      el("ns-std").textContent = standardsLine(j);
+      el("ns-std").replaceChildren(withDetails(standardsLine(j), standardsDetail(j)));
       el("ns-lod").textContent = lodLine(j);
       el("ns-next").textContent = n.text;
       el("ns-open").style.display = tab ? "" : "none";

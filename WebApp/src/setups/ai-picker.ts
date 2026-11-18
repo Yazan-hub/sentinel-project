@@ -16,7 +16,7 @@ export const aiPicker = (base: string, key: () => string): HTMLElement => {
   wrap.style.cssText = "display:inline-flex;gap:.3rem;align-items:center";
   const selCss = "max-width:110px;background:#14141a;color:#c9cfda;border:1px solid #2c2c34;border-radius:.3rem;font:11px system-ui;padding:.2rem";
   const providerSel = document.createElement("select");
-  providerSel.title = "Which AI drafts/analyses (keys stay in the bridge; local is the private default)";
+  providerSel.title = "Which AI drafts/analyses (keys stay on the office PC; local is the private default)";
   providerSel.style.cssText = selCss;
   const modelSel = document.createElement("select");
   modelSel.title = "Model (empty = provider default)";

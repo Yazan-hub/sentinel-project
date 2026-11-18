@@ -54,7 +54,7 @@ export async function saveWithLedger(cde, { before, topic, lines = [], actor, co
   await ensureCoverage(cde, proj.id, actor);
   const eid = cde.isUuid(topic.guid) ? topic.guid : null; // audit_log.entity_id is a uuid; a pre-0039 local guid rides in new_value
   const row = await cde.audit(proj.id, "bcf_topic", eid, entry.action, actor, entry.old_value, { ...entry.new_value, actor_verified: !!currentActor() });
-  if (!row?.id) throw Object.assign(new Error("the ledger gave no row back — nothing was changed"), { status: 502 });
+  if (!row?.id) throw Object.assign(new Error("History gave no row back — nothing was changed"), { status: 502 });
   for (const l of lines) l.ledger_id = row.id;
   try { await save(); }
   catch (e) {

@@ -45,15 +45,15 @@ describe("words", () => {
     expect(codeChoices("pre_appointment", "BEP").map((c) => c.key)).toEqual(["shared", "issue"]);
   });
   it("a decision line: who, party, words, note, when, ledger #", () => {
-    expect(decisionLine(view().steps[0].decisions[0])).toBe("arc@x (Firm · Team ARC) · Accept with comments: mind the grid · 2026-11-14 10:05 · ledger #41");
+    expect(decisionLine(view().steps[0].decisions[0])).toBe("arc@x (Firm · Team ARC) · Accept with comments: mind the grid · 2026-11-14 10:05 · History #41");
   });
   it("F-R2d-8/11: a skipped line names the skipper without a party; an outside line carries the reason, or where it is kept", () => {
     const base = { who: "sam@lead", party_words: "Firm · Team STR", at: "2026-11-14T12:29:00Z", ledger_id: 9 };
-    expect(decisionLine({ ...base, decision: "skipped", words: "Skipped (Team STR): no engineer yet" })).toBe("sam@lead · Skipped (Team STR): no engineer yet · 2026-11-14 12:29 · ledger #9");
+    expect(decisionLine({ ...base, decision: "skipped", words: "Skipped (Team STR): no engineer yet" })).toBe("sam@lead · Skipped (Team STR): no engineer yet · 2026-11-14 12:29 · History #9");
     const out = { ...base, party_words: "Client", outside: true, words: "Rejected outside Sentinel on 14 November 2026 by Jane Client; recorded in Sentinel by sam@lead" };
-    expect(decisionLine({ ...out, decision: "reject", note: "milestones missing", evidence: "milestones missing" })).toBe(`${out.words}: milestones missing · 2026-11-14 12:29 · ledger #9`);
-    expect(decisionLine({ ...out, decision: "accept", evidence: "signed letter" })).toBe(`${out.words} (signed letter) · 2026-11-14 12:29 · ledger #9`);
-    expect(decisionLine({ ...out, decision: "accept", evidence: null })).toBe(`${out.words} · 2026-11-14 12:29 · ledger #9`);
+    expect(decisionLine({ ...out, decision: "reject", note: "milestones missing", evidence: "milestones missing" })).toBe(`${out.words}: milestones missing · 2026-11-14 12:29 · History #9`);
+    expect(decisionLine({ ...out, decision: "accept", evidence: "signed letter" })).toBe(`${out.words} (signed letter) · 2026-11-14 12:29 · History #9`);
+    expect(decisionLine({ ...out, decision: "accept", evidence: null })).toBe(`${out.words} · 2026-11-14 12:29 · History #9`);
   });
 });
 
@@ -163,7 +163,7 @@ describe("no round", () => {
 describe("an open round", () => {
   it("steps with Who must decide, owed teams and who decided, and the decisions so far", () => {
     const t = textOf(run(ctx(cur({ round: view(), words: "Out for review, S3" }))));
-    for (const w of ["Out for review", "due 2026-12-01", "Step 1 · Task teams · now", "Who must decide: Firm · Team ARC, Firm · Team STR", "Team ARC: decided by arc@x", "Team STR: waiting", "arc@x (Firm · Team ARC) · Accept with comments: mind the grid", "ledger #41", "Step 2 · Lead firm", "Who must decide: Lead firm"]) expect(t).toContain(w);
+    for (const w of ["Out for review", "due 2026-12-01", "Step 1 · Task teams · now", "Who must decide: Firm · Team ARC, Firm · Team STR", "Team ARC: decided by arc@x", "Team STR: waiting", "arc@x (Firm · Team ARC) · Accept with comments: mind the grid", "Recorded in History", "Step 2 · Lead firm", "Who must decide: Lead firm"]) expect(t).toContain(w);
     expect(t).not.toContain("Send for review");
   });
   it("the caller's choices are buttons; a note is required for reject and says so before sending", async () => {
@@ -257,7 +257,7 @@ describe("R2d-2: the client outside Sentinel, skipped steps, Needs a review, Inc
     expect(textOf(run(ctx(cur({ round: atClient({ outside: { can: false, choices: [] } }) }))))).not.toContain("The client is outside Sentinel");
     const words = "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by sam@lead";
     const r = atClient(); r.steps[2] = { ...outsideStep, decisions: [{ who: "sam@lead", party_words: "Client", decision: "accept", at: "2026-11-04T10:00:00Z", ledger_id: 77, outside: true, words }] };
-    expect(textOf(run(ctx(cur({ round: r }))))).toContain(`${words} · 2026-11-04 10:00 · ledger #77`);
+    expect(textOf(run(ctx(cur({ round: r }))))).toContain(`${words} · 2026-11-04 10:00 · Recorded in History`);
   });
   it("Skip posts the step and the reason; without a reason it says so and sends nothing; a skipped team reads as skipped", async () => {
     const r = view({ skip: { can: true, step: 1, teams: ["STR"], words: "No one can confirm for Firm · Team STR: skip step 1 for them, with a reason." } });

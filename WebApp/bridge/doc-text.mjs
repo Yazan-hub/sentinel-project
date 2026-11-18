@@ -34,7 +34,7 @@ export function watchRss(worker, limitMb, onOver, everyMs = 250) {
 /** The parser for `kind` ("pdf" | "docx") run in a worker: its pages, or a 413 (past the heap bound) or a 422 (past the
  *  time bound) in words, or the parser's own words. The worker is stopped whatever the outcome. */
 export function parseInWorker(kind, bytes, { timeoutMs = PARSE_TIMEOUT_MS, heapMb = PARSE_HEAP_MB } = {}) {
-  if (parsing) return Promise.reject(err(503, "another document is being read on the bridge — try again in a minute; nothing was read or saved"));
+  if (parsing) return Promise.reject(err(503, "another document is being read — try again in a minute; nothing was read or saved"));
   const copy = new Uint8Array(bytes); // its own memory: an upload buffer may be a slice of a shared pool
   const what = kind === "pdf" ? ".pdf" : ".docx";
   return new Promise((resolve, reject) => {
@@ -65,7 +65,7 @@ export const MAX_DOCX_XML = 8 * 1024 * 1024;
  *  it, its directory read one way (no ZIP64, every count agreeing), no encryption, parts stored or deflated. */
 export function boundDocx(buffer) {
   const b = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-  const unreadable = (why) => err(400, `this file is not a .docx the bridge reads (${why}) — save it again from Word as .docx and upload that; nothing was read or saved`);
+  const unreadable = (why) => err(400, `this file is not a .docx Sentinel can read (${why}) — save it again from Word as .docx and upload that; nothing was read or saved`);
   const over = (what, fix = "split the document or make its images smaller") => err(413, `this .docx ${what} — nothing was read or saved; ${fix}`);
   const tooBig = () => over(`unpacks to over ${MAX_DOCX_UNPACKED / 1024 / 1024} MB`);
   const tooMuchText = () => over(`holds over ${MAX_DOCX_XML / 1024 / 1024} MB of document text`, "split the document");

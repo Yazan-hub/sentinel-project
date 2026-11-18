@@ -298,7 +298,7 @@ describe("readIfcGeometry — MA-6-8 review", () => {
       const sha = createHash("sha256").update(text).digest("hex");
       const r = await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }, { id: "ev-0002", path: ok, sha256: sha }] });
       expect(r.status).toBe("done");
-      expect(r.refused).toEqual([{ id: "ev-0001", reason: expect.stringMatching(/^a \.ifc is read inside the bridge — at most 64 MB \(this one is 65537 KB\)/) }]);
+      expect(r.refused).toEqual([{ id: "ev-0001", reason: expect.stringMatching(/^a \.ifc is read inside Sentinel — at most 64 MB \(this one is 65537 KB\)/) }]);
       expect(r.result.candidates.some((c) => c.kind === "wall")).toBe(true);
       expect((await runIfc({ job_id: "job-0001", items: [{ id: "ev-0001", path: big, sha256: sha }] })).status).toBe("refused");
     } finally { rmSync(dir, { recursive: true, force: true }); }

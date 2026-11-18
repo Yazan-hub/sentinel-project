@@ -8,6 +8,7 @@
 // who, when, the note, its ledger row (and the row of an Undo in Revit after it) and every ghost it did not apply with Revit's reason (result.reasons) and the web's.
 // MA-4e: under a placed survey report, its newest measure against the scan (the bridge's verify:measured row) and Measure — a signed-in contributor's.
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, setLine, withDetails } from "./details";
 import { myRoleRead, roleWords } from "./my-role";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { SERVICE_URL } from "../config";
@@ -150,7 +151,7 @@ export function ghostLine(el: Ghost): string {
  *  Review round 3: the type and the name already say Toposolid and the level - the line says neither again. */
 function terrainLine(el: Ghost): string {
   const n = el.place?.Points?.length;
-  return n ? ` · ${n} ground points, filed by a signed-in member from the survey changeset this was proposed from (the bridge checked its level, footprint and height band, not the points; not re-measured); ` +
+  return n ? ` · ${n} ground points, filed by a signed-in member from the survey's proposed changes this was proposed from (Sentinel checked its level, footprint and height band, not the points; not re-measured); ` +
     TERRAIN_SHAPE + " — check it against the site survey" : "";
 }
 /** Review round 3: TerrainPlanner.Shape verbatim (tools/promote-check Ma8Terrain reads this line and compares it; "plus 1 m" is survey-plan's GROUND_PAD_MM). */
@@ -189,7 +190,7 @@ function massSize(p: Ghost["place"]): string {
  *  in which changeset. An origin the desk does not know is "before", never guessed. */
 export const declinedBy = (r: { by: string; role: string | null; carried_from?: CarriedFrom | null }): string => {
   const who = r.role ? `${r.by} (${r.role})` : r.by, c = r.carried_from;
-  return c ? `declined ${c.origin === "revit" ? "in Revit" : c.origin === "web" ? "on the web" : "before"} by ${who} in "${c.name}", carried here by the bridge` : `declined by ${who}`;
+  return c ? `declined ${c.origin === "revit" ? "in Revit" : c.origin === "web" ? "on the web" : "before"} by ${who} in "${c.name}", carried here by Sentinel` : `declined by ${who}`;
 };
 
 /** The web desk's decision in words (Revit's ChangesetTrust.ReviewLine, from the desk's side); "waiting" when nobody decided. */
@@ -231,16 +232,16 @@ export function sourceWords(cs: PendingChangeset): string {
   const f = j.frame, s = j.storey, al = j.alignment;
   const o = j.overlaps ?? [];
   const again = o.length ? ` · the same ${al ? "drawing" : "scan"} ${[...new Set(o.flatMap((x) => x.evidence))].join(", ")} was placed before by ${o.map((x) => x.changeset).join(", ")}` : "";
-  if (al) return `from drawing ${j.id} (ledger #${j.ledger_id ?? "?"}) · ${al.item}${al.revises ? ` (revises ${al.revises}: what is the same is left as placed)` : ""} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
+  if (al) return `from drawing ${j.id} (History #${j.ledger_id ?? "?"}) · ${al.item}${al.revises ? ` (revises ${al.revises}: what is the same is left as placed)` : ""} at 1:${al.scale}, turned ${al.rotation_deg}°, its paper corner at ${al.dx_mm}, ${al.dy_mm} mm, ` +
     `level at ${al.dz_mm} mm${al.confirmed_by ? `, stated by ${al.confirmed_by}` : ""}${al.check_mm != null ? ` · checked to ${al.check_mm} mm by a third point` : " · no check point"}` +
     `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from a drawing is pre-ticked${again}`;
   if ((j.reader ?? "").startsWith("sentinel-ifc ")) { // MA-6-8
     const v = j.evidence?.[0], bought = v?.provider && v.provider !== "own"; // MA-8-3: a third party's model says whose, and its order
-    return `from IFC ${j.id}${bought ? ` by ${v.provider}` : ""} (${bought ? `${v.licence ?? "commercial"}, ref ${v.licence_ref ?? "?"}, ` : ""}ledger #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
+    return `from IFC ${j.id}${bought ? ` by ${v.provider}` : ""} (${bought ? `${v.licence ?? "commercial"}, ref ${v.licence_ref ?? "?"}, ` : ""}History #${j.ledger_id ?? "?"})${f ? ` · the concept ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : ""}` +
       `${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked"})` : ""} · nothing from an IFC is pre-ticked${again}`;
   }
   const frame = f ? ` · the scan ${f.dx_mm || f.dy_mm || f.dz_mm || f.rotation_deg ? `moved ${f.dx_mm}, ${f.dy_mm}, ${f.dz_mm} mm, turned ${f.rotation_deg}°` : "at the model's internal origin"}${f.stated_by ? `, stated by ${f.stated_by}` : ""}` : "";
-  return `from survey ${j.id} (ledger #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
+  return `from survey ${j.id} (History #${j.ledger_id ?? "?"})${frame}${s ? ` · storey ${s.level} (${s.how}${s.checked ? "" : " — its height not checked: nothing here is pre-ticked"})` : ""}${again}`;
 }
 
 /** Who may accept or decline on the desk: a signed-in contributor or above. The machine credential ("service") never reviews (Q1). */
@@ -255,7 +256,7 @@ async function readList(url: string): Promise<PendingChangeset[]> {
   try { r = await bfetch(url); }
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as PendingChangeset[] | { message?: string } | null;
-  if (!r.ok || !Array.isArray(j)) throw new Error(`not read — ${(j as { message?: string } | null)?.message || (r.ok ? "the bridge answered without a list" : `HTTP ${r.status}`)}`);
+  if (!r.ok || !Array.isArray(j)) throw new Error(`not read — ${(j as { message?: string } | null)?.message || (r.ok ? "Sentinel could not answer" : `HTTP ${r.status}`)}`);
   return j;
 }
 
@@ -284,7 +285,7 @@ async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> 
   try { r = await bfetch(url); }
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as { rows?: T[]; total?: number; message?: string } | null;
-  if (!r.ok || !Array.isArray(j?.rows)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without rows" : `HTTP ${r.status}`)}`);
+  if (!r.ok || !Array.isArray(j?.rows)) throw Object.assign(new Error(`not read — ${j?.message || (r.ok ? "Sentinel could not answer" : `HTTP ${r.status}`)}`), { detail: (j as { detail?: string } | null)?.detail ?? (r.ok ? "The reply was not a list." : `HTTP ${r.status}`) });
   return { rows: j.rows, total: j.total ?? 0 };
 }
 
@@ -295,7 +296,7 @@ async function auditRows<T>(url: string): Promise<{ rows: T[]; total: number }> 
 export async function readLedger(base: string, key: string, ids: string[]): Promise<Map<string, LedgerRows>> {
   if (!ids.length) return new Map();
   const j = await auditRows<{ id: number; entity_id: string; action: string; actor?: string; new_value?: { op?: unknown; basis?: unknown; by?: unknown; reason?: unknown; kept?: unknown } | null }>(`${base.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/audit?entity_type=changeset&action_prefix=changeset_&entity_id=${ids.map(encodeURIComponent).join(",")}&limit=1000`);
-  if (j.total > j.rows.length) throw new Error(`not read — the ledger holds more rows for these reports (${j.total}) than one read returns`);
+  if (j.total > j.rows.length) throw new Error(`not read — History holds more rows for these reports (${j.total}) than one read returns`);
   const out = new Map<string, LedgerRows>();
   for (const x of j.rows) {
     if (x.action !== "changeset_applied" && x.action !== "changeset_reverted") continue;
@@ -312,7 +313,7 @@ export async function readLedger(base: string, key: string, ids: string[]): Prom
 
 /** "3 report(s), newest first." — or that only the newest DECIDED_MAX are shown. */
 export const decidedCount = (n: number): string =>
-  n > DECIDED_MAX ? `The newest ${DECIDED_MAX} of ${n} reports — the older ones are on the ledger.` : `${n} report(s), newest first.`;
+  n > DECIDED_MAX ? `The newest ${DECIDED_MAX} of ${n} reports — the older ones are in History.` : `${n} report(s), newest first.`;
 
 /** One reported changeset in words. `ledger`: its rows; null when the ledger read found none; the Error of a read that failed.
  *  Each ghost the result did not apply carries Revit's reason (result.reasons) and the web's (declined_on_web) — or says it has none.
@@ -323,12 +324,12 @@ export function decidedView(cs: PendingChangeset, ledger: LedgerRows | null | Er
   const applied = r.applied ?? [], rejected = r.rejected ?? [], when = r.reported_at ?? "";
   const at = /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(when) ? `${when.slice(0, 10)} ${when.slice(11, 16)} UTC` : "an unknown time";
   const rev = ledger instanceof Error ? null : ledger?.reverted ?? null;
-  const row = (ledger instanceof Error ? `ledger row ${ledger.message}` : ledger?.row != null ? `ledger #${ledger.row}` : "no ledger row found for it")
+  const row = (ledger instanceof Error ? `History entry ${ledger.message}` : ledger?.row != null ? `History #${ledger.row}` : "no History entry found for it")
     // final verification round 2: an undo recorded on a person's word that the element is gone is not an Undo Revit was seen doing
-    + (!rev ? "" : rev.revert ? ` · reverted in Revit by ${rev.revert.by}: "${rev.revert.reason}" (ledger #${rev.id})${rev.revert.kept > 0 ? ` — ${rev.revert.kept} row(s) kept as they stood` : ""}`
-      : rev.op === "undo" && rev.on_word ? ` · recorded as gone on ${rev.on_word}'s word after the report, not an Undo seen in Revit (ledger #${rev.id})`
-      : rev.op === "undo" ? ` · undone in Revit after the report (ledger #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (ledger #${rev.id})`
-      : ` · a changeset_reverted row follows the report (ledger #${rev.id})`)
+    + (!rev ? "" : rev.revert ? ` · undone in Revit by ${rev.revert.by}: "${rev.revert.reason}" (History #${rev.id})${rev.revert.kept > 0 ? ` — ${rev.revert.kept} row(s) kept as they stood` : ""}`
+      : rev.op === "undo" && rev.on_word ? ` · recorded as gone on ${rev.on_word}'s word after the report, not an Undo seen in Revit (History #${rev.id})`
+      : rev.op === "undo" ? ` · undone in Revit after the report (History #${rev.id})` : rev.op === "redo" ? ` · undone, then redone in Revit (History #${rev.id})`
+      : ` · an undo is recorded after the report (History #${rev.id})`)
     // Persisted (2026-10-20): did the saved model keep it? (the add-in's check; absent = not yet seen saved)
     // drill REV (F-REV-2): after a revert the check is about the change as applied (Revit's RevertPlan.State words)
     + (cs.persisted || cs.status === "applied" || cs.status === "partially_applied" ? " · " + (rev?.revert ? "as applied: " : "") : "")
@@ -363,7 +364,7 @@ export const citesOf = (text: string): string[] => [...new Set(text.split(/[\s,;
 export async function postReview(base: string, key: string, id: string, decision: "accept" | "decline", guids: string[], reason: string, cites: string[] = []): Promise<{ ledger: LedgerRef | null }> {
   const why = reason.trim();
   if (!guids.length) throw new Error("tick a ghost first");
-  if (decision === "decline" && !why) throw new Error("a decline needs a reason — the ledger records it and Revit shows it");
+  if (decision === "decline" && !why) throw new Error("a decline needs a reason — History records it and Revit shows it");
   return bwrite(at(base, key, `/${encodeURIComponent(id)}/review`), {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ decisions: guids.map((g) => ({ proposal_guid: g, decision, ...(why ? { reason: why } : {}), ...(decision === "accept" && cites.length ? { evidence: cites } : {}) })) }),
@@ -373,7 +374,7 @@ export async function postReview(base: string, key: string, id: string, decision
 /** POST /changesets/:key/:id/reopen {proposal_guid, reason} — a lead's. A blank reason is never sent. */
 export async function postReopen(base: string, key: string, id: string, guid: string, reason: string): Promise<{ ledger: LedgerRef | null }> {
   const why = reason.trim();
-  if (!why) throw new Error("a re-open needs a reason — the ledger records it");
+  if (!why) throw new Error("a re-open needs a reason — History records it");
   return bwrite(at(base, key, `/${encodeURIComponent(id)}/reopen`), {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proposal_guid: guid, reason: why }),
   });
@@ -392,8 +393,8 @@ export function postsFor(ticked: Map<string, { cs: PendingChangeset; el: Ghost }
   return { posts, already };
 }
 
-/** "ledger #1201" when the bridge named the row; else that it did not. */
-export const rowWords = (r: { ledger: LedgerRef | null } | null): string => (r?.ledger?.id != null ? `ledger #${r.ledger.id}` : "the bridge named no ledger row");
+/** "History #1201" when the bridge named the row; else that it did not. */
+export const rowWords = (r: { ledger: LedgerRef | null } | null): string => (r?.ledger?.id != null ? `History #${r.ledger.id}` : "Sentinel named no History entry");
 
 // ── MA-4e: measured against the scan — the bridge's verify:measured rows ("verify:" is reserved on the open audit route). Every string here
 //    is rendered with textContent. ──
@@ -429,7 +430,7 @@ export async function readMeasuredRecent(base: string, key: string, shown: Set<s
     const v = x.new_value ?? {};
     // MA-8-5c review: the row's own changeset name, else its action text without the ledger prefix
     const nm = typeof v.changeset?.name === "string" && v.changeset.name ? v.changeset.name : (x.action ?? "").replace(/^verify:measured\s*/, "");
-    seen.set(x.entity_id, { id: x.entity_id, name: nm || `Survey changeset ${x.entity_id.slice(0, 8)}`, rec: { id: x.id, at: x.at, actor: x.actor, status: String(v.status ?? ""), reference: v.reference,
+    seen.set(x.entity_id, { id: x.entity_id, name: nm || `Survey proposed changes ${x.entity_id.slice(0, 8)}`, rec: { id: x.id, at: x.at, actor: x.actor, status: String(v.status ?? ""), reference: v.reference,
       target_mm: v.target_mm, deviation: v.deviation, counts: v.counts, error: v.error, placed_by: v.placed_by, elements: Array.isArray(v.elements) ? v.elements : [] } });
   }
   return { items: [...seen.values()], capped: j.total > j.rows.length };
@@ -466,7 +467,7 @@ export function measureWords(m: Measured, rec: { target_mm?: number; deviation?:
 /** MA-4f: what the head says each reference measured — as filed (the changeset's geometry), Revit's re-read at Apply (the add-in's claim), or a
  *  mix. Never "a wall moved since Apply": Revit re-reads at Apply. */
 const MEASURED_AS: Record<string, string> = {
-  "as filed": " as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen)",
+  "as filed": " as filed (the proposed changes' geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen)",
   "revit (claimed)": " as Revit placed it (Revit's re-read at Apply, the add-in's claim: its joins, its location line and the type's width in Revit are measured — a wall moved since Apply and the lead's frame are not seen)",
   mixed: " as Revit placed it where Revit re-read it at Apply (the add-in's claim), else as filed — a wall moved since Apply and the lead's frame are not seen",
 };
@@ -484,7 +485,7 @@ export function verifiedView(cs: PendingChangeset, rec: VerifyRecord | null | Er
   const pb = rec.placed_by, placed = `placed as Revit reported${pb?.reported_by ? ` (by ${pb.reported_by})` : ""}${pb?.reported_role === "service" ? " — the machine credential's report" : ""}`;
   const byGuid = new Map((cs.elements ?? []).map((e) => [e.proposal_guid, e]));
   return {
-    head: `Measured against the scan${filed} · ${placed} · ${what} · ledger #${rec.id} · ${when} · by ${rec.actor || "an unknown account"}`,
+    head: `Measured against the scan${filed} · ${placed} · ${what} · History #${rec.id} · ${when} · by ${rec.actor || "an unknown account"}`,
     lines: rec.elements.map((m) => { const el = byGuid.get(m.proposal_guid); return { line: el ? ghostLine(el) : m.proposal_guid,
       words: measureWords(m, rec) + (rec.reference === "mixed" && m.reference === "as filed" ? " · as filed" : "") }; }),
   };
@@ -498,9 +499,9 @@ export function measuredView(data: Awaited<ReturnType<typeof readMeasuredRecent>
   if (data instanceof Error) return { notes: [{ text: `Measures ${data.message}`, warn: true }], items: [] };
   if (!data.items.length && !data.capped) return null;
   const notes: { text: string; warn: boolean }[] = [];
-  if (!data.items.length) notes.push({ text: `None outside the reports above in the newest ${MEASURED_MAX} measures — the older ones are on the ledger.`, warn: false });
+  if (!data.items.length) notes.push({ text: `None outside the reports above in the newest ${MEASURED_MAX} measures — the older ones are in History.`, warn: false });
   else {
-    if (data.capped) notes.push({ text: `The newest ${MEASURED_MAX} measures — the older ones are on the ledger.`, warn: false });
+    if (data.capped) notes.push({ text: `The newest ${MEASURED_MAX} measures — the older ones are in History.`, warn: false });
     notes.push({ text: "Each is its newest measure as written; an Undo in Revit since then is not read here — open the report in Revit or ask sentinel_changeset_status.", warn: false });
   }
   const items = data.items.map((m) => {
@@ -547,7 +548,7 @@ export async function readEditCost(base: string, key: string): Promise<EditCost>
   try { r = await bfetch(at(base, key, "/edit-cost")); }
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as (EditCost & { message?: string }) | null;
-  if (!r.ok || !j || !Array.isArray(j.runs)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without runs" : `HTTP ${r.status}`)}`);
+  if (!r.ok || !j || !Array.isArray(j.runs)) throw Object.assign(new Error(`not read — ${j?.message || (r.ok ? "Sentinel could not answer" : `HTTP ${r.status}`)}`), { detail: (j as { detail?: string } | null)?.detail ?? (r.ok ? "The reply was not a list." : `HTTP ${r.status}`) });
   return j;
 }
 
@@ -590,7 +591,7 @@ export async function readRecipes(base: string, key: string): Promise<RecipeList
   try { r = await bfetch(recipesAt(base, key)); }
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as (RecipeList & { message?: string }) | null;
-  if (!r.ok || !j || !Array.isArray(j.project)) throw new Error(`not read — ${j?.message || (r.ok ? "the bridge answered without recipes" : `HTTP ${r.status}`)}`);
+  if (!r.ok || !j || !Array.isArray(j.project)) throw Object.assign(new Error(`not read — ${j?.message || (r.ok ? "Sentinel could not answer" : `HTTP ${r.status}`)}`), { detail: (j as { detail?: string } | null)?.detail ?? (r.ok ? "The reply was not a list." : `HTTP ${r.status}`) });
   return j;
 }
 const recipePost = <T>(url: string, body: unknown) => bwrite<T>(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -615,8 +616,8 @@ export function recipeLine(r: RecipeRow): string {
     + ` · ${b.verified.job_id}: ${keptWords(ec)}`;
   const counting = r.approvals.filter((a) => a.counts), lapsed = r.approvals.filter((a) => !a.counts);
   const by = counting.map((a) => `${roleWord(a.role)} (#${a.id})`).join(" and ");
-  const stand = r.state === "withdrawn" ? `withdrawn (ledger #${r.withdrawn?.id ?? "?"}) — it runs no more`
-    : r.state === "untrusted" ? `not trusted — ${r.why ?? "its body does not hash to the sha256 it was installed with"}`
+  const stand = r.state === "withdrawn" ? `withdrawn (History #${r.withdrawn?.id ?? "?"}) — it runs no more`
+    : r.state === "untrusted" ? `not trusted — ${r.why ?? "its content no longer matches its fingerprint from when it was installed"}`
     : r.state === "approved" ? `approved by ${by} — a third person, who approved neither, may run it`
     : counting.length ? `approved by ${by}; ${counting[0].role === "lead" ? "an owner's" : "a lead's"} approval is owed`
     : "no approval yet — a lead's and an owner's, two different people, are owed";
@@ -664,7 +665,7 @@ export function highlightPlan(ghosts: Ghost[], found: Map<string, (number | null
 export function proposalWords(shown: { creates: number; drawn: number; skipped: string[]; skipped_total?: number }[], failed: string[], noneToShow: boolean): string {
   if (noneToShow && !shown.length && !failed.length) return "Nothing to show: this storey proposes no create (a retype or attach changes an element that exists — Highlight in 3D selects it).";
   const creates = shown.reduce((n, s) => n + s.creates, 0), drawn = shown.reduce((n, s) => n + s.drawn, 0), skipped = shown.flatMap((s) => s.skipped), skippedTotal = shown.reduce((n, s) => n + (s.skipped_total ?? s.skipped.length), 0);
-  const head = shown.length ? `Showing ${drawn} of ${creates} proposed create(s) as a proposal model in orange — walls as boxes on their lines, floors, roofs and ceilings as their outlines, doors and windows as their openings' boxes turned to the wall under them (a thickness not sent is sketched at 200 mm, a door with no size in its type name at 915 x 2134, a window at 1000 x 1000 on a 900 sill; a level no element of this changeset stands on sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.` : "";
+  const head = shown.length ? `Showing ${drawn} of ${creates} proposed create(s) as a proposal model in orange — walls as boxes on their lines, floors, roofs and ceilings as their outlines, doors and windows as their openings' boxes turned to the wall under them (a thickness not sent is sketched at 200 mm, a door with no size in its type name at 915 x 2134, a window at 1000 x 1000 on a 900 sill; a level no element of these proposed changes stands on sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.` : "";
   const skip = skipped.length ? ` Not drawn: ${skipped.slice(0, 3).join("; ")}${skippedTotal > 3 ? ` (+${skippedTotal - 3} more)` : ""}.` : "";
   const fail = failed.length ? ` Not loaded: ${failed.join("; ")}.` : "";
   return (head + skip + fail).trim();
@@ -684,17 +685,18 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   root.append(bar, status, body);
   const el = <K extends keyof HTMLElementTagNameMap>(tag: K, text = "", css = ""): HTMLElementTagNameMap[K] => {
     const e = document.createElement(tag);
-    e.textContent = text;
+    setLine(e, text);
     e.style.cssText = css;
     return e;
   };
+  const errDiv = (text: string, err: unknown, css: string) => { const d = el("div", "", css); d.append(withDetails(text, detailOf(err))); return d; };
   const btn = (label: string, onClick: () => void) => { const b = el("button", label, "border:1px solid #2c2c34;background:#1f1f27;color:#c9cfda;border-radius:.35rem;padding:.25rem .55rem;font:600 11px system-ui;cursor:pointer"); b.onclick = onClick; return b; };
   const reason = el("input", "", "flex:1;min-width:10rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui");
   reason.placeholder = "Reason (a decline needs one; one line)";
   const photos = el("input", "", "width:9rem;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.3rem;padding:.25rem .4rem;font:11px system-ui");
   photos.placeholder = "Photo ev-… (accept only)"; photos.title = "Cited for every ticked ghost in this accept";
   const ticked = new Map<string, { cs: PendingChangeset; el: Ghost }>();
-  const say = (text: string, bad = false) => { status.textContent = text; status.style.color = bad ? "#fca5a5" : "#93c5fd"; };
+  const say = (text: string, bad = false, detail?: string | null) => { status.replaceChildren(withDetails(text, detail)); status.style.color = bad ? "#fca5a5" : "#93c5fd"; };
   // MA-3d: Highlight in 3D — a storey's ghosts in the viewer's loaded models, by each element's IFC GlobalId. No model is loaded here:
   // the Files panel's Open 3D loads a version (its model id names the version), and the words say which versions answered.
   const highlight = async (ghosts: Ghost[]) => {
@@ -708,11 +710,11 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     if (guids.length) for (const model of fragments.list.values()) {
       const m = model as unknown as { modelId: string; getLocalIdsByGuids(g: string[]): Promise<(number | null)[]> };
       try { found.set(m.modelId, await m.getLocalIdsByGuids(guids)); }
-      catch (e) { say(`The model "${m.modelId}" could not answer for the GlobalIds — ${(e as Error).message}`, true); return; }
+      catch (e) { say(`The model "${m.modelId}" could not answer for the GlobalIds — ${(e as Error).message}`, true, detailOf(e)); return; }
     }
     const plan = highlightPlan(ghosts, found);
     try { if (Object.keys(plan.map).length) await (highlighter as unknown as { highlightByID(n: string, m: Record<string, Set<number>>, a: boolean, b: boolean): Promise<void> }).highlightByID("select", plan.map, true, true); }
-    catch (e) { say(`Highlighting failed — ${(e as Error).message}`, true); return; }
+    catch (e) { say(`Highlighting failed — ${(e as Error).message}`, true, detailOf(e)); return; }
     say(plan.words, !Object.keys(plan.map).length);
   };
   const clearHighlight = async () => {
@@ -721,7 +723,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       const OBF = await import("@thatopen/components-front");
       await (opts.components?.get(OBF.Highlighter) as unknown as { clear(n: string): Promise<void> } | undefined)?.clear("select");
       say("Highlight cleared.");
-    } catch (e) { say(`Clearing failed — ${(e as Error).message}`, true); }
+    } catch (e) { say(`Clearing failed — ${(e as Error).message}`, true, detailOf(e)); }
   };
   // MA-3d2: Show creates in 3D — the storey's proposal model (the bridge's .frag of its parts' creates, MA-3d3: one per storey)
   // loaded beside what is loaded, every item orange; Hide creates disposes it. Model ids "proposal:storey:<storey>" — never a version's.
@@ -772,7 +774,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       if (go.disabled) return;
       go.disabled = true; go.textContent = "Measuring…";
       try { say(measureLine(await postMeasure(base, activePid(), id))); }
-      catch (e) { say(`Not measured — ${(e as Error).message}`, true); }
+      catch (e) { say(`Not measured — ${(e as Error).message}`, true, detailOf(e)); }
       void show();
     });
     return go;
@@ -782,8 +784,8 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   const recent = (decided: PendingChangeset[] | Error, ledger: Map<string, LedgerRows> | Error, role: string, verified: Map<string, VerifyRecord | Error | null>): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
     box.append(el("div", "Recently decided in Revit", "font-weight:600"));
-    if (decided instanceof Error) { box.append(el("div", `Reports ${decided.message}`, "color:#fca5a5")); return box; }
-    if (!decided.length) { box.append(el("div", "Revit has reported no changeset on this project.", "color:#8b93a1")); return box; }
+    if (decided instanceof Error) { box.append(errDiv(`Reports ${decided.message}`, decided, "color:#fca5a5")); return box; }
+    if (!decided.length) { box.append(el("div", "Revit has reported no proposed changes on this project.", "color:#8b93a1")); return box; }
     box.append(el("div", decidedCount(decided.length), "color:#8b93a1"));
     for (const cs of decided.slice(0, DECIDED_MAX)) {
       const v = decidedView(cs, ledger instanceof Error ? ledger : ledger.get(cs.id) ?? null);
@@ -821,7 +823,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     // MA-8 nits (F-B3-4): an older placed survey changeset with no measure gets Measure here (the ledger's Undo rows are the bridge's to read: canMeasure with none)
     if (older.length) {
       const capped = !(data instanceof Error) && data.capped;
-      box.append(el("div", `Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — the bridge refuses an undone one${capped ? `; a measure older than the newest ${MEASURED_MAX} is not seen here` : ""}):`, "color:#8b93a1"));
+      box.append(el("div", `Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — Sentinel refuses an undone one${capped ? `; a measure older than the newest ${MEASURED_MAX} is not seen here` : ""}):`, "color:#8b93a1"));
       for (const cs of older) {
         const row = el("div", "", "display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;padding:.15rem 0");
         row.append(el("span", cs.name || cs.id));
@@ -844,7 +846,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   const editCostBox = (data: EditCost | Error, role: string, hasOffice = false): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
     box.append(el("div", "Edit cost per run", "font-weight:600"));
-    if (data instanceof Error) { box.append(el("div", `Edit cost ${data.message}`, "color:#fca5a5")); return box; }
+    if (data instanceof Error) { box.append(errDiv(`Edit cost ${data.message}`, data, "color:#fca5a5")); return box; }
     if (!data.runs.length) { box.append(el("div", "No run has been filed on this project.", "color:#8b93a1")); return box; }
     for (const r of data.runs) {
       // MA-8 nits (F-B5-1): the run's line on its own row, its controls on a row under it - beside the recipe controls the line was one word wide
@@ -854,7 +856,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       if (r.complete && canReopen(role))
         controls.append(btn("Publish", async () => {
           try { say(`Published ${r.label} · ${rowWords(await postEditCostPublish(base, activePid(), r.run))}`); void show(); }
-          catch (e) { say(`not published — ${(e as Error).message}`, true); }
+          catch (e) { say(`not published — ${(e as Error).message}`, true, detailOf(e)); }
         }));
       // MA-8-13 (C15): a job's complete run with something kept can become a recipe - a lead's; the bridge checks that it is verified (textContent only)
       if (r.complete && r.kept >= 1 && /^job#\d+$/.test(r.run) && canReopen(role)) {
@@ -865,7 +867,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
         controls.append(name, ...(scope ? [scope] : []), btn("Draft a recipe…", async () => {
           if (!name.value.trim()) return say("Name the recipe first (one line).", true);
           try { say(draftWords(await postRecipeDraft(base, activePid(), r.run, name.value.trim(), (scope?.value as "project" | "office" | undefined) ?? "project"), r.run)); void show(); }
-          catch (e) { say(`not drafted — ${(e as Error).message}`, true); }
+          catch (e) { say(`not drafted — ${(e as Error).message}`, true, detailOf(e)); }
         }));
       }
       if (controls.childElementCount) row.append(controls);
@@ -879,7 +881,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
   const recipesBox = (data: RecipeList | Error, role: string): HTMLElement => {
     const box = el("div", "", "margin-top:.9rem;border-top:1px solid #2a2a30;padding-top:.5rem");
     box.append(el("div", "Recipes", "font-weight:600"));
-    if (data instanceof Error) { box.append(el("div", `Recipes ${data.message}`, "color:#fca5a5")); return box; }
+    if (data instanceof Error) { box.append(errDiv(`Recipes ${data.message}`, data, "color:#fca5a5")); return box; }
     const all = [...data.project, ...(data.office?.recipes ?? [])];
     if (!all.length) { box.append(el("div", "No recipe yet — a lead drafts one from a complete run above (Draft a recipe…).", "color:#8b93a1")); return box; }
     for (const r of all) {
@@ -889,17 +891,17 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       if (live && canReopen(role) && r.state === "pending")
         row.append(btn("Approve", async () => {
           try { say(approveWords(await postRecipeApprove(base, activePid(), r))); void show(); }
-          catch (e) { say(`not approved — ${(e as Error).message}`, true); }
+          catch (e) { say(`not approved — ${(e as Error).message}`, true, detailOf(e)); }
         }));
       if (live && canReopen(role))
         row.append(btn("Withdraw", async () => {
           try { say(`Withdrew ${r.ref} · ${rowWords(await postRecipeWithdraw(base, activePid(), r))} — it runs no more.`); void show(); }
-          catch (e) { say(`not withdrawn — ${(e as Error).message}`, true); }
+          catch (e) { say(`not withdrawn — ${(e as Error).message}`, true, detailOf(e)); }
         }));
       if (r.state === "approved" && canDecide(role))
         row.append(btn("Run on the evidence pack", async () => {
           try { const j = (await startRecipe(base, activePid(), { version: r.version, scope: r.scope })).job as SurveyJob; say(`✓ Started ${jobLine(j)} — Files ▸ Evidence ↻ shows its progress.`); }
-          catch (e) { say(`not started — ${(e as Error).message}`, true); }
+          catch (e) { say(`not started — ${(e as Error).message}`, true, detailOf(e)); }
         }));
       box.append(row);
     }
@@ -916,7 +918,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
       for (const [id, guids] of posts) done.push(`${guids.length} ${decision === "accept" ? "accepted" : "declined"} · ${rowWords(await postReview(base, activePid(), id, decision, guids, reason.value, decision === "accept" ? citesOf(photos.value) : []))}`);
       reason.value = ""; if (decision === "accept") photos.value = "";
       say([...done, ...(skipped ? [skipped] : [])].join("; ") + (decision === "decline" ? " — Revit now shows them unticked with the reason and refuses the tick." : " — advice: Revit still asks for the tick."));
-    } catch (e) { say(`${done.length ? done.join("; ") + "; then " : ""}not recorded — ${(e as Error).message}`, true); }
+    } catch (e) { say(`${done.length ? done.join("; ") + "; then " : ""}not recorded — ${(e as Error).message}`, true, detailOf(e)); }
     void show();
   };
 
@@ -948,13 +950,13 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
     bar.replaceChildren(el("b", `Review desk · ${key}`), el("span", roleWords(role), "color:#8b93a1"), btn("↻ Refresh", () => void show()));
     if (canDecide(role.role)) bar.append(reason, photos, btn("Accept ticked", () => void decide("accept")), btn("Decline ticked", () => void decide("decline")));
     else bar.append(el("span", role.role === "service" ? "· sign in to accept or decline — the machine credential never reviews" : "· read-only: accepting or declining needs contributor", "color:#fbbf24"));
-    if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }
+    if (pending instanceof Error) { body.replaceChildren(errDiv(`Proposals ${pending.message}`, pending, "color:#fca5a5"), tail); return; }
     if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }
-    body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. A changeset stays proposed until Revit applies or declines it — a decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its changeset is still proposed.", "color:#8b93a1;margin-bottom:.5rem"));
+    body.replaceChildren(el("div", "A decline binds: Revit shows the ghost unticked with your reason and refuses the tick. An accept is advice. Proposed changes stay proposed until Revit applies or declines them — a decline is carried: the next proposed changes that propose the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its proposed changes are still proposed.", "color:#8b93a1;margin-bottom:.5rem"));
     for (const s of groupDesk(pending)) {
       const box = el("details", "", "margin:.4rem 0;border:1px solid #2a2a30;border-radius:.35rem;padding:.3rem .5rem");
       box.open = true;
-      box.append(el("summary", `${s.storey} — ${s.groups.reduce((n, g) => n + g.ghosts.length, 0)} ghost(s) in ${s.changesets.length} changeset(s)`, "cursor:pointer;font-weight:600"));
+      box.append(el("summary", `${s.storey} — ${s.groups.reduce((n, g) => n + g.ghosts.length, 0)} ghost(s) in ${s.changesets.length} set(s) of proposed changes`, "cursor:pointer;font-weight:600"));
       const hrow = el("div", "", "display:flex;gap:.4rem;margin:.2rem 0");
       hrow.append(btn("Highlight in 3D", () => void highlight(s.groups.flatMap((g) => g.ghosts.map((x) => x.el)))), btn("Clear", () => void clearHighlight()), btn("Show creates in 3D", () => void showCreates(s)), btn("Hide creates", () => void hideCreates(s)));
       box.append(hrow);
@@ -975,7 +977,7 @@ export function reviewDeskPanel(opts: { baseUrl?: string; components?: OBC.Compo
           if (x.el.review?.state === "declined" && canReopen(role.role))
             row.append(btn("Re-open", async () => {
               try { say(`Re-opened · ${rowWords(await postReopen(base, key, x.cs.id, x.el.proposal_guid, reason.value))} — Revit may tick it again.`); reason.value = ""; }
-              catch (e) { say(`not recorded — ${(e as Error).message}`, true); }
+              catch (e) { say(`not recorded — ${(e as Error).message}`, true, detailOf(e)); }
               void show();
             }));
           box.append(row);

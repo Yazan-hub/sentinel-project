@@ -200,11 +200,11 @@ export async function getKeystore(base: string, projectKey: string): Promise<Key
   catch (e) { return { state: "error", why: (e as Error)?.message || String(e), retry: true }; }
   if (!r.ok) {
     const m = ((await r.json().catch(() => null)) as { message?: string } | null)?.message;
-    return { state: "error", why: `the bridge answered HTTP ${r.status}${m ? `: ${m}` : ""}`, retry: ![401, 403, 404].includes(r.status) };
+    return { state: "error", why: `Sentinel could not answer — HTTP ${r.status}${m ? `: ${m}` : ""}`, retry: ![401, 403, 404].includes(r.status) };
   }
   let d: unknown;
   try { d = await r.json(); }
-  catch { return { state: "error", why: "the bridge's answer was not JSON", retry: true }; }
+  catch { return { state: "error", why: "Sentinel's answer could not be read", retry: true }; }
   if (d === null) return { state: "absent" };
   return d && typeof d === "object" && (d as Keystore).wrapped_dek ? { state: "present", ks: d as Keystore } : { state: "error", why: "the stored keystore holds no wrapped key", retry: false };
 }
@@ -279,7 +279,7 @@ export async function unlockAndVerify(
   } catch {
     // SEC-5 (S39): the keystore may not have been stored — a key held now could seal this session's files under a key no
     // one keeps. The next unlock reads what the bridge holds.
-    return { ok: false, firstUse: true, reason: "Could not reach the bridge — the passphrase may not have been stored; unlock again with the same passphrase" };
+    return { ok: false, firstUse: true, reason: "Sentinel is not connected — the passphrase may not have been stored; unlock again with the same passphrase" };
   }
   setUnlocked(projectKey, dek);
   return { ok: true, firstUse: true };
@@ -302,7 +302,7 @@ export async function putKeystore(base: string, projectKey: string, ks: Keystore
     const r = await bfetch(keystoreUrl(base, projectKey), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...ks, replaces }) });
     if (r.ok) return null;
     const m = ((await r.json().catch(() => null)) as { message?: string } | null)?.message;
-    return `the bridge answered HTTP ${r.status}${m ? `: ${m}` : ""}`;
+    return `Sentinel could not answer — HTTP ${r.status}${m ? `: ${m}` : ""}`;
   } catch (e) { return (e as Error)?.message || String(e); }
 }
 

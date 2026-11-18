@@ -129,7 +129,7 @@ export function deleteProposal(g: TriageGroup): DeleteProposal {
     const [kind, cls] = DELETE_KIND[plainCategory(copy.category, copy.name)] ?? [];
     if (!kind) { hold(`Sentinel deletes a copy of a wall, floor, roof, ceiling, door, window, column, beam or furniture — not of a ${plainCategory(copy.category, copy.name).toLowerCase()}`); continue; }
     if (copies.has(copy.guid!) || keepers.has(copy.guid!) || copies.has(keep.guid!)) { hold("one of the two is already in this proposal — propose the rest after it is applied"); continue; }
-    if (elements.length >= MAX_DELETES) { hold(`over ${MAX_DELETES} in one changeset — propose the rest after these are applied`); continue; }
+    if (elements.length >= MAX_DELETES) { hold(`over ${MAX_DELETES} in one set of proposed changes — propose the rest after these are applied`); continue; }
     copies.add(copy.guid!); keepers.add(keep.guid!); out.hits.push(hit);
     elements.push({ op: "delete", kind, validate: { identity: { Class: cls!, ...(copy.name ? { Name: copy.name } : {}) } },
       target: { ifc_guid: copy.guid!, keeper_ifc_guid: keep.guid! },

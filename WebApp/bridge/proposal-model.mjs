@@ -80,7 +80,7 @@ export function proposalElements(cs, levelMmOf = () => null) {
       // a floor's loop carries its level's z (the executor refuses any other); the proposal's BaseElevation, if sent, wins.
       const slabBase = p.BaseElevation ?? (el.kind !== "floor" ? levelMmOf(p) : Number.isFinite(loop[0][2]) ? loop[0][2] : base);
       // MA-6-4 review: a roof or ceiling on a level no element here tells (a shell's roof on its top level) is said, never drawn at 0.
-      if (slabBase == null) { out.skipped.push(`${name}: a ${el.kind} on a level this changeset does not tell`); continue; }
+      if (slabBase == null) { out.skipped.push(`${name}: a ${el.kind} on a level these proposed changes do not tell`); continue; }
       // a floor's or roof's top sits at its level: its centre is half a thickness below; a ceiling's underside hangs at its offset above.
       const centreZ = el.kind === "ceiling" ? slabBase + (p.Offset ?? 0) + thickMm / 2 : slabBase - thickMm / 2;
       const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;

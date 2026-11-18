@@ -1,5 +1,5 @@
 // The Read view: the document as paper (a published document shows its latest version, a draft shows the live row),
-// and the Print button. Built with ctx.doc only; the question for the container ID goes through askText, the print
+// and the Print button. Built with ctx.doc only; the question for the file ID goes through askText, the print
 // through the popup (print-render.ts). The sandbox has no allow-modals.
 import type { NamingRuleset } from "../sentinel-core/naming";
 import { blocksOf, type Snapshot, type VersionListRow, type VersionRow } from "../sentinel-core/doc-blocks";
@@ -20,7 +20,7 @@ const draftBanner = (st: WorkspaceState): string => st.round?.round?.status === 
   : st.round?.chain ? "Draft, live data. Sending it for review freezes exactly what you see." : DRAFT_BANNER;
 const LOADING = "Loading the published version…";
 const UNREADABLE_VERSION = "The published version could not be read.";
-const RULE_UNREADABLE = "The naming rule could not be read, so the container ID was not checked. Nothing was printed.";
+const RULE_UNREADABLE = "The naming rule could not be read, so the file ID was not checked. Nothing was printed.";
 const MOVED_ON = "The document changed while the question was open. Nothing was printed.";
 let lastContainerId = ""; // remembered for this tab
 // Published versions never change, so one already fetched is kept (per project, signed-in user id, role, document, number).
@@ -111,7 +111,7 @@ function namingInstalls(ctx: PaneCtx, row: Snapshot): HTMLElement[] {
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** The Print button: reads the naming rule in force, asks for the container ID, checks it, then opens the popup. */
+/** The Print button: reads the naming rule in force, asks for the file ID, checks it, then opens the popup. */
 export async function startPrint(ctx: PaneCtx, say: (text: string) => void): Promise<void> {
   say("");
   try {
@@ -121,7 +121,7 @@ export async function startPrint(ctx: PaneCtx, say: (text: string) => void): Pro
     // The rule is read at every print (a stale one would check against the wrong standard), before the question: the dialog's click is the gesture.
     let rs: NamingRuleset | null;
     try { rs = (await artefactInForce<NamingRuleset>(ctx.base, key, "naming"))?.body ?? null; } catch { say(RULE_UNREADABLE); return; }
-    const id = await askText("Container ID for the cover. Leave it empty if none is assigned yet.", { placeholder: lastContainerId, doc: ctx.doc });
+    const id = await askText("File ID for the cover. Leave it empty if none is assigned yet.", { placeholder: lastContainerId, doc: ctx.doc });
     if (id === null) return;
     // From here on only synchronous work runs before window.open.
     const now = ctx.ws.state();

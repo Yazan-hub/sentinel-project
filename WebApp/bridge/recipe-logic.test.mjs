@@ -85,7 +85,7 @@ describe("approvalState (D13)", () => {
     expect(notApprovedWords(REF, "demo", approvalState([b], REF, S))).toContain("an owner's");
     expect(notApprovedWords(REF, "demo", approvalState([a, b], REF, S, { "u-owner": "owner" })))
       .toBe(`recipe@1's approval #${a.id} is by someone who is no longer a lead or owner of demo; it runs once a lead and an owner who still hold those roles have approved it`);
-    expect(notApprovedWords(REF, "demo", approvalState([a, b, row("u-lead", "lead", {}, `recipe:withdrawn ${REF}`)], REF, S))).toMatch(/^recipe@1 was withdrawn \(ledger #\d+\) and runs no more/);
+    expect(notApprovedWords(REF, "demo", approvalState([a, b, row("u-lead", "lead", {}, `recipe:withdrawn ${REF}`)], REF, S))).toMatch(/^recipe@1 was withdrawn \(History #\d+\) and runs no more/);
   });
 });
 

@@ -62,7 +62,7 @@ describe("extractText — a .docx is bounded before it is parsed (SEC-2)", () =>
     const plain = docx("x");
     for (const b of [buf("not a zip at all, just text"), docx("x", [{ name: "s.bin", data: "s", flags: 1 }]),
       docx("x", [{ name: "s.bin", data: "s", method: 12 }]), Buffer.concat([buf("lead"), plain])])
-      await expect(extractText(b, "odd.docx")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("not a .docx the bridge reads") });
+      await expect(extractText(b, "odd.docx")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("not a .docx Sentinel can read") });
   });
 
   it("refuses a .docx whose text parts unpack to over the text bound — 413 in words", async () => {
@@ -81,7 +81,7 @@ describe("extractText — a .docx is bounded before it is parsed (SEC-2)", () =>
     const into = Buffer.from(plain), from = into.readUInt32LE(last + 42);
     into.writeUInt32LE(dirAt + 1 - (from + 30 + into.readUInt16LE(from + 26)), last + 20);
     for (const b of [shared, into])
-      await expect(extractText(b, "odd.docx")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("not a .docx the bridge reads") });
+      await expect(extractText(b, "odd.docx")).rejects.toMatchObject({ status: 400, message: expect.stringContaining("not a .docx Sentinel can read") });
   });
 
   it("hands the parser only the text parts the bound measured", async () => {
@@ -173,7 +173,7 @@ describe("extractText — the parsers run in a worker, bounded in time and in me
     const pdf = readFileSync(new URL("../../demo/aster/naming-standard.pdf", import.meta.url));
     const first = parseInWorker("pdf", pdf);
     await expect(parseInWorker("pdf", pdf))
-      .rejects.toMatchObject({ status: 503, message: "another document is being read on the bridge — try again in a minute; nothing was read or saved" });
+      .rejects.toMatchObject({ status: 503, message: "another document is being read — try again in a minute; nothing was read or saved" });
     expect((await first).length).toBeGreaterThan(0);
     expect((await parseInWorker("pdf", pdf)).length).toBeGreaterThan(0);
   });

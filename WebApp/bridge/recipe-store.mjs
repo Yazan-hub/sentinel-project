@@ -12,7 +12,7 @@ import * as art from "./artefact-store.mjs";
 import { currentSub } from "./bridge-auth.mjs";
 import { RECIPE_READERS, MAX_PLANNER_ROWS, validateRecipe, approvalState, notApprovedWords, editCostNumbers, sameJson } from "./recipe-logic.mjs";
 
-const err = (status, message) => Object.assign(new Error(message), { status });
+const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
 const enc = encodeURIComponent;
 const LEDGER_READ = 1000; // ponytail: 1000 recipe ledger rows a project or office; past it the read fails closed (503), never counts a partial list
 const SAVED = (m) => (/nothing was saved/i.test(m) ? m : `${m} — nothing was saved`);
@@ -67,7 +67,7 @@ async function locate(d, key, scope) {
 /** The recipe ledger rows of a project or office (approvals and withdrawals), oldest first — one read, filtered in JS (approvalState). */
 async function recipeRows(d, pid) {
   const rows = (await d.sb(`audit_log?project_id=eq.${enc(pid)}&entity_type=eq.recipe&order=id.asc&limit=${LEDGER_READ}`, { service: true })) || [];
-  if (rows.length >= LEDGER_READ) throw err(503, `more than ${LEDGER_READ} recipe ledger rows — they cannot all be counted, so none is trusted; nothing was saved`);
+  if (rows.length >= LEDGER_READ) throw err(503, `more than ${LEDGER_READ} recipe History rows — they cannot all be counted, so none is trusted; nothing was saved`);
   return rows;
 }
 /** user_id → the role they hold NOW on the project or office (the run's re-read, D13 amendment 1). */
@@ -84,7 +84,7 @@ async function stored(d, scope, at, n) {
   const doc = await d.read(scope, at, n);
   if (!doc) throw err(404, `no ${refOf(n)} on ${at} — nothing was saved`);
   const sha = canonicalSha256(doc.body);
-  if (sha !== doc.sha256) throw err(409, `${refOf(n)} on ${at} is not the body it was installed with (its hash differs) — it is not trusted; nothing was saved`);
+  if (sha !== doc.sha256) throw err(409, `${refOf(n)} on ${at} is not the body it was installed with (its fingerprint differs) — it is not trusted; nothing was saved`);
   return { doc, sha };
 }
 
@@ -108,7 +108,7 @@ export async function listRecipes(key, deps) {
         state: doc.sha256 === sha ? st.state : "untrusted", approved: st.approved && doc.sha256 === sha,
         approvals: st.valid.map((r) => ({ id: r.id, hash: r.hash ?? null, role: r.new_value.role, user_id: r.new_value.user_id, by: r.actor ?? null, at: r.at ?? null, counts: st.counting.includes(r) })),
         withdrawn: st.withdrawn ? { id: st.withdrawn.id, by: st.withdrawn.actor ?? null, at: st.withdrawn.at ?? null } : null,
-        why: doc.sha256 !== sha ? "its body does not hash to the sha256 it was installed with" : notApprovedWords(ref, at, st) });
+        why: doc.sha256 !== sha ? "its body does not match the fingerprint it was installed with" : notApprovedWords(ref, at, st) });
     }
     return out;
   };
@@ -124,7 +124,7 @@ export async function draftRecipe(key, b, actor, deps) {
   await person(d, key, "lead", "drafting a recipe", "draft");
   if (!b || typeof b !== "object" || Array.isArray(b)) throw err(400, "the body is {run, name, scope?} — nothing was saved");
   const { run, name, scope = "project" } = b;
-  if (typeof run !== "string" || !/^job#\d+$/.test(run)) throw err(400, "only a job's run is a recipe — a Promote or agent changeset has no reader to repeat; nothing was saved");
+  if (typeof run !== "string" || !/^job#\d+$/.test(run)) throw err(400, "only a job's run is a recipe — a Promote or agent set of proposed changes has no reader to repeat; nothing was saved");
   if (typeof name !== "string" || name.trim() === "" || name.length > 80 || /[\u0000-\u001f\u007f]/.test(name)) throw err(400, "name must be one line of 1 to 80 characters — nothing was saved");
   const at = await locate(d, key, scope);
   if (scope === "office") {
@@ -154,9 +154,9 @@ async function verifyRun(d, key, run) {
   const entry = await d.getAuditEntry(key, L);
   const jobId = entry?.new_value?.job_id;
   if (!entry || entry.entity_type !== "build" || typeof jobId !== "string" || !String(entry.action).startsWith(`build:run ${jobId} · `))
-    throw err(404, `ledger #${L} on ${key} is not a job's build:run row — a recipe repeats a job's run; nothing was saved`);
+    throw err(404, `History #${L} on ${key} is not a job's run record — a recipe repeats a job's run; nothing was saved`);
   const tj = await d.trustedJob(key, jobId).catch(unsaved);
-  if (tj.row.ledger.id !== L) throw err(409, `${jobId} on this PC is ledger #${tj.row.ledger.id}, not the run's #${L} — nothing was saved`);
+  if (tj.row.ledger.id !== L) throw err(409, `${jobId} on this PC is History #${tj.row.ledger.id}, not the run's #${L} — nothing was saved`);
   const reader = tj.row.reader, [planner, rowKey] = RECIPE_READERS[reader] ?? [];
   if (!planner) throw err(409, `${jobId} was read by ${reader}, which has no recipe — nothing was saved`);
   // 2. the planner rows: every Propose of this run, on one set of standards
@@ -164,7 +164,7 @@ async function verifyRun(d, key, run) {
   try { rows = await d.auditAll(key, { entity_type: "build", action_prefix: `build:run ${jobId} · ` }); } catch (e) { unsaved(e); }
   const proposed = rows.filter((r) => String(r.action).endsWith(" · proposed") && r.new_value?.claimed === false && r.new_value?.planner === planner && r.new_value?.[rowKey]?.id === L)
     .sort((a, b) => a.id - b.id);
-  if (!proposed.length) throw err(409, `job#${L} was never proposed — a recipe repeats a run whose changesets were reviewed; nothing was saved`);
+  if (!proposed.length) throw err(409, `job#${L} was never proposed — a recipe repeats a run whose proposed changes were reviewed; nothing was saved`);
   // MA-7-9: a person's choice by photo is not repeated by a recipe - the photo is that person's, from this run
   if (proposed.some((r) => r.new_value?.materials?.length)) throw err(409, "a recipe does not repeat a person's choice by photo — run the job and choose by photo again; nothing was saved");
   const sets = new Map();
@@ -178,10 +178,10 @@ async function verifyRun(d, key, run) {
   catch (e) { unsaved(e); }
   if (!published) throw err(409, `${run}'s edit cost is not published — a lead publishes it on the review desk (Edit cost per run) first; nothing was saved`);
   const r = (await d.editCostOf(key).catch(unsaved)).runs.find((x) => x.run === run);
-  if (!r || !r.complete) throw err(409, `${run} is still being reviewed — publish its edit cost when every changeset of it is decided; nothing was saved`);
+  if (!r || !r.complete) throw err(409, `${run} is still being reviewed — publish its edit cost when every set of proposed changes in it is decided; nothing was saved`);
   const numbers = editCostNumbers(r);
   if (!sameJson(published.new_value.numbers, numbers) || !sameJson(published.new_value.rests_on, r.rests_on))
-    throw err(409, `the edit cost changed since ledger #${published.id} was published (an Undo or a decision) — publish it again, then draft; nothing was saved`);
+    throw err(409, `the edit cost changed since History #${published.id} was published (an Undo or a decision) — publish it again, then draft; nothing was saved`);
   // 4. something is kept
   if (!(r.kept >= 1)) throw err(409, `nothing ${run} filed is kept in a model — a recipe repeats a run someone kept; nothing was saved`);
   const hashOf = (row) => ({ id: row.id, hash: row.hash ?? null });
@@ -218,9 +218,9 @@ export async function approveRecipe(key, n, b, actor, deps) {
     const sub = d.sub();
     const [rows, holders] = await Promise.all([recipeRows(d, t.pid), holdersOf(d, t.pid)]);
     const st = approvalState(rows, t.ref, t.sha, holders);
-    if (st.state === "withdrawn") throw err(409, `${t.ref} was withdrawn (ledger #${st.withdrawn.id}) — nothing was saved`);
+    if (st.state === "withdrawn") throw err(409, `${t.ref} was withdrawn (History #${st.withdrawn.id}) — nothing was saved`);
     const mine = st.valid.find((r) => r.new_value.user_id === sub);
-    if (mine) throw err(409, `you approved ${t.ref} already (ledger #${mine.id}) — the second approval is another person's; nothing was saved`);
+    if (mine) throw err(409, `you approved ${t.ref} already (History #${mine.id}) — the second approval is another person's; nothing was saved`);
     if (st.approved) throw err(409, `${t.ref} is approved already (#${st.lead.id}, #${st.owner.id}) — nothing was saved`);
     const other = st.counting[0];
     if (other && other.new_value.role === t.role)
@@ -242,7 +242,7 @@ export async function withdrawRecipe(key, n, b, actor, deps) {
   approving.add(lock);
   try {
     const st = approvalState(await recipeRows(d, t.pid), t.ref, t.sha);
-    if (st.withdrawn) throw err(409, `${t.ref} was withdrawn already (ledger #${st.withdrawn.id}) — nothing was saved`);
+    if (st.withdrawn) throw err(409, `${t.ref} was withdrawn already (History #${st.withdrawn.id}) — nothing was saved`);
     const row = await d.audit(t.pid, "recipe", null, `recipe:withdrawn ${t.ref}`, actor || "web", null,
       { ref: t.ref, sha256: t.sha, scope: t.scope, user_id: d.sub(), role: t.role, run: t.body.verified?.run ?? null, name: t.body.name ?? null });
     return { ref: t.ref, scope: t.scope, withdrawn: true, ledger: { id: row?.id ?? null, hash: row?.hash ?? null } };
@@ -255,9 +255,9 @@ export async function withdrawRecipe(key, n, b, actor, deps) {
 async function holds(d, key, ref, body) {
   const v = await d.versions(body.reader.name);
   if (v.planner !== body.planner.version)
-    throw err(409, `${ref} was verified with ${body.planner.name} ${body.planner.version}; this bridge plans with ${v.planner} — draft a new recipe from a run on this bridge; nothing was saved`);
+    throw err(409, `${ref} was verified with ${body.planner.name} ${body.planner.version}; this installation plans with ${v.planner} — draft a new recipe from a run on this installation; nothing was saved`);
   if (v.reader && v.reader !== body.reader.version)
-    throw err(409, `${ref} was verified with ${body.reader.name} ${body.reader.version}; this bridge reads with ${v.reader} — draft a new recipe from a run on this bridge; nothing was saved`);
+    throw err(409, `${ref} was verified with ${body.reader.name} ${body.reader.version}; this installation reads with ${v.reader} — draft a new recipe from a run on this installation; nothing was saved`);
   for (const kind of ["guideline", "type_catalog"]) {
     const now = await d.resolveArtefact(key, kind);
     if (now.sha256 !== body.standards[kind].sha256)
@@ -271,17 +271,17 @@ async function holds(d, key, ref, body) {
 export async function recipeForRun(key, { version, scope }, deps) {
   const d = wire(deps);
   if ((await d.myRole(key)) === "service")
-    throw err(403, "a recipe run is a person's — its build:run row names who ran it: sign in. Nothing was saved.");
+    throw err(403, "a recipe run is a person's — its run record names who ran it: sign in. Nothing was saved.");
   await person(d, key, "contributor", "running a recipe", "run");
   const at = await locate(d, key, scope);
   const n = versionOf(version), ref = refOf(n);
   const { doc, sha } = await stored(d, scope, at.key, n);
-  try { validateRecipe(doc.body); } catch (e) { throw err(409, `${ref} on ${at.key} is not a recipe this bridge reads (${e.message}) — nothing was saved`); }
+  try { validateRecipe(doc.body); } catch (e) { throw err(409, `${ref} on ${at.key} is not a recipe this installation reads — nothing was saved`, e.message); }
   const sub = d.sub();
   const [rows, holders] = await Promise.all([recipeRows(d, at.pid), holdersOf(d, at.pid)]);
   const st = approvalState(rows, ref, sha, holders);
   const mine = st.valid.find((r) => r.new_value.user_id === sub);
-  if (mine) throw err(403, `you approved ${ref} (ledger #${mine.id}) — a recipe is run by someone who approved neither (D13); nothing was saved`);
+  if (mine) throw err(403, `you approved ${ref} (History #${mine.id}) — a recipe is run by someone who approved neither (D13); nothing was saved`);
   const why = notApprovedWords(ref, at.key, st);
   if (why) throw err(409, `${why}; nothing was saved`);
   await holds(d, key, ref, doc.body);

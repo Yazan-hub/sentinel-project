@@ -1,5 +1,6 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
+import { withDetails } from "./details";
 import { bfetch } from "./bridge-fetch";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { myRoleRead, roleWords, canGovernRole } from "./my-role";
@@ -7,7 +8,8 @@ import { extractFacts } from "../sentinel-core/adapter/fragments-facts";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { scan, buildScorecard, buildBoQ, defaultRates, evaluateGate, GATE_DEFS, type GateMetrics } from "../sentinel-core";
 import { activeRuleset, paramNamesOf, NO_RULESET } from "./active-ruleset";
-import { runStageGate, gateLine, ledgerLine, type GateReply } from "./stage-gate";
+import { detailsHtml } from "./ids-from-standards";
+import { runStageGate, gateParts, ledgerLine, ledgerParts, type GateReply } from "./stage-gate";
 import { getAppManager } from "../app";
 import { escapeHtml as esc } from "./escape-html";
 import { loadMyWork, myWorkList, myWorkTotal, type OpenAt } from "./my-work";
@@ -79,7 +81,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     '<div id="ps-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, c = "#9ca3af") => { el("ps-msg").textContent = t; el("ps-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { const n = el("ps-msg"); n.replaceChildren(withDetails(t, detail)); n.style.color = c; };
   const stageIdx = (id: string) => STAGES.findIndex((s) => s.id === id);
   const stageName = (id: string) => STAGES.find((s) => s.id === id)?.nm ?? id;
 
@@ -170,7 +172,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     renderAll();
     persistSnapshot(key);
     msg(projectErr || (fragments.list.size === 0 ? "No model loaded — load one for health & cost. Issues shown from the service."
-      : noRuleset ? `${rulesetErr ? `Ruleset not read — ${rulesetErr}` : NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date."),
+      : noRuleset ? `${rulesetErr ? `Project standards not read — ${rulesetErr}` : NO_RULESET}. Health and compliance are not scored; issues and cost are up to date.` : "KPIs up to date."),
       projectErr ? "#ef4444" : noRuleset ? "#eab308" : undefined);
   };
   // R2c "My work": my sections, reviews, mentions and assignments across the project's documents. Not part of the wave's await:
@@ -223,15 +225,16 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
     if (!project) return;
     const i = stageIdx(project.stage);
     if (i < 0 || i >= STAGES.length - 1) { msg("Final stage reached.", "#eab308"); return; }
-    msg("Running the gate on the bridge…");
+    msg("Running the stage check…");
     const mine = seq, key = pid();
     let reply: GateReply;
     try { reply = await runStageGate(base, key, project.stage); }
-    catch (e) { if (mine === seq) msg(`Gate not run — ${String((e as Error)?.message || e)}`, "#ef4444"); return; }
+    catch (e) { if (mine === seq) msg(`Stage check not run — ${String((e as Error)?.message || e)}`, "#ef4444", (e as { detail?: string })?.detail); return; }
     if (mine !== seq) return;
     await loadProject(mine, key); // the stage and the gates come back from the ledger
     if (mine !== seq) return;
-    msg(gateLine(reply, stageName), reply.status === "pass" ? "#22c55e" : "#eab308");
+    const g = gateParts(reply, stageName);
+    msg(g.text, reply.status === "pass" ? "#22c55e" : "#eab308", g.detail);
   };
 
   // ── render ───────────────────────────────────────────────────────────────────
@@ -248,7 +251,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
         const gate = row?.status;
         const dot = s.id === project!.stage ? "#3b82f6" : gate === "pass" ? "#22c55e" : gate === "hold" ? "#eab308" : "#3a3a42";
         const on = s.id === viewStage;
-        const title = row ? `${gate} · ${ledgerLine(row.ledger ?? null)}` : "no gate recorded";
+        const title = row ? `${gate === "pass" ? "Ready" : gate === "hold" ? "Not ready" : "Cannot be checked"} · ${ledgerLine(row.ledger ?? null)}` : "no stage check recorded";
         return `<button class="ps-stage" data-id="${esc(s.id)}" title="${esc(title)}" style="flex:1 0 auto;min-width:58px;background:${on ? "#1f1f27" : "none"};border:1px solid ${on ? "#3a3a44" : "transparent"};border-radius:9px;padding:.5rem .35rem;cursor:pointer;color:inherit;text-align:center">` +
           `<div style="width:20px;height:20px;margin:0 auto;border-radius:6px;border:1px solid ${dot};color:${dot};display:grid;place-items:center;font:700 10px ui-monospace,Consolas,monospace">${String(i + 1).padStart(2, "0")}</div>` +
           `<div style="font-size:9.5px;letter-spacing:.03em;color:${i <= cur ? "#e5e7eb" : "#6b7280"};margin-top:.3rem;font-family:ui-monospace,Consolas,monospace;text-transform:uppercase">${esc(s.nm.slice(0, 6))}</div></button>`;
@@ -295,11 +298,11 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       ? { checks: stored.checks, status: stored.status === "pass" ? "pass" : stored.status === "not_checkable" ? "not_checkable" : "hold" }
       : GATE_DEFS[s] ? evaluateGate(s, gateMetrics()) : null;
 
-    const tag = stored ? ledgerLine(stored.ledger ?? null) : preview ? "preview — Run gate measures on the bridge" : "";
+    const tag = stored ? ledgerParts(stored.ledger ?? null).text : preview ? "preview — the stage check measures it when you run it" : "";
     const suffix = isCurrent ? ` (current${tag ? " · " + tag : ""})` : tag ? ` (${tag})` : "";
-    let h = `<div style="font:600 12px system-ui;color:#e5e7eb;margin-bottom:.5rem">Stage gate · ${esc(STAGES[stageIdx(s)]?.nm ?? s)}${esc(suffix)}</div>`;
+    let h = `<div style="font:600 12px system-ui;color:#e5e7eb;margin-bottom:.5rem">Stage check · ${esc(STAGES[stageIdx(s)]?.nm ?? s)}${esc(suffix)}${stored && ledgerParts(stored.ledger ?? null).detail ? " " + detailsHtml(ledgerParts(stored.ledger ?? null).detail!) : ""}</div>`;
     if (!g) {
-      h += `<div style="color:#6b7280;font-size:12px">No gate defined for this stage.</div>`;
+      h += `<div style="color:#6b7280;font-size:12px">No stage check defined for this stage.</div>`;
     } else {
       h += g.checks.map((c) => {
         const na = !!c.na;
@@ -307,7 +310,7 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
         const mk = na ? "–" : c.ok ? "✓" : "!";
         const detail = c.detail ? ` <span style="color:#6b7280">(${esc(String(c.detail))})</span>` : "";
         // MA-2b: the browser does not read the ledger's LOD state; a preview's LOD row says where it is measured (review C10).
-        const src = c.source ?? (preview && na && c.label.startsWith("LOD state") ? "measured on the bridge from the newest lod_state ledger row — Run gate" : "");
+        const src = c.source ?? (preview && na && c.label.startsWith("LOD state") ? "measured by Sentinel from the newest level-of-detail entry in History — when you run the stage check" : "");
         const source = src ? ` <span style="color:#6b7280">· ${esc(String(src))}</span>` : "";
         return `<div style="display:flex;align-items:center;gap:.5rem;font-size:12px;margin:.3rem 0">` +
           `<span style="width:16px;height:16px;border-radius:5px;display:grid;place-items:center;flex:none;font:700 10px ui-monospace;color:#fff;background:${bg}">${mk}</span>` +
@@ -316,13 +319,13 @@ export function projectShell(components: OBC.Components, opts: { baseUrl?: strin
       const st = g.status;
       const vcol = st === "pass" ? "#22c55e" : st === "not_checkable" ? "#9ca3af" : "#eab308";
       const naLabels = g.checks.filter((c) => c.na).map((c) => c.label).join(", ");
-      const word = st === "pass" ? "GATE PASS" : st === "not_checkable" ? `GATE NOT CHECKABLE — not measured: ${esc(naLabels)}` : "GATE HOLD";
+      const word = st === "pass" ? "READY" : st === "not_checkable" ? `CANNOT BE CHECKED — not measured: ${esc(naLabels)}` : "NOT READY";
       h += `<div style="margin-top:.6rem;padding:.5rem .6rem;border:1px dashed ${vcol};border-radius:8px;color:${vcol};font:600 11.5px ui-monospace,Consolas,monospace">${word}</div>`;
     }
     if (isCurrent && next && gateRole !== null && canGovernRole(gateRole.role)) {
-      h += `<button id="ps-advance" style="${btn};background:#6528d7;color:#fff;width:100%;margin-top:.6rem">Run gate → advance to ${esc(next.nm)}</button>`;
+      h += `<button id="ps-advance" style="${btn};background:#6528d7;color:#fff;width:100%;margin-top:.6rem">Check and move to ${esc(next.nm)}</button>`;
     } else if (isCurrent && next && gateRole !== null) {
-      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">${esc(roleWords(gateRole))} — a lead or owner runs the gate.</div>`;
+      h += `<div style="margin-top:.6rem;color:#9ca3af;font-size:11.5px">${esc(roleWords(gateRole))} — a lead or owner runs the stage check.</div>`;
     }
     el("ps-gate").innerHTML = h;
     const adv = root.querySelector("#ps-advance");

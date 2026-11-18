@@ -5,7 +5,7 @@ const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 vi.mock("./active-project", () => ({ activePid: () => "aster-villa", onActiveProjectChange: () => () => {} }));
 
-import { fetchJourney, standardsLine, nextLine, stepDetail, tabIndex, lodLine, type Journey, type JourneyStep } from "./next-strip";
+import { fetchJourney, standardsDetail, standardsLine, nextLine, stepDetail, tabIndex, lodLine, type Journey, type JourneyStep } from "./next-strip";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const ref = (kind: string, n: number, sha: string) =>
@@ -48,18 +48,23 @@ describe("fetchJourney", () => {
 describe("standardsLine", () => {
   it("names each kind with the bridge's ref label", () => {
     expect(standardsLine(journey())).toBe(
-      "Standards in force: IDS ids@4 · office · 23bb57937fb0… · Rules ruleset@1 · office · 3f07376a1b2c… · Naming naming@1 · office · 9a9a9a9a9a9a…");
+      "Standards in force: Data requirements (office) · Project standards (office) · Naming (office)");
+  });
+
+  it("keeps each version and fingerprint in the detail", () => {
+    expect(standardsDetail(journey())).toBe(
+      "Data requirements: ids@4 · office · 23bb57937fb0…\nProject standards: ruleset@1 · office · 3f07376a1b2c…\nNaming: naming@1 · office · 9a9a9a9a9a9a…");
   });
 
   it("says where to install a kind with nothing installed", () => {
     expect(standardsLine(journey({ standards: { ids: none, ruleset: ref("ruleset", 1, "3f07376a1b2cffee"), naming: none } }))).toBe(
-      "Standards in force: IDS none — install from Settings ▸ Standards library · Rules ruleset@1 · office · 3f07376a1b2c… · Naming none — install from Settings ▸ Standards library");
+      "Standards in force: Data requirements none — install from Settings ▸ Standards library · Project standards (office) · Naming none — install from Settings ▸ Standards library");
   });
 
   // B1: a failed standards read shows its "unavailable — …" label as is, never as an install hint.
   it("shows a failed read's own label, never an install hint", () => {
     expect(standardsLine(journey({ standards: { ids: unavailable, ruleset: ref("ruleset", 1, "3f07376a1b2cffee"), naming: none } }))).toBe(
-      "Standards in force: IDS unavailable — bridge unreachable · Rules ruleset@1 · office · 3f07376a1b2c… · Naming none — install from Settings ▸ Standards library");
+      "Standards in force: Data requirements unavailable — bridge unreachable · Project standards (office) · Naming none — install from Settings ▸ Standards library");
   });
 });
 

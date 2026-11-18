@@ -10,7 +10,7 @@ const MUTED = `color:${C.muted};font:12px system-ui`;
 type Facts = BlockData["facts"];
 type Live = BlockData["live_view"];
 
-export const SOURCE_CHOICES: [Live["source"], string][] = [["midp", "MIDP"], ["tidp", "TIDP of a task team"], ["office_register", "Office register"],
+export const SOURCE_CHOICES: [Live["source"], string][] = [["midp", "Delivery plan"], ["tidp", "Team delivery plan of a task team"], ["office_register", "Office register"],
   ["risk_register", "Risk register"], ["mobilisation", "Mobilisation plan"], ["capability", "Capability"]];
 export const PART_CHOICES: [string, string][] = [["people", "People and functions"], ["software", "Software"], ["hardware", "Hardware and IT"],
   ["past_projects", "Past projects"], ["training", "Training plan"], ["terms", "Terms"]];
@@ -81,5 +81,5 @@ export const liveViewEditor: BlockEditor = (block, ctx): EditorHandle => {
   });
   return { el, value: () => ({ title: cap.value, data: { source: src.value, filter: { team: src.value === "tidp" ? team.value || null : null, stage: data?.filter?.stage ?? null,
       register_part: src.value === "office_register" ? part.value : null } } as Live }),
-    problems: () => (src.value === "tidp" && !team.value ? ["Choose the task team whose TIDP to show."] : []), onChange: (cb) => { watchers.push(cb); } };
+    problems: () => (src.value === "tidp" && !team.value ? ["Choose the task team whose team delivery plan to show."] : []), onChange: (cb) => { watchers.push(cb); } };
 };

@@ -29,7 +29,7 @@ describe("compileLines", () => {
       unmatched: [{ sentence: "The model shall be nice.", reason: "No property is named." }], skipped: [], kept: 0, current: null, xml_skipped: [], xml: "", ids: {} });
     expect(lines).toContainEqual({ text: "Doors have a fire rating", tone: "ok" });
     expect(lines).toContainEqual({ text: "from: “All doors shall have a fire rating.”", tone: "note" });
-    expect(lines).toContainEqual({ text: "Not in the IDS: “The model shall be nice.”", tone: "bad" });
+    expect(lines).toContainEqual({ text: "Not in the data requirements: “The model shall be nice.”", tone: "bad" });
     expect(lines[0].tone).toBe("head");
     expect(lines.map((l) => l.text).join(" ")).not.toMatch(/source_sentence|unmatched| — /);
   });
@@ -59,54 +59,55 @@ describe("eirCompile install", () => {
   it("sends If-Match with the sha of the IDS in force read before the compile", async () => {
     const st = lead();
     const el = eirCompile(pane({ state: () => st, post: vi.fn(async () => result) }, st));
-    await press(el, "Compile to IDS"); await press(el, "Install on this project");
+    await press(el, "Turn into data requirements"); await press(el, "Use as the project's data requirements");
     expect(installArtefact).toHaveBeenCalledWith("http://b", "k", "ids", expect.objectContaining({ title: "t", source: expect.objectContaining({ document_id: "e1" }) }), "lead@x", "ab12");
-    expect(textOf(el)).toContain("Installed ids@3 on k.");
+    expect(textOf(el)).toContain("Installed the data requirements on k.");
+    expect(textOf(el)).toContain("ids@3");
   });
   it("posts the EIR text to this project's compile route", async () => {
     const st = lead();
     const post = vi.fn(async () => result);
-    await press(eirCompile(pane({ state: () => st, post }, st)), "Compile to IDS");
+    await press(eirCompile(pane({ state: () => st, post }, st)), "Turn into data requirements");
     expect(post).toHaveBeenCalledWith("/cde/k/artefacts/ids/eir", { text: "Client EIR", title: "Client EIR, compiled IDS" });
   });
   it("says so in words on a 412 and installs nothing more", async () => {
     vi.mocked(installArtefact).mockRejectedValueOnce(Object.assign(new Error("changed"), { status: 412 }));
     const st = lead();
     const el = eirCompile(pane({ state: () => st, post: vi.fn(async () => result) }, st));
-    await press(el, "Compile to IDS"); await press(el, "Install on this project");
-    expect(textOf(el)).toContain("The IDS in force changed while you looked; compile again. Nothing was installed.");
+    await press(el, "Turn into data requirements"); await press(el, "Use as the project's data requirements");
+    expect(textOf(el)).toContain("The data requirements in force changed while you looked; turn the EIR into data requirements again. Nothing was installed.");
   });
   it("offers Install only to a lead, and only when something was compiled", async () => {
     const st = lead();
     const el = eirCompile(pane({ state: () => st, post: vi.fn(async () => ({ ...result, specifications: [] })) }, st));
-    await press(el, "Compile to IDS");
-    expect(findAll(el, "button").map(textOf)).not.toContain("Install on this project");
+    await press(el, "Turn into data requirements");
+    expect(findAll(el, "button").map(textOf)).not.toContain("Use as the project's data requirements");
     const st2 = lead({ role: "contributor" }), c2 = pane({ state: () => st2, post: vi.fn(async () => result) }, st2); // F4: by role, not by canGovern
     const el2 = eirCompile(c2);
-    await press(el2, "Compile to IDS");
-    expect(findAll(el2, "button").map(textOf)).not.toContain("Install on this project");
+    await press(el2, "Turn into data requirements");
+    expect(findAll(el2, "button").map(textOf)).not.toContain("Use as the project's data requirements");
   });
   it("shows nothing when the project changed meanwhile", async () => {
     const st = lead(), live = { ...st };
     const el = eirCompile(pane({ state: () => live, post: vi.fn(async () => { live.key = "other"; return result; }) }, st));
-    await press(el, "Compile to IDS");
+    await press(el, "Turn into data requirements");
     expect(textOf(el)).not.toContain("Checks from this EIR");
   });
   it("blocks the compile with the reason when the IDS in force cannot be read", async () => {
     vi.mocked(artefactInForce).mockRejectedValueOnce(new Error("HTTP 500"));
     const st = lead(), post = vi.fn(async () => result);
     const el = eirCompile(pane({ state: () => st, post }, st));
-    await press(el, "Compile to IDS");
-    expect(textOf(el)).toContain("The IDS in force could not be read: HTTP 500");
+    await press(el, "Turn into data requirements");
+    expect(textOf(el)).toContain("The data requirements in force could not be read: HTTP 500");
     expect(post).not.toHaveBeenCalled();
   });
   it("offers no install over an IDS in force that has no sha", async () => {
     vi.mocked(artefactInForce).mockResolvedValueOnce({ sha256: null, body: {} } as any);
     const st = lead();
     const el = eirCompile(pane({ state: () => st, post: vi.fn(async () => result) }, st));
-    await press(el, "Compile to IDS");
-    expect(findAll(el, "button").map(textOf)).not.toContain("Install on this project");
-    expect(textOf(el)).toContain("The IDS in force could not be read; nothing can be installed now.");
+    await press(el, "Turn into data requirements");
+    expect(findAll(el, "button").map(textOf)).not.toContain("Use as the project's data requirements");
+    expect(textOf(el)).toContain("The data requirements in force could not be read; nothing can be installed now.");
   });
   it("downloads the .ids as an application/xml Blob through an a[download] click", async () => {
     const made: Blob[] = [], clicked: any[] = [];
@@ -116,7 +117,7 @@ describe("eirCompile install", () => {
       const st = lead(), c = pane({ state: () => st, post: vi.fn(async () => result) }, st), orig = c.doc.createElement;
       c.doc.createElement = (t: string) => { const e = orig(t); if (t === "a") e.click = () => clicked.push(e); return e; };
       const el = eirCompile(c);
-      await press(el, "Compile to IDS"); await press(el, "Download .ids");
+      await press(el, "Turn into data requirements"); await press(el, "Download .ids");
       expect(made).toHaveLength(1);
       expect(made[0].type).toBe("application/xml");
       expect(await made[0].text()).toBe("<ids/>");
@@ -133,8 +134,8 @@ describe("final review: install by role on any status (F4), Download .ids (F13)"
       const st = published(role), c = pane({ state: () => st, post: vi.fn(async () => result) }, st);
       c.canGovern = false; c.canEdit = false; // what rightsOf gives for a published document
       const el = eirCompile(c);
-      await press(el, "Compile to IDS");
-      expect(findAll(el, "button").some((b) => textOf(b) === "Install on this project"), role).toBe(shown);
+      await press(el, "Turn into data requirements");
+      expect(findAll(el, "button").some((b) => textOf(b) === "Use as the project's data requirements"), role).toBe(shown);
     }
   });
   it("F13: the file name keeps any letters and digits; the link is revoked after the click had time", async () => {
@@ -147,7 +148,7 @@ describe("final review: install by role on any status (F4), Download .ids (F13)"
         const make = c.doc.createElement.bind(c.doc);
         c.doc.createElement = (t: string) => { const e = make(t); if (t === "a") { e.click = vi.fn(); made.push(e); } return e; };
         const el = eirCompile(c);
-        click(findAll(el, "button").find((b) => textOf(b) === "Compile to IDS")!);
+        click(findAll(el, "button").find((b) => textOf(b) === "Turn into data requirements")!);
         await vi.advanceTimersByTimeAsync(0); await vi.advanceTimersByTimeAsync(0);
         click(findAll(el, "button").find((b) => textOf(b) === "Download .ids")!);
         expect(made[made.length - 1].getAttribute("download")).toBe(name);

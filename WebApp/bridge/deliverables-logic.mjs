@@ -343,14 +343,14 @@ export function weeklyReport(status, tidp, projectKey = "") {
   const atRisk = n("overdue") + n("late") + n("in_wip");
   L.push(atRisk
     ? `**${atRisk} deliverable(s) need attention this week** — ${n("overdue")} overdue, ${n("late")} delivered late, ${n("in_wip")} arrived but never issued.`
-    : `**Nothing is overdue, late or stuck in WIP.**`);
+    : `**Nothing is overdue, late or stuck in work in progress.**`);
   L.push("");
 
   L.push("## Position");
   L.push("");
   L.push("| Status | Count |");
   L.push("| --- | ---: |");
-  for (const k of ["delivered", "late", "in_wip", "overdue", "pending", "unscheduled"]) L.push(`| ${k.replace("_", " ")} | ${n(k)} |`);
+  for (const k of ["delivered", "late", "in_wip", "overdue", "pending", "unscheduled"]) L.push(`| ${k === "in_wip" ? "work in progress" : k.replace("_", " ")} | ${n(k)} |`);
   L.push(`| **total** | **${n("total")}** |`);
   L.push("");
 
@@ -367,11 +367,11 @@ export function weeklyReport(status, tidp, projectKey = "") {
   }
   L.push("");
 
-  L.push("## By task team (TIDP)");
+  L.push("## By task team");
   L.push("");
   const tidps = tidp?.tidps || [];
   if (!tidps.length) {
-    L.push("No task teams are declared, so there are no TIDPs to report.");
+    L.push("No task teams are declared, so there are no team delivery plans to report.");
   } else {
     L.push("| Team | Lead | At risk | Next due | Planned |");
     L.push("| --- | --- | ---: | --- | ---: |");
@@ -395,6 +395,6 @@ export function weeklyReport(status, tidp, projectKey = "") {
 
   L.push("---");
   L.push("");
-  L.push("Every figure above is derived from the CDE at read time — nothing in this report is stored, ticked or carried forward from last week.");
+  L.push("Every figure above is derived from the project's files at read time — nothing in this report is stored, ticked or carried forward from last week.");
   return L.join("\n");
 }

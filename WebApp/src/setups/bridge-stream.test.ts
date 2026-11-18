@@ -57,7 +57,7 @@ describe("refusalText — a refused read in the bridge's words", () => {
     expect(await refusalText(new Response(JSON.stringify({ message: words }), { status: 403 }))).toBe(words);
   });
   it("falls back to a plain sentence when a 403 carries no words", async () => {
-    expect(await refusalText(new Response("", { status: 403 }))).toBe("The bridge refused this (HTTP 403).");
+    expect(await refusalText(new Response("", { status: 403 }))).toBe("You do not have permission for this.");
   });
   it("is null for anything that is not a refusal, and leaves its body unread", async () => {
     const ok = new Response("{}", { status: 200 });

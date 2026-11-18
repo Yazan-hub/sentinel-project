@@ -118,7 +118,7 @@ const admitting = new Set();
 /** The pack in force (the project's own — no office fallback) or a 404 in words; `packId` must be its id (one pack per project, MA-4a S1). */
 async function packOf(d, key, packId) {
   const doc = await d.art.getArtefact(key, KIND, d.artDeps);
-  if (!doc) throw Object.assign(err(404, `${key} has no evidence pack yet — a lead makes it (POST /cde/${key}/evidence) — nothing was saved`), { noPack: true });
+  if (!doc) throw Object.assign(err(404, `${key} has no evidence pack yet — ask a project lead to make it — nothing was saved`), { noPack: true, detail: `POST /cde/${key}/evidence` });
   if (doc.body.pack_id !== packId) throw err(404, `${key}'s evidence pack is ${doc.body.pack_id}, not ${packId} — nothing was saved`);
   return { pack: doc.body, version: doc.version, sha256: doc.sha256 };
 }
@@ -201,7 +201,7 @@ export async function noticeOf(key, packId, deps) {
   const { pack, version } = await packOf(d, key, packId);
   let rows;
   try { rows = (await d.auditAll(key, { entity_type: "build", action_prefix: "build:run" })).filter((r) => r.action === "build:run" || String(r.action).startsWith("build:run ")); } // the add-in writes exactly "build:run", the bridge "build:run <job> · …"
-  catch { throw err(503, "the NOTICE needs the build:run rows and the ledger could not be read — nothing was made"); }
+  catch { throw err(503, "the NOTICE needs the build:run rows and History could not be read — nothing was made"); }
   const text = L.noticeText({ pack, version, rows, today: d.now().slice(0, 10) });
   const tools = L.toolsOf(rows).length;
   return { text, sha256: createHash("sha256").update(text, "utf8").digest("hex"), pack_version: version, credits: L.creditCount(pack), tools };
@@ -599,7 +599,7 @@ export async function readSplatPlacement(key, packId, itemId, deps) {
   if (item.kind !== "splat") throw err(409, L.splatUsable(item, "shown"));
   let rows;
   try { rows = (await d.auditAll(key, { entity_type: "splat", action_prefix: `splat:placed ${itemId}` })).filter((r) => r.action === `splat:placed ${itemId}`); }
-  catch { throw err(503, "the placement is in the ledger and the ledger could not be read — nothing was shown"); }
+  catch { throw err(503, "the placement is in History and History could not be read — nothing was shown"); }
   // newest first; a row that does not read as a placement of these bytes is passed over, never trusted
   for (const r of rows.sort((x, y) => Number(y.id) - Number(x.id))) {
     const v = r.new_value;

@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
@@ -57,7 +58,7 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
     '<div id="cb-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, c = "#9ca3af") => { el("cb-msg").textContent = t; el("cb-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { el("cb-msg").replaceChildren(withDetails(t, detail)); el("cb-msg").style.color = c; };
 
   const scan = async () => {
     if (fragments.list.size === 0) { msg("Load a model from Documents ▸ Files ▸ Open 3D first.", "#eab308"); return; }
@@ -70,7 +71,7 @@ export function cobiePanel(components: OBC.Components, opts: { baseUrl?: string 
       render(report);
       const notSaved = await publishReadiness(report);
       msg(`${report.total} asset(s) · ${report.complete} handover-ready.${notSaved ? ` Not saved to the project — ${notSaved}.` : " Saved to the project (the Owner view shows it with this date)."}`, notSaved ? "#ef4444" : undefined);
-    } catch (e) { msg("Scan failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("Scan failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
 

@@ -17,7 +17,7 @@ describe("accountLine — the role only when it was read, never a guess", () => 
   it("a viewer is read-only; a non-member is told so (W-2 G7); a refused session says so", () => {
     expect(accountLine({ role: "viewer", read: true }, "aster-tower")).toBe("Signed in · read-only on aster-tower");
     expect(accountLine({ role: "not-member", read: true }, "aster-tower")).toBe("Signed in · not a member of aster-tower");
-    expect(accountLine({ role: "signed-out", read: true }, "aster-tower")).toBe("Signed in · not accepted by the bridge — sign in again");
+    expect(accountLine({ role: "signed-out", read: true }, "aster-tower")).toBe("Your sign-in was not accepted. Sign in again.");
   });
   it("an unread role or no open project says only 'Signed in'", () => {
     expect(accountLine({ role: "viewer", read: false }, "aster-tower")).toBe("Signed in");

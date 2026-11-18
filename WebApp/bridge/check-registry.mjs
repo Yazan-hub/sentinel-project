@@ -8,7 +8,7 @@
 //
 // Each check splits into a pure `classify(...)` (unit-tested, no I/O) and a thin `run(...)` that
 // fetches state and delegates. Add a check by adding an entry — nothing else changes.
-import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, listTransmittals, NO_NAMING_REASON, projectStage } from "./cde-store.mjs";
+import { listFiles, getProjectMeta, listAudit, AUDIT_MAX, projectNamingRuleset, listTransmittals, projectStage } from "./cde-store.mjs";
 import { refLabel, resolveArtefact } from "./artefact-store.mjs";
 import { measureGate, readGateInputs } from "./stage-gate.mjs";
 import { OFFICE_CHECKS } from "./office-checks.mjs";
@@ -44,10 +44,10 @@ function defaultValidateContainerName(name, ruleset) {
 
 /** `named` is projectNamingRuleset's answer: { ruleset, source, ref, sha256 }. */
 export function classifyNaming(files, named, validate = defaultValidateContainerName) {
-  const id = "naming.containers", label = "Container naming";
+  const id = "naming.containers", label = "File naming";
   const ruleset = named?.ruleset ?? null;
-  if (!ruleset) return result(id, label, "not_checkable", { reason: NO_NAMING_REASON });
-  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no containers yet — nothing to check." });
+  if (!ruleset) return result(id, label, "not_checkable", { reason: "no naming standard installed for this project or its office — install one in Settings > Standards library" });
+  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no files yet — nothing to check." });
   const which = refLabel(named);
   const bad = [];
   for (const f of files) {
@@ -55,13 +55,13 @@ export function classifyNaming(files, named, validate = defaultValidateContainer
     if (!r.ok) bad.push({ label: f.iso_name, detail: r.failures.map((x) => `${x.field}: ${x.reason}`).join("; "), ref: f.id });
   }
   return bad.length
-    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} container name(s) fail ${which} (“${ruleset.title}”).` })
-    : result(id, label, "met", { summary: `All ${files.length} container name(s) satisfy ${which} (“${ruleset.title}”).` });
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} file name(s) fail ${which} (“${ruleset.title}”).` })
+    : result(id, label, "met", { summary: `All ${files.length} file name(s) satisfy ${which} (“${ruleset.title}”).` });
 }
 
 export function classifyStates(files, expect) {
-  const id = "cde.states", label = "Container states";
-  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no containers yet — nothing to check." });
+  const id = "cde.states", label = "File states";
+  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no files yet — nothing to check." });
   const allowed = new Set(expect && expect.length ? expect : ["published"]);
   const bad = [];
   for (const f of files) {
@@ -70,13 +70,13 @@ export function classifyStates(files, expect) {
     if (!allowed.has(state)) bad.push({ label: f.iso_name, detail: `state is ${state}, expected ${[...allowed].join(" or ")}`, ref: f.id });
   }
   return bad.length
-    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} container(s) are not ${[...allowed].join("/")}.` })
-    : result(id, label, "met", { summary: `All ${files.length} container(s) are ${[...allowed].join("/")}.` });
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} file(s) are not ${[...allowed].join("/")}.` })
+    : result(id, label, "met", { summary: `All ${files.length} file(s) are ${[...allowed].join("/")}.` });
 }
 
 export function classifySuitability(files, allowed) {
   const id = "cde.suitability", label = "Suitability codes";
-  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no containers yet — nothing to check." });
+  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no files yet — nothing to check." });
   const ok = new Set(allowed && allowed.length ? allowed : ["S3", "S4"]);
   const bad = [];
   let liveCount = 0;
@@ -87,28 +87,28 @@ export function classifySuitability(files, allowed) {
     const s = live.suitability;
     if (!s || !ok.has(s)) bad.push({ label: f.iso_name, detail: `suitability is ${s || "(unset)"}, expected one of ${[...ok].join(", ")}`, ref: f.id });
   }
-  if (!liveCount) return result(id, label, "not_checkable", { reason: "No container has a live version yet, so there are no suitability codes to check — see the cde.versioned check for that gap." });
+  if (!liveCount) return result(id, label, "not_checkable", { reason: "No file has a live version yet, so there are no suitability codes to check — see the cde.versioned check for that gap." });
   return bad.length
     ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} live version(s) carry a suitability outside ${[...ok].join(", ")}.` })
     : result(id, label, "met", { summary: `Every live version carries an allowed suitability code.` });
 }
 
 export function classifyVersioned(files) {
-  const id = "cde.versioned", label = "Every container has a live version";
-  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no containers yet — nothing to check." });
+  const id = "cde.versioned", label = "Every file has a live version";
+  if (!files.length) return result(id, label, "not_checkable", { reason: "This project has no files yet — nothing to check." });
   const bad = files.filter((f) => !liveOf(f)).map((f) => ({ label: f.iso_name, detail: "no live version", ref: f.id }));
   return bad.length
-    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} container(s) have no live version.` })
-    : result(id, label, "met", { summary: `All ${files.length} container(s) have a live version.` });
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} file(s) have no live version.` })
+    : result(id, label, "met", { summary: `All ${files.length} file(s) have a live version.` });
 }
 
 /** `gate` is measureGate's answer (stage-gate.mjs): each check carries `source` — what the bridge read, or why it could
  *  not — which the evidence repeats, so "no server source" is never a bare claim. */
 export function classifyGate(stage, gate) {
-  const id = "gate.stage", label = "Stage gate";
-  if (!gate.checks.length) return result(id, label, "not_checkable", { reason: `Stage “${stage}” has no gate defined (it is terminal).` });
+  const id = "gate.stage", label = "Stage check";
+  if (!gate.checks.length) return result(id, label, "not_checkable", { reason: `Stage “${stage}” has no stage check defined (it is terminal).` });
   const failing = gate.checks.filter((c) => !c.na && !c.ok).map((c) => ({ label: c.label, detail: c.detail || "not met" }));
-  if (failing.length) return result(id, label, "violations", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” gate check(s) not met.` });
+  if (failing.length) return result(id, label, "violations", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” stage check(s) not met.` });
   // Partial measurement is not a pass. Some metrics passed but others were never collected — reporting
   // this as "met" would claim compliance that was never actually measured. That's the exact failure
   // mode this feature exists to prevent, so an unmeasured metric caps the result at not_checkable.
@@ -117,10 +117,10 @@ export function classifyGate(stage, gate) {
     return result(id, label, "not_checkable", {
       count: unmeasured.length,
       evidence: unmeasured,
-      reason: `${unmeasured.length} of ${gate.checks.length} gate metrics have no server source (${unmeasured.map((c) => c.label).join(", ")}) — the gate cannot be confirmed.`,
+      reason: `${unmeasured.length} of ${gate.checks.length} stage check measures have no server source (${unmeasured.map((c) => c.label).join(", ")}) — the stage check cannot be confirmed.`,
     });
   }
-  return result(id, label, "met", { summary: `The “${stage}” stage gate passes.` });
+  return result(id, label, "met", { summary: `The “${stage}” stage check passes.` });
 }
 
 /** Is a standard of `kind` in force for the project? Judged by the artefact resolver (project → office),
@@ -128,7 +128,7 @@ export function classifyGate(stage, gate) {
  *  names the install route (the question is "is one installed", so its absence is measured, not unknown). */
 export function classifyStandard(resolved, kind, id, label, displayName = "") {
   if (!resolved || resolved.source === "none" || !resolved.body)
-    return result(id, label, "violations", { count: 1, summary: `No ${kind} standard is installed for this project or its office.`, evidence: [{ label: kind, detail: `not installed — PUT /cde/:key/artefacts/${kind}` }] });
+    return result(id, label, "violations", { count: 1, summary: `No ${kind} standard is installed for this project or its office.`, evidence: [{ label: kind, detail: `not installed — install one in Settings > Standards library` }] });
   const ref = refLabel(resolved);
   return result(id, label, "met", { summary: `${displayName ? `${displayName}: ` : ""}${ref}.`, evidence: [{ label: kind, detail: ref }] });
 }
@@ -139,16 +139,16 @@ export const classifyPack = (resolved, displayName) => classifyStandard(resolved
 /** `total` is the ledger's count of verdict rows (listAudit's total for the verdict filter); fewer rows than that is a
  *  partial read, which cannot say which verdict is each version's latest. Omitted, the rows given are all there is. */
 export function classifyVerdicts(auditRows, total) {
-  const id = "ids.last_verdict", label = "Governed adjudication verdicts";
+  const id = "ids.last_verdict", label = "Publish check results";
   const verdictRows = auditRows.filter((r) => r.entity_type === "file_version" && String(r.action || "").startsWith("verdict:"));
   if (total !== undefined && verdictRows.length < total)
-    return result(id, label, "not_checkable", { reason: `Read ${verdictRows.length} of ${total} verdict rows on this project's ledger — a partial read cannot confirm each version's latest verdict.` });
+    return result(id, label, "not_checkable", { reason: `Read ${verdictRows.length} of ${total} check result rows in this project's History — a partial read cannot confirm each version's latest verdict.` });
   const newest = new Map(); // entity_id -> row (audit rows arrive newest-first; keep the first seen)
   for (const r of verdictRows) {
     const prev = newest.get(r.entity_id);
     if (!prev || String(r.at) > String(prev.at)) newest.set(r.entity_id, r);
   }
-  if (!newest.size) return result(id, label, "not_checkable", { reason: "No governed verdict has been recorded on this project yet — publish through Sentinel ▸ Publish to produce one." });
+  if (!newest.size) return result(id, label, "not_checkable", { reason: "No publish check result has been recorded on this project yet — publish through Sentinel ▸ Publish to produce one." });
   const bad = [];
   let acceptedCount = 0, recordedCount = 0;
   for (const [vid, r] of newest) {
@@ -165,15 +165,15 @@ export function classifyVerdicts(auditRows, total) {
   if (recordedCount) {
     return result(id, label, "not_checkable", {
       reason: acceptedCount
-        ? `${recordedCount} of ${newest.size} version(s) were merely recorded, not adjudicated (no IDS installed, or no element in its scope) — the result cannot be confirmed as met.`
-        : `All ${recordedCount} version(s) were recorded, not adjudicated (no IDS installed, or no element in its scope), so nothing was actually checked.`,
+        ? `${recordedCount} of ${newest.size} version(s) were merely recorded, not adjudicated (no data requirements installed, or no element in its scope) — the result cannot be confirmed as met.`
+        : `All ${recordedCount} version(s) were recorded, not adjudicated (no data requirements installed, or no element in its scope), so nothing was actually checked.`,
     });
   }
   return result(id, label, "met", { summary: `All ${newest.size} adjudicated version(s) were accepted.` });
 }
 
 export function classifyDeliverables(status) {
-  const id = "midp.milestones", label = "Delivery milestones (MIDP/TIDP)";
+  const id = "midp.milestones", label = "Delivery milestones (delivery plans)";
   const s = status?.summary || {};
   if (!s.total) return result(id, label, "not_checkable", { reason: "No deliverables are defined for this project yet — add them in Documents ▸ Delivery plan to check delivery against plan." });
 
@@ -268,7 +268,7 @@ export function classifyPlanCompleteness(status) {
  * they were issued at the time, and an unissued one is a real hole in the record.
  */
 export function classifyDistribution(files, transmittals) {
-  const id = "midp.distribution", label = "Issue distribution (MIDP)";
+  const id = "midp.distribution", label = "Issue distribution (delivery plan)";
   const published = [];
   for (const f of files || []) {
     for (const v of f.versions || []) {
@@ -366,7 +366,7 @@ const GENERIC_ACTORS = new Set(["", "web", "service", "bridge", "unknown", "null
 
 /** `total` is the ledger's count of the rows asked for (listAudit's total); fewer rows than that is a partial read. */
 export function classifyReview(files, auditRows, total) {
-  const id = "midp.review", label = "Review before issue (MIDP)";
+  const id = "midp.review", label = "Review before issue (delivery plan)";
   const published = [];
   for (const f of files || []) {
     for (const v of f.versions || []) {
@@ -376,7 +376,7 @@ export function classifyReview(files, auditRows, total) {
   if (!published.length)
     return result(id, label, "not_checkable", { reason: "Nothing has reached published on this project yet, so there is no issue to have reviewed." });
   if (total !== undefined && (auditRows || []).length < total)
-    return result(id, label, "not_checkable", { reason: `Read ${(auditRows || []).length} of ${total} state transitions of the published versions on this project's ledger — a partial read cannot judge review before issue.` });
+    return result(id, label, "not_checkable", { reason: `Read ${(auditRows || []).length} of ${total} state transitions of the published versions in this project's History — a partial read cannot judge review before issue.` });
 
   // Audit rows arrive newest-first; the first seen of each action is the one that governs.
   const submitted = new Map(), authorized = new Map();
@@ -399,7 +399,7 @@ export function classifyReview(files, auditRows, total) {
       unmeasured.push({
         label: who,
         detail: !submitted.has(version.id) || !authorized.has(version.id)
-          ? "its state:wip->shared or state:shared->published row is not on the ledger, so review cannot be judged"
+          ? "its state:wip->shared or state:shared->published row is not in History, so review cannot be judged"
           : "submitted or authorized by an unresolved identity, so independence cannot be judged",
       });
       continue;
@@ -422,17 +422,17 @@ export function classifyReview(files, auditRows, total) {
 }
 
 export const classifyMidpRevision = (status) =>
-  classifyMidpExpectation(status, "revision", "midp.revision", "Delivered revisions (MIDP)", "revision");
+  classifyMidpExpectation(status, "revision", "midp.revision", "Delivered revisions (delivery plan)", "revision");
 export const classifyMidpSuitability = (status) =>
-  classifyMidpExpectation(status, "suitability", "midp.suitability", "Delivered suitability (MIDP)", "suitability");
+  classifyMidpExpectation(status, "suitability", "midp.suitability", "Delivered suitability (delivery plan)", "suitability");
 
 // ── registry ─────────────────────────────────────────────────────────────────────────────────────
 
 export const CHECKS = [
   {
     id: "naming.containers",
-    label: "Container naming",
-    description: "Every information container's name satisfies the naming standard installed on the project or its office.",
+    label: "File naming",
+    description: "Every information file's name satisfies the naming standard installed on the project or its office.",
     params_schema: {},
     async run(key) {
       const [files, named, c] = await Promise.all([listFiles(key), projectNamingRuleset(key), core()]);
@@ -441,8 +441,8 @@ export const CHECKS = [
   },
   {
     id: "cde.states",
-    label: "Container states",
-    description: "Every container's live version sits in one of the expected ISO 19650 states.",
+    label: "File states",
+    description: "Every file's live version sits in one of the expected ISO 19650 states.",
     params_schema: { expect: { type: "string[]", default: ["published"], of: ["wip", "shared", "published", "archived"] } },
     async run(key, params = {}) { return classifyStates(await listFiles(key), params.expect); },
   },
@@ -455,15 +455,15 @@ export const CHECKS = [
   },
   {
     id: "cde.versioned",
-    label: "Every container has a live version",
-    description: "No container is left without a current version.",
+    label: "Every file has a live version",
+    description: "No file is left without a current version.",
     params_schema: {},
     async run(key) { return classifyVersioned(await listFiles(key)); },
   },
   {
     id: "gate.stage",
-    label: "Stage gate",
-    description: "The project passes the gate for its current stage, measured by the bridge on the ledger's stage.",
+    label: "Stage check",
+    description: "The project passes the stage check for its current stage, measured by Sentinel from History's stage.",
     params_schema: {},
     async run(key) {
       // The bridge's own measurement on the ledger's stage (phase 5c) — never the browser's snapshot, never a "?? 0".
@@ -474,7 +474,7 @@ export const CHECKS = [
   {
     id: "project.standards_pack",
     label: "Standards pack selected",
-    description: "A scan ruleset artefact is in force for the project or its office.",
+    description: "A scan rules standard is in force for the project or its office.",
     params_schema: {},
     async run(key) {
       const [resolved, meta] = await Promise.all([resolveArtefact(key, "ruleset"), getProjectMeta(key)]);
@@ -483,8 +483,8 @@ export const CHECKS = [
   },
   {
     id: "ids.last_verdict",
-    label: "Governed adjudication verdicts",
-    description: "The most recent governed verdict recorded against each version was an acceptance.",
+    label: "Publish check results",
+    description: "The most recent publish check result recorded against each version was an acceptance.",
     params_schema: {},
     async run(key) {
       const { rows, total } = await listAudit(key, { entity_type: "file_version", action_prefix: "verdict:", limit: AUDIT_MAX });
@@ -493,7 +493,7 @@ export const CHECKS = [
   },
   {
     id: "midp.milestones",
-    label: "Delivery milestones (MIDP/TIDP)",
+    label: "Delivery milestones (delivery plans)",
     description: "Every planned deliverable arrived and was published by its due date.",
     params_schema: {},
     async run(key) {
@@ -513,7 +513,7 @@ export const CHECKS = [
   },
   {
     id: "midp.revision",
-    label: "Delivered revisions (MIDP)",
+    label: "Delivered revisions (delivery plan)",
     description: "Every deliverable with an expected revision had that revision reach published by its due date.",
     params_schema: {},
     async run(key) {
@@ -523,7 +523,7 @@ export const CHECKS = [
   },
   {
     id: "midp.suitability",
-    label: "Delivered suitability (MIDP)",
+    label: "Delivered suitability (delivery plan)",
     description: "Every deliverable with an expected suitability published at that suitability code by its due date.",
     params_schema: {},
     async run(key) {
@@ -544,7 +544,7 @@ export const CHECKS = [
   },
   {
     id: "midp.review",
-    label: "Review before issue (MIDP)",
+    label: "Review before issue (delivery plan)",
     description: "Every published version was authorized by someone other than the person who submitted it.",
     params_schema: {},
     async run(key) {
@@ -558,7 +558,7 @@ export const CHECKS = [
   },
   {
     id: "midp.distribution",
-    label: "Issue distribution (MIDP)",
+    label: "Issue distribution (delivery plan)",
     description: "Every published version was issued to named recipients on a transmittal.",
     params_schema: {},
     async run(key) {
@@ -596,7 +596,7 @@ export const CHECKS = [
   {
     id: "loin.levels",
     label: "Level of information need",
-    description: "Every row of a BEP level-of-information-need table names an element, a milestone and a property, and maps to an IDS specification.",
+    description: "Every row of a BEP level-of-information-need table names an element, a milestone and a property, and maps to a data requirement.",
     params_schema: {},
     async run(key, params = {}) { return classifyLoin(await projectBeps(key, params.document_id)); },
   },
@@ -609,8 +609,8 @@ export const CHECKS = [
  * an honest statement of coverage rather than a silent blank. Each names the phase that will deliver it.
  */
 export const PLANNED_CHECKS = [
-  { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted." },
-  { id: "exchanges.scheduled", label: "Exchanges made as scheduled", reason: "Exchanges are not compared with CDE uploads yet." },
+  { id: "qa.scorecard", label: "Model health scorecard", reason: "The QA engine runs on the office PC but model element facts are only available in the browser; no scan report is persisted." },
+  { id: "exchanges.scheduled", label: "Exchanges made as scheduled", reason: "Exchanges are not compared with files uploaded to the project yet." },
   { id: "federation.breakdown", label: "Federation strategy", reason: "There is no declared expected-model list to check the federation against." },
 ];
 

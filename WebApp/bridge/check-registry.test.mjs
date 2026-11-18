@@ -78,13 +78,13 @@ describe("classifyNaming", () => {
   it("is not_checkable naming the install route when no naming standard is installed", () => {
     const r = classifyNaming([{ iso_name: "anything" }], NOTHING);
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toBe("no naming standard installed for this project or its office (PUT /cde/:key/artefacts/naming)");
+    expect(r.reason).toBe("no naming standard installed for this project or its office — install one in Settings > Standards library");
   });
 
   it("is not_checkable when the project has no containers yet", () => {
     const r = classifyNaming([], NAMED);
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toMatch(/no containers/i);
+    expect(r.reason).toMatch(/no files/i);
   });
 
   it("names the artefact that judged — ref · source · sha — in the summary", () => {
@@ -204,7 +204,7 @@ describe("classifyGate", () => {
   it("is not_checkable when every gate metric is unavailable, naming the metrics and each one's missing source", () => {
     const r = classifyGate("design", { checks: [{ label: "Health", ok: false, na: true, detail: "no data", source: "not measured — no server source: the browser scan is not persisted" }], pass: true });
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toBe("1 of 1 gate metrics have no server source (Health) — the gate cannot be confirmed.");
+    expect(r.reason).toBe("1 of 1 stage check measures have no server source (Health) — the stage check cannot be confirmed.");
     expect(r.evidence).toEqual([{ label: "Health", detail: "not measured — no server source: the browser scan is not persisted" }]);
   });
 
@@ -223,7 +223,7 @@ describe("classifyGate", () => {
     });
     expect(r.status).toBe("not_checkable");
     expect(r.count).toBe(2);
-    expect(r.reason).toBe("2 of 3 gate metrics have no server source (Model health ≥ 80%, Standards compliance ≥ 70%) — the gate cannot be confirmed.");
+    expect(r.reason).toBe("2 of 3 stage check measures have no server source (Model health ≥ 80%, Standards compliance ≥ 70%) — the stage check cannot be confirmed.");
     expect(r.evidence).toEqual([{ label: "Model health ≥ 80%", detail: "no data" }, { label: "Standards compliance ≥ 70%", detail: "no data" }]);
   });
 
@@ -252,11 +252,11 @@ describe("classifyGate", () => {
 describe("gate.stage — the bridge's own measurement on the ledger's stage (phase 5c), never a snapshot, never a ?? 0", () => {
   it("tender with a ruleset artefact is met; design is not checkable, naming the three metrics with no server source and the LOD state not read", async () => {
     gateState.stage = "tender";
-    expect(await getCheck("gate.stage").run("aster-tower")).toMatchObject({ status: "met", summary: "The “tender” stage gate passes." });
+    expect(await getCheck("gate.stage").run("aster-tower")).toMatchObject({ status: "met", summary: "The “tender” stage check passes." });
     gateState.stage = "design";
     const r = await getCheck("gate.stage").run("aster-tower");
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toBe("4 of 4 gate metrics have no server source (Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70%, LOD state: elements at the DD row ≥ 90%) — the gate cannot be confirmed.");
+    expect(r.reason).toBe("4 of 4 stage check measures have no server source (Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70%, LOD state: elements at the DD row ≥ 90%) — the stage check cannot be confirmed.");
     expect(r.evidence.map((e) => e.detail)).toEqual([...Array(3).fill("not measured — no server source: the browser scan is not persisted"), "not measured — the newest lod_state ledger row not read"]);
   });
   it("a counted failure is a violation naming the check; an unmeasured sibling stays a caveat", async () => {
@@ -281,12 +281,12 @@ describe("classifyPack — judged by the ruleset artefact; the metadata name is 
   it("a display name alone is not a standard: nothing installed → violations naming the install route", () => {
     const r = classifyPack(none, "house-pack@1.4.1");
     expect(r.status).toBe("violations");
-    expect(r.evidence[0].detail).toBe("not installed — PUT /cde/:key/artefacts/ruleset");
+    expect(r.evidence[0].detail).toBe("not installed — install one in Settings > Standards library");
   });
 
   it("classifyStandard keeps the caller's id and label", () => {
-    const r = classifyStandard(none, "naming", "office.naming_standard", "Container naming standard installed");
-    expect(r).toMatchObject({ id: "office.naming_standard", label: "Container naming standard installed", status: "violations" });
+    const r = classifyStandard(none, "naming", "office.naming_standard", "File naming standard installed");
+    expect(r).toMatchObject({ id: "office.naming_standard", label: "File naming standard installed", status: "violations" });
   });
 });
 
@@ -311,7 +311,7 @@ describe("classifyVerdicts", () => {
   it("is not_checkable when nothing was ever adjudicated", () => {
     const r = classifyVerdicts([rows[2]]);
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toMatch(/no .*verdict/i);
+    expect(r.reason).toMatch(/no .*check result/i);
   });
 
   it("keeps only the newest verdict per version", () => {
@@ -621,7 +621,7 @@ describe("classifyReview (midp.review)", () => {
   it("missing transitions (not on the ledger) are unmeasured, not a pass", () => {
     const r = classifyReview([file("A", [v("v1")])], []);
     expect(r.status).toBe("not_checkable");
-    expect(r.evidence[0].detail).toBe("its state:wip->shared or state:shared->published row is not on the ledger, so review cannot be judged");
+    expect(r.evidence[0].detail).toBe("its state:wip->shared or state:shared->published row is not in History, so review cannot be judged");
   });
 
   it("a real violation outranks unmeasured rows", () => {

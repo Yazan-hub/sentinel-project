@@ -19,7 +19,7 @@ import { planIfc, PLANNER as IFC_PLANNER, PLANNER_VERSION as IFC_PLANNER_VERSION
 import { readAlignBody, planDrawing, scanOnStorey, priorOf, PLANNER as DRAWING_PLANNER, PLANNER_VERSION as DRAWING_PLANNER_VERSION } from "./drawing-plan.mjs";
 
 const STORE = "changeset";
-const err = (status, message) => Object.assign(new Error(message), { status });
+const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
 
 const wire = (deps = {}) => ({
   ensureProject: deps.ensureProject || cde.ensureProject,
@@ -49,7 +49,7 @@ const wire = (deps = {}) => ({
 async function rewrite(d, pid, id, decide) {
   for (let i = 0; i < 3; i++) {
     const cs = await d.docGet(STORE, pid, id);
-    if (!cs) throw err(404, "changeset not found");
+    if (!cs) throw err(404, "proposed changes not found");
     const out = decide(cs);
     // C1 (migration 0037): the changeset store has no signed-in writer — the bridge writes it with the service key, after its own
     // role check (every caller of rewrite checks first), so a member cannot re-open a decline by writing the doc themselves.
@@ -57,7 +57,7 @@ async function rewrite(d, pid, id, decide) {
       return { before: cs, ...out };
   }
   // C3: a 503, not a 409 — Revit's Report stops at a 409 ("retrying cannot fix this"), and a send after these writes would land.
-  throw err(503, "the changeset changed three times while this was being written — nothing was saved; send it again");
+  throw err(503, "the proposed changes changed three times while this was being written — nothing was saved; send it again");
 }
 
 /** MA-3a (Q1, design §6.11): a web review decision is a signed-in person's — the machine credential (the add-in signed out, the MCP
@@ -84,8 +84,8 @@ async function recorded(d, pid, id, before, updated, what, write) {
   try { return await write(); } catch (e) {
     const back = await d.docReplaceIfField(STORE, pid, id, { ...before, review_rev: updated.review_rev + 1, updated_at: new Date().toISOString() },
       "review_rev", updated.review_rev, { service: true }).catch(() => null);
-    if (back) throw err(503, `the ledger did not take the ${what} — nothing was saved; send it again`);
-    throw err(502, `the ${what} is saved on the changeset but the ledger has no row for it (${e.message}), and the changeset changed before it could be taken back — tell the project lead`);
+    if (back) throw err(503, `History did not take the ${what} — nothing was saved; send it again`);
+    throw err(502, `the ${what} is saved on the proposed changes but History has no row for it (${e.message}), and the proposed changes changed before it could be taken back — tell the project lead`);
   }
 }
 
@@ -210,14 +210,14 @@ async function fileValidatedInner(d, key, v, body, actor) {
   // index of declines, when a project's changesets make it heavy.
   let earlier;
   try { earlier = await d.docList(STORE, proj.id); }
-  catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to this changeset; send it again`); }
+  catch (e) { throw err(503, `the project's earlier proposed changes could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to these proposed changes; send it again`); }
   // MA-8-10: a stair starts from a stair flag of an earlier changeset - the flag must exist, the run lie in its box, and no other live stair come from it.
   // The ledger's Undo rows are read only for this (a flag whose stair was applied and then undone is free again).
   // MA-8-14 review round 1: so is a terrain's scan (a scan whose terrain was applied and then undone is free again).
   let reverted = [];
   if (v.elements.some((e) => e.from_flag || e.from_scan)) {
     try { reverted = await d.auditAll(key, { entity_type: "changeset", action_prefix: "changeset_reverted" }); }
-    catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit of an earlier ${v.elements.some((x) => x.from_scan) ? "terrain" : "stair"} could be missed; nothing was filed, send it again`); }
+    catch (e) { throw err(503, `History could not be read (${e.message}) — an Undo in Revit of an earlier ${v.elements.some((x) => x.from_scan) ? "terrain" : "stair"} could be missed; nothing was filed, send it again`); }
     checkFromFlag(v.elements, earlier, reverted);
   }
   // MA-8-14: a terrain starts from a survey changeset the bridge built - the one whose scan its points came from
@@ -284,7 +284,7 @@ export async function previewChangesets(key, body, deps) {
   const proj = await d.ensureProject(key);
   let earlier;
   try { earlier = await d.docList(STORE, proj.id); }
-  catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was previewed`); }
+  catch (e) { throw err(503, `the project's earlier proposed changes could not be read (${e.message}) — nothing was previewed`); }
   // The standards are read once, only when a body needs them (as a filing reads them).
   const type = bodies.some((b) => needsTyping(b)) ? await typerFor(key, d) : null;
   const cite = bodies.some((b) => needsCiting(b)) ? await citerFor(key, d) : null;
@@ -313,7 +313,7 @@ const proposing = new Set();
 const publishing = new Set(); // MA-8-1: one edit-cost publish per key at a time
 /** The house rule: a refusal before the first write ends "nothing was saved" — a callee's own words (readPack, validateChangeset, the
  *  typer, a store read) get it appended. */
-const unsaved = (e) => (/nothing was saved/i.test(e.message) ? e : err(e.status ?? 503, `${e.message} — nothing was saved`));
+const unsaved = (e) => (/nothing was saved/i.test(e.message) ? e : err(e.status ?? 503, `${e.message} — nothing was saved`, e.detail));
 
 /** MA-4d: the levels of every live IFC model's manifest, [{name, elevation_mm, from}] — what an unnamed storey is matched to. A project with
  *  no published IFC has none (every unnamed storey is then created). One manifest doc read per live model. */
@@ -402,7 +402,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
     const proj = await d.ensureProject(key);
     let earlier;
     try { earlier = await d.docList(STORE, proj.id); }
-    catch (e) { throw err(503, `the project's changesets could not be read (${e.message}) — nothing was saved; send it again`); }
+    catch (e) { throw err(503, `the project's proposed changes could not be read (${e.message}) — nothing was saved; send it again`); }
     // Decision 19, per candidate, keyed on this job's ROW (job.ledger_id: hash-chained, unique — a job id repeats across jobs folders): a cid
     // on a proposed or placed changeset of it, less what Revit rejected, is filed — not proposed again; its storey keeps the level it was filed on.
     // MA-5a-4 (review): a drawing job's are per drawing — another drawing of the job filed does not make this one "nothing new"
@@ -508,7 +508,7 @@ export async function proposeFromJob(key, id, b, actor, deps = {}) {
       catch { names = filed.map((c) => c.name); } // the list failed too: what this call saw filed
       return err(502, names.length
         ? `${names.join(", ")} ${names.length === 1 ? "was" : "were"} filed; ${what} (${e.message}) — decline ${names.length === 1 ? "it" : "them"} in Revit (Review AI Proposals → Decline all, with a reason), then propose ${id} again`
-        : `no changeset of ${id} was stored: ${what} (${e.message}) — propose it again`);
+        : `no proposed changes of ${id} were stored: ${what} (${e.message}) — propose it again`);
     };
     for (const { p, v } of ready) {
       try { filed.push(await fileValidated(d, key, v, p.body, actor)); }
@@ -558,9 +558,9 @@ async function jobScan(key, cs, { trustedJob, readPack }) {
   const { row } = await trustedJob(key, cs.job.id);
   // A job id repeats across jobs folders (MA-4d decision 19): the row must be the one this changeset was built from.
   if (row.ledger.id !== cs.job.ledger_id || row.result_sha256 !== cs.job.result_sha256)
-    throw err(409, `${cs.job.id} on this PC is ledger #${row.ledger.id}, not the job ${cs.name} was built from (ledger #${cs.job.ledger_id}) — its scan cannot be read again here`);
+    throw err(409, `${cs.job.id} on this PC is not the job ${cs.name} was built from — its scan cannot be read again here`, `${cs.job.id} is History entry ${row.ledger.id}; ${cs.name} was built from History entry ${cs.job.ledger_id}`);
   if (!row.params || !Number.isInteger(row.seed))
-    throw err(409, `ledger #${row.ledger.id} holds no params or seed — the cloud ${cs.job.id} measured cannot be read again; run the survey again`);
+    throw err(409, `The saved record of the cloud ${cs.job.id} measured holds no params or seed — it cannot be read again; run the survey again`, `History entry ${row.ledger.id}`);
   const { pack, folder } = await readPack(key, row.pack_id);
   const evidence = stillAdmitted(row, pack, cs.job.id);
   // The job's cloud again: what its row says it read, in the order it sent them (the seeded sample follows the order), at the row's sha —
@@ -597,9 +597,9 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
   const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
   const listAudit = deps.listAudit ?? cde.listAudit;
   if ((await d.myRole(key)) === "service")
-    throw err(403, "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.");
+    throw err(403, "measuring proposed changes against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.");
   try { await d.requireMinRole(key, "contributor"); }
-  catch (e) { throw e.status === 403 ? err(403, `${e.message} — measuring a placed changeset against its scan is a contributor's; nothing was saved`) : unsaved(e); }
+  catch (e) { throw e.status === 403 ? err(403, `${e.message} — measuring placed proposed changes against its scan is a contributor's; nothing was saved`) : unsaved(e); }
   const bad = (m) => err(400, `${m} — nothing was saved`);
   if (!b || typeof b !== "object" || Array.isArray(b)) throw bad("the body is {changeset}");
   for (const k of Object.keys(b))
@@ -660,28 +660,28 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     written = await d.audit(proj.id, "changeset", cs.id, `verify:measured ${cs.job.id} · ${READER} ${r.version ?? "(no version)"} · ${status}` +
       `${reference === AS_FILED ? "" : reference === REVIT ? ` · ${REVIT}` : ` · mixed: ${REVIT} and ${AS_FILED}`}${status === "done" ? ` · ${countWords(counts)}` : ""}`,
       actor || "web", null, value);
-  } catch (e) { throw err(502, `${cs.name} was measured, but the ledger did not take its row (${e.message}) — nothing was saved; measure it again`); }
+  } catch (e) { throw err(502, `${cs.name} was measured, but History did not take its row (${e.message}) — nothing was saved; measure it again`); }
   const ledger = ledgerRef(written);
-  if (status === "refused") throw err(409, `${cs.name} was not measured: ${error} — ledger #${ledger?.id ?? "?"} records the run; nothing else was saved`);
-  if (status !== "done") throw err(502, `the measure of ${cs.name} did not finish: ${error} — ledger #${ledger?.id ?? "?"} records the run; nothing else was saved`);
+  if (status === "refused") throw err(409, `${cs.name} was not measured: ${error} — the run is recorded in History; nothing else was saved`, `History entry ${ledger?.id ?? "?"}`);
+  if (status !== "done") throw err(502, `the measure of ${cs.name} did not finish: ${error} — the run is recorded in History; nothing else was saved`, `History entry ${ledger?.id ?? "?"}`);
   return { changeset: { id: cs.id, name: cs.name }, status, reference, counts, elements, ledger };
 
   /** Everything before the run: the changeset, its job's row, the bytes, its Undo rows, what is measured, and whether it is a replay. */
   async function prepare(id) {
     const proj = await d.ensureProject(key);
     const cs = await d.docGet(STORE, proj.id, id);
-    if (!cs) throw err(404, `no changeset ${id} on ${key}`);
+    if (!cs) throw err(404, `no proposed changes ${id} on ${key}`);
     if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — there is no scan to measure it against`);
     if (isDrawn(cs)) throw err(409, ifcOf(cs) ? `${cs.name} was built from an IFC (${cs.job.id}) — what a model says, not what was built: there is no scan to measure it against` : `${cs.name} was built from a drawing (${cs.job.id}) — what someone drew, not what was built: there is no scan to measure it against`);
     if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `${cs.name} is ${String(cs.status).replace("_", " ")} — only what Revit placed is measured`);
     const { row, evidence, items } = await jobScan(key, cs, { trustedJob, readPack });
     const read = async (action_prefix, limit) => {
       try { return await listAudit(key, { entity_type: "changeset", action_prefix, entity_id: cs.id, limit }); }
-      catch (e) { throw err(503, `${cs.name}'s ledger rows could not be read (${e.message}) — an Undo in Revit or an earlier measure would be missed`); }
+      catch (e) { throw err(503, `${cs.name}'s History rows could not be read (${e.message}) — an Undo in Revit or an earlier measure would be missed`); }
     };
     // Its changeset_ rows, whole or not at all (rows come newest first; a cut read could miss the newest Undo — readLedger on the desk refuses it too).
     const page = await read("changeset_", 1000), rows = page.rows ?? [];
-    if ((page.total ?? 0) > rows.length) throw err(503, `${cs.name} has more ledger rows (${page.total}) than one read returns — an Undo in Revit could be missed`);
+    if ((page.total ?? 0) > rows.length) throw err(503, `${cs.name} has more History rows (${page.total}) than one read returns — an Undo in Revit could be missed`);
     // An Undo in Revit leaves the doc applied (reportReverted writes a row only): each placed guid's newest changeset_reverted row decides.
     const last = new Map();
     for (const y of rows) if (y.action === "changeset_reverted") for (const g of y.new_value?.guids ?? []) if (!last.has(g)) last.set(g, y);
@@ -696,7 +696,7 @@ export async function verifyChangeset(key, b, actor, deps = {}) {
     const pv = prev?.new_value;
     if (pv?.status === "done" && pv.job?.ledger_id === row.ledger.id && JSON.stringify(pv.evidence) === JSON.stringify(evidence)
       && pv.applied_row === applied && pv.reverted_row === reverted && pv.faces_sha256 === faces && (pv.reference ?? AS_FILED) === reference)
-      throw err(409, `${cs.name} was measured on these same inputs as ledger #${prev.id} — the same bytes, seed and geometry give the same numbers; nothing was saved`);
+      throw err(409, `${cs.name} was measured on these same inputs before — the same bytes, seed and geometry give the same numbers; nothing was saved`, `History entry ${prev.id}`);
     return { proj, cs, row, evidence, items, applied, reverted, faces, plan, reference };
   }
 }
@@ -718,18 +718,18 @@ export async function scanOverlay(key, id, deps = {}, { flag = null, ground = fa
   const trustedJob = deps.trustedJob ?? jobOf, measureJob = deps.measureJob ?? measureOf;
   const readPack = deps.readPack ?? (await import("./evidence-store.mjs")).readPack;
   // "nothing was saved" at the end, or mid-sentence before a "; …" (the budget's 429): a view saves nothing, so it says what is not shown.
-  const shown = (e) => (e?.status ? err(e.status, `${String(e.message).replace(/(;| —) nothing was saved\.?(?=;|$)/, "")} — its scan is not shown`) : e);
+  const shown = (e) => (e?.status ? err(e.status, `${String(e.message).replace(/(;| —) nothing was saved\.?(?=;|$)/, "")} — its scan is not shown`, e.detail) : e);
   if ((await d.myRole(key)) === "service")
-    throw err(403, "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown");
+    throw err(403, "showing the scan behind proposed changes needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown");
   try { await d.requireMinRole(key, "contributor"); }
-  catch (e) { throw e.status === 403 ? err(403, `${e.message} — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown`) : e; }
+  catch (e) { throw e.status === 403 ? err(403, `${e.message} — showing the scan behind survey proposed changes runs sentinel-survey: a contributor's — its scan is not shown`) : e; }
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
-  if (!cs) throw err(404, `no changeset ${id} on ${key}`);
+  if (!cs) throw err(404, `no proposed changes ${id} on ${key}`);
   // MA-8-9: with a flag, the slice is that stair flag's box (its band without a margin, its plan cropped) — a stair flag of this changeset, else 404
   const fl = flag == null ? null : (cs.exceptions ?? []).find((x) => x.kind === "stair" && x.unique_id === flag);
   if (flag != null && !fl) throw err(404, `${cs.name} has no stair flag "${String(flag).slice(0, 64)}" — its scan slice is not shown`);
-  const noSlice = fl ? " — a stair flag on it has no scan slice: flag the stair on a survey changeset of this storey" : "";
+  const noSlice = fl ? " — a stair flag on it has no scan slice: flag the stair on survey proposed changes of this storey" : "";
   if (!cs.job || cs.claimed !== false) throw err(409, `${cs.name} was not built from a survey job — it has no scan to show`);
   if (isDrawn(cs)) throw err(409, `${cs.name} was built from ${ifcOf(cs) ? "an IFC" : "a drawing"} (${cs.job.id}) — it has no scan to show${noSlice}`);
   const exactCrop = !fl || Math.abs((((cs.job.frame.rotation_deg ?? 0) % 90) + 90) % 90) < 1e-9;   // a turned frame crops the larger axis-aligned square
@@ -874,7 +874,7 @@ export async function editCostOf(key, deps) {
   const all = await d.docList(STORE, proj.id);
   let reverted;
   try { reverted = await d.auditAll(key, { entity_type: "changeset", action_prefix: "changeset_reverted" }); }
-  catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit could be missed, so no edit cost is shown`); }
+  catch (e) { throw err(503, `History could not be read (${e.message}) — an Undo in Revit could be missed, so no edit cost is shown`); }
   return editCost(all, reverted);
 }
 
@@ -891,13 +891,13 @@ export async function publishEditCost(key, b, actor, deps) {
     const proj = await d.ensureProject(key);
     const r = (await editCostOf(key, deps).catch((e) => { throw unsaved(e); })).runs.find((x) => x.run === b.run);
     if (!r) throw err(404, `no run "${b.run.slice(0, 80)}" on ${key}`);
-    if (!r.complete) throw err(409, `${r.label} is still being reviewed (${r.pending} ghost(s) pending) — publish when every changeset of it is decided`);
+    if (!r.complete) throw err(409, `${r.label} is still being reviewed (${r.pending} ghost(s) pending) — publish when every set of proposed changes of it is decided`);
     const numbers = { filed: r.filed, web: r.web, carried: r.carried, revit: r.revit, applied: r.applied, undone: r.undone, kept: r.kept, withdrawn: r.withdrawn, share_changed: r.share_changed };
     let prev;
     try { prev = (await d.auditAll(key, { entity_type: "edit_cost", action_prefix: "edit_cost:published" })).find((y) => y.new_value?.run === r.run); }
-    catch (e) { throw err(503, `the ledger could not be read (${e.message}) — nothing was saved`); }
+    catch (e) { throw err(503, `History could not be read (${e.message}) — nothing was saved`); }
     if (prev && canonical(prev.new_value.numbers) === canonical(numbers) && canonical(prev.new_value.rests_on) === canonical(r.rests_on)) // jsonb reorders keys
-      throw err(409, `${r.label}'s edit cost was published on these same numbers as ledger #${prev.id} — nothing was saved`);
+      throw err(409, `${r.label}'s edit cost was published on these same numbers before — nothing was saved`, `History entry ${prev.id}`);
     const row = await d.audit(proj.id, "edit_cost", null, `edit_cost:published ${r.label} · ${r.kept}/${r.filed} kept`, actor || "web", null,
       { run: r.run, label: r.label, numbers, rests_on: r.rests_on, changesets: r.changesets, ceiling: r.ceiling });
     return { ledger: ledgerRef(row), run: r.run, numbers };
@@ -908,7 +908,7 @@ export async function getChangeset(key, id, deps) {
   const d = wire(deps);
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
-  if (!cs) throw err(404, "changeset not found");
+  if (!cs) throw err(404, "proposed changes not found");
   return cs;
 }
 
@@ -1052,10 +1052,10 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
   // CAS (MA-3a: on review_rev, rewrite): a concurrent withdraw or report can't both land — the loser reads the winner's status and
   // 409s, with no audit row — and a web decision written in between is kept, and judged.
   const { before: cs, updated, conflicts, why, ticks, batch } = await rewrite(d, proj.id, id, (cs) => {
-    if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);
+    if (cs.status !== "proposed") throw err(409, `the proposed changes are ${cs.status} — a result can be reported exactly once, from proposed`);
     // Apply claim (2026-10-20, spec §1): another Revit session is applying it — this result is not recorded over its placement.
     const held = claimRefusal(cs, typeof session === "string" ? session : null);
-    if (held) throw err(409, held.replace("nothing was changed", "this result was not recorded; the changeset stays proposed"));
+    if (held) throw err(409, held.replace("nothing was changed", "this result was not recorded; the proposed changes stay proposed"));
     for (const [i, a] of appliedArr.entries()) {
       if (!a || typeof a.proposal_guid !== "string" || !Number.isInteger(a.revit_element_id) || a.revit_element_id <= 0)
         throw err(400, `applied[${i}] must be {proposal_guid, revit_element_id}`);
@@ -1064,7 +1064,7 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     // MA-8-7: so is an applied create that replaces (it deletes the DirectShape or Generic Model it re-created)
     const rehosts = new Set(cs.elements.filter((e) => e.op === "rehost" || e.op === "delete" || e.replaces).map((e) => e.proposal_guid)); // human-error guards §3: a delete too
     if (role === "service" && appliedArr.some((a) => rehosts.has(a.proposal_guid)))
-      throw err(403, "a rehost removes an element — its result is a signed-in member's (sign in in Revit); nothing was recorded and the changeset stays proposed" +
+      throw err(403, "a rehost removes an element — its result is a signed-in member's (sign in in Revit); nothing was recorded and the proposed changes stay proposed" +
         " (a create that replaces removes one too)");
     const known = new Set(cs.elements.map((e) => e.proposal_guid));
     const seen = new Set();
@@ -1079,8 +1079,8 @@ export async function reportResult(key, id, { applied, rejected, note, review_re
     const conflicts = resultConflicts(cs, appliedArr.map((a) => a.proposal_guid), rejectedArr, review_rev);
     if (conflicts.refused.length)
       // MA-3b3: a carried decline names its origin; C6: it was on the filing's 201 reply, so it is refused whatever the result claims.
-      throw err(409, conflicts.refused.map((x) => `${x.name} was ${declineWords(x)}: "${x.reason}" — ${x.carried_from ? "the changeset was filed with it declined (review_rev 0)" : `review_rev ${x.rev}, which this result says Revit re-checked`}`).join("; ") +
-        "; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed");
+      throw err(409, conflicts.refused.map((x) => `${x.name} was ${declineWords(x)}: "${x.reason}" — ${x.carried_from ? "the proposed changes were filed with it declined (review_rev 0)" : `review_rev ${x.rev}, which this result says Revit re-checked`}`).join("; ") +
+        "; Revit refuses that tick, so this result is refused. Nothing was recorded; the proposed changes stay proposed");
     // MA-3b2: Revit's reason per declined ghost — validated before anything is written, stored beside the web's declines.
     const why = resultReasons(rejectedArr, reasons);
     // Human-error guards §1: the person's reason per ticked row of the "Needs a reason" tier, and the batch's — validated before anything is written.
@@ -1205,7 +1205,7 @@ export async function claimChangeset(key, id, { session, pc } = {}, actor, deps)
   const where = typeof pc === "string" && pc.trim() && pc.length <= 64 && !/[\u0000-\u001f\u007f]/.test(pc) ? pc.trim() : null;
   const proj = await d.ensureProject(key);
   const { updated } = await rewrite(d, proj.id, id, (cs) => {
-    if (cs.status !== "proposed") throw err(409, `"${cs.name}" is ${String(cs.status).replace("_", " ")} — only a proposed changeset is applied; nothing was changed`);
+    if (cs.status !== "proposed") throw err(409, `"${cs.name}" is ${String(cs.status).replace("_", " ")} — only proposed changes still waiting are applied; nothing was changed`);
     const no = claimRefusal(cs, session);
     if (no) throw err(409, no);
     const now = new Date();
@@ -1223,7 +1223,7 @@ export async function unclaimChangeset(key, id, { session } = {}, actor, deps) {
   sessionOf(session);
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
-  if (!cs) throw err(404, "changeset not found");
+  if (!cs) throw err(404, "proposed changes not found");
   if (cs.claim?.session !== session) return cs;
   const { updated } = await rewrite(d, proj.id, id, (c) => (c.claim?.session !== session ? { updated: c } : { updated: { ...c, claim: null, updated_at: new Date().toISOString(), review_rev: reviewRev(c) + 1 } }));
   return updated;
@@ -1235,7 +1235,7 @@ export async function withdrawChangeset(key, id, actor, deps) {
   const proj = await d.ensureProject(key);
   // CAS: same guard as reportResult (rewrite, on review_rev) — a concurrent report/withdraw can't both land.
   const { updated } = await rewrite(d, proj.id, id, (cs) => {
-    if (!canWithdraw(cs.status)) throw err(409, `changeset is ${cs.status} — only a proposed changeset can be withdrawn`);
+    if (!canWithdraw(cs.status)) throw err(409, `the proposed changes are ${cs.status} — only proposed changes still waiting can be withdrawn`);
     const held = claimRefusal(cs, null); // apply claim (2026-10-20): never withdrawn under a Revit session applying it
     if (held) throw err(409, held.replace("nothing was changed", "it was not withdrawn"));
     return { updated: { ...cs, status: "withdrawn", updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
@@ -1274,12 +1274,12 @@ export async function reportReverted(key, id, { op, guids, basis, kept, reason }
       : 'an Undo recorded as gone (basis "absent") is a signed-in person\'s word — the machine credential records none; nothing was saved');
   const proj = await d.ensureProject(key);
   const cs = await d.docGet(STORE, proj.id, id);
-  if (!cs) throw err(404, "changeset not found");
+  if (!cs) throw err(404, "proposed changes not found");
   if (cs.status !== "applied" && cs.status !== "partially_applied")
-    throw err(409, `changeset is ${cs.status} — only an applied changeset can be undone`);
+    throw err(409, `the proposed changes are ${cs.status} — only applied changes can be undone`);
   const applied = new Set((cs.result?.applied || []).map((a) => a.proposal_guid));
   const stray = [...guids, ...(basis === "revert" ? (kept ?? []).map((k) => k.proposal_guid) : [])].find((g) => !applied.has(g));
-  if (stray) throw err(400, `"${stray}" was not applied by this changeset`);
+  if (stray) throw err(400, `"${stray}" was not applied by these proposed changes`);
   // Its own budget, not "revit reports" (naming, family_heal): the undo watcher never retries, so a throttled row is lost
   // and the ledger disagrees with the model. Already bounded — only guids this changeset applied, only once applied.
   d.takeWriteBudget("changeset reverts", { perUser: 120, all: 300 });
@@ -1325,7 +1325,7 @@ export async function reportPersisted(key, id, { how, held, missing, of } = {}, 
     return { changeset: updated, ledger: ledgerRef(row) };
   }
   const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
-    if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `changeset is ${cs.status} — only an applied changeset can be confirmed saved; nothing was saved`);
+    if (cs.status !== "applied" && cs.status !== "partially_applied") throw err(409, `the proposed changes are ${cs.status} — only applied changes can be confirmed saved; nothing was saved`);
     exactly((cs.result?.applied || []).map((a) => a.proposal_guid), "this changeset applied");
     return { updated: { ...cs, persisted: seen, updated_at: new Date().toISOString(), review_rev: reviewRev(cs) + 1 } };
   });
@@ -1353,7 +1353,7 @@ export async function flagChangeset(key, id, b, actor, deps) {
   const flag = { unique_id: `stair:pick-${randomUUID().slice(0, 8)}`, name: `Stair picked on ${f.storey}`.slice(0, 256), ...f, source: "pick",
     reason: stairReason(`a stair picked by ${resolveActor(actor, "web")} — a person proposes it from this flag (Propose a stair…, Revit 2021+), or adds it; box ${w} × ${dp} mm in plan, ${h} mm tall, from (${f.box.min.join(", ")}) on `, f.storey) };
   const { before, updated } = await rewrite(d, proj.id, id, (cs) => {
-    if (cs.status === "withdrawn") throw err(409, `${cs.name} is withdrawn — flag the stair on a changeset that is still live; nothing was saved`);
+    if (cs.status === "withdrawn") throw err(409, `${cs.name} is withdrawn — flag the stair on proposed changes that are still live; nothing was saved`);
     const have = cs.exceptions ?? [];
     const same = have.find((x) => x.kind === "stair" && x.storey === f.storey && x.box?.min?.join() === f.box.min.join() && x.box?.max?.join() === f.box.max.join());
     if (same) throw err(409, `already flagged as ${same.unique_id} - nothing was saved`);   // review: a pick sent twice (a lost reply) is one flag

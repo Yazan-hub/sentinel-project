@@ -79,7 +79,7 @@ describe("loin.levels", () => {
     const r = classifyLoin(loin([{}, { milestone: "" }, { element: "Widgets" }, { element: "", property: "" }]));
     expect([r.status, r.count]).toEqual(["violations", 3]);
     expect(r.evidence.map((e) => e.detail)).toEqual(["Row 2: no milestone", 'Row 3: No IFC class is known for "Widgets".', "Row 4: no element, no property"]);
-    expect(classifyLoin(loin([{}, { element: "IfcDoor", property: "FireRating" }]))).toMatchObject({ status: "met", summary: "2 rows, complete and mapped to IDS." });
+    expect(classifyLoin(loin([{}, { element: "IfcDoor", property: "FireRating" }]))).toMatchObject({ status: "met", summary: "2 rows, complete and mapped to data requirements." });
   });
   it("is not checkable with no rows", () => {
     expect(classifyLoin(loin([]))).toMatchObject({ status: "not_checkable", reason: "No level of information need table has rows yet." });
@@ -93,6 +93,6 @@ describe("registry", () => {
     expect(CHECKS.find((c) => c.id === "people.nominated").label).toBe("Nominated people are project members");
     expect(CHECKS.find((c) => c.id === "roles.one_producer").label).toBe("One responsible task team per element");
     expect(PLANNED_CHECKS.some((p) => p.id === "loin.levels")).toBe(false);
-    expect(PLANNED_CHECKS.find((p) => p.id === "exchanges.scheduled")).toMatchObject({ label: "Exchanges made as scheduled", reason: "Exchanges are not compared with CDE uploads yet." });
+    expect(PLANNED_CHECKS.find((p) => p.id === "exchanges.scheduled")).toMatchObject({ label: "Exchanges made as scheduled", reason: "Exchanges are not compared with files uploaded to the project yet." });
   });
 });

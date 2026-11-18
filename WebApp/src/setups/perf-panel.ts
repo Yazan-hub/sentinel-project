@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { perfLines, cameraFinding, type FrameWork, type PerfModel, type PerfSnapshot } from "../sentinel-core/perf-stats";
+import { detailOf, withDetails } from "./details";
 
 /**
  * BIM Tools ▸ Performance (spec 2026-09-28-3d-viewer-design.md Decision 5): measure the viewer on the models that are
@@ -27,7 +28,7 @@ export function perfPanel(components: OBC.Components): HTMLElement {
     '<pre id="pf-out" style="flex:1;margin:0;overflow:auto;padding:.6rem;font:11px/1.55 ui-monospace,Consolas,monospace;color:#d4d4d8;white-space:pre-wrap;user-select:text">Load a model, press Measure, and orbit the model for the 10 seconds.</pre>' +
     '<div id="pf-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("pf-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("pf-status").replaceChildren(withDetails(t, detail));
   status("Nothing is measured until you press Measure.");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -167,7 +168,7 @@ export function perfPanel(components: OBC.Components): HTMLElement {
 
   el("pf-run").addEventListener("click", () => {
     measure(10).catch((e) => {
-      status("Measure failed: " + ((e as Error)?.message ?? String(e)));
+      status("Measure failed: " + ((e as Error)?.message ?? String(e)), detailOf(e));
       (el("pf-run") as HTMLButtonElement).disabled = false;
       running = false;
     });

@@ -19,7 +19,7 @@ describe("ids-from-standards — the IDS the standards make, in plain words", ()
     ]);
   });
   it("names an IDS made from earlier standards, and says nothing otherwise", () => {
-    expect(staleWords({ up_to_date: false, current: "ids@2 · project · 3f07…" })).toBe("ids@2 · project · 3f07… was generated from an earlier contract or naming rules — generate it again to bring it up to date");
+    expect(staleWords({ up_to_date: false, current: "ids@2 · project · 3f07…" })).toBe("The data requirements were generated from earlier pre-publish check rules or naming rules — generate them again to bring them up to date");
     expect(staleWords({ up_to_date: true, current: "ids@2" })).toBe("");
     expect(staleWords({ up_to_date: null, current: "ids@2" })).toBe("");
     expect(staleWords(null)).toBe("");

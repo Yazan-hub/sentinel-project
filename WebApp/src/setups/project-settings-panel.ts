@@ -1,11 +1,12 @@
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { withDetails, detailOf } from "./details";
 import { activePid, setActiveProjectKey, onActiveProjectChange, platformProjectId } from "./active-project";
 import { getAppManager } from "../app";
 import { publishContractToPlatform, mirrorLine, type ContractClient } from "./platform-contract";
 import { myRole, myRoleRead, roleWords, canGovernRole, canDeleteProjectRole, grantableRoles } from "./my-role";
 import { loadScope } from "./load-scope";
-import { artefactInForce, refLabel, installArtefact, installArtefactFile, canInstallArtefacts, STANDARD_INSTALLED, type InForce } from "./active-ruleset";
+import { artefactInForce, refLabel, refParts, installArtefact, installArtefactFile, canInstallArtefacts, STANDARD_INSTALLED, type InForce } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { escapeHtml as esc } from "./escape-html";
 import { clientOutsideBlock, type ClientOutside } from "./client-outside";
@@ -14,7 +15,9 @@ import { packFilename, packWords, saveAs, anchorWords, type AnchorStatus } from 
 import { STANDARD_FORMS, STANDARD_LINKS, renderStandardForm } from "./standard-forms";
 import { mountTemplates } from "./template-form";
 import { REGISTER_FORM, registerSummary, readRegister, saveRegister, type Register, type RegisterPointer } from "./office-register-form";
-import { renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
+import { detailsHtml, renderIdsPreview, staleWords, type GeneratedIds } from "./ids-from-standards";
+/** On-screen words for the kinds of standard (UX slice 3); the kind itself stays the key. */
+const KIND_WORDS: Record<string, string> = { ruleset: "project standards", contract: "pre-publish check rules", ids: "data requirements" };
 
 /**
  * Project Settings (Forma-style) — the admin page inside a project's space. General (name, owner,
@@ -97,7 +100,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const val = (id: string) => (root.querySelector("#" + id) as HTMLInputElement).value.trim();
   const setVal = (id: string, v?: string | null) => ((root.querySelector("#" + id) as HTMLInputElement).value = v ?? "");
-  const status = (t: string) => (el("pset-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("pset-status").replaceChildren(withDetails(t, detail));
 
   // Read-only below lead, and locked until the role is read (fail closed). Two-way: a later load for a lead unlocks.
   const FIELD_IDS = ["ps-name", "ps-owner", "ps-office", "ps-address", "ps-location", "ps-number", "ps-type", "ps-start", "ps-end", "ps-value", "ps-confirm"];
@@ -172,7 +175,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     return el;
   };
   const line = (text: string, color = "#a1a1aa") => { const d = document.createElement("div"); d.textContent = text; d.style.cssText = `color:${color};font-size:11px;padding:.2rem 0`; return d; };
-  const json = async (r: Response) => { const j = (await r.json().catch(() => ({}))) as { message?: string }; if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`); return j; };
+  const json = async (r: Response) => { const j = (await r.json().catch(() => ({}))) as { message?: string }; if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail }); return j; };
   const said = (text: string) => { memberErr(text); if (membersErrDiv) membersErrDiv.style.color = "#4ade80"; }; // the bridge's good news, in its words
   // F-R2a-4: an invitation saved but not mailed is a warning, never the good-news green.
   const told = (j: { sent?: boolean; message?: string }) => { const t = String(j.message || "Invitation sent"); if (j.sent === false) { memberErr(t); if (membersErrDiv) membersErrDiv.style.color = "#fbbf24"; } else said(t); };
@@ -379,7 +382,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
   // only. The bridge validates every body and refuses below lead; its message is shown as it came, and the row
   // then names the new `kind@n · project · sha`. A key the bridge does not know fails the list call, so no row renders.
   let stdSeq = 0; // a slower standards read for the previous project/person never lands last
-  async function loadStandards(note?: { text: string; bad?: boolean }) {
+  async function loadStandards(note?: { text: string; bad?: boolean; detail?: string }) {
     const mine = ++stdSeq, key = pid();
     const host = el("ps-standards");
     host.innerHTML = '<div style="color:#a1a1aa;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem">Standards in force</div>';
@@ -410,13 +413,13 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       };
       host.innerHTML += rows.map(([kind, a]) =>
         `<div style="display:flex;align-items:center;gap:.6rem;padding:.25rem 0;font-size:12px;border-bottom:1px solid #2a2a30">` +
-        `<span style="width:6.5rem;color:#9ca3af">${esc(kind)}</span>` +
-        (a ? `<span style="flex:1;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:11px">${esc(refLabel(a))}</span>` +
+        `<span style="width:6.5rem;color:#9ca3af">${esc(KIND_WORDS[kind] ?? kind)}</span>` +
+        (a ? `<span style="flex:1;color:#e5e7eb;font-family:ui-monospace,Consolas,monospace;font-size:11px">${esc(refParts(a).text)} <details style="display:inline-block"><summary>Details</summary><code>${esc(refParts(a).detail)}</code></details></span>` +
              `<span style="color:#71717a;font-size:11px">${esc(a.installed_by ?? "—")} · ${esc((a.installed_at ?? "").slice(0, 10) || "—")}</span>`
            : `<span style="flex:1;color:#71717a">none installed</span>`) +
         control(kind) +
         "</div>" +
-        (kind === "ids" && staleWords(gen) ? `<div style="color:#fbbf24;font-size:11px;padding:.15rem 0 .25rem 7.1rem">${esc(staleWords(gen))}</div>` : "")).join("");
+        (kind === "ids" && staleWords(gen) ? `<div style="color:#fbbf24;font-size:11px;padding:.15rem 0 .25rem 7.1rem">${esc(staleWords(gen))}${gen?.current ? ` ${detailsHtml(gen.current)}` : ""}</div>` : "")).join("");
       host.querySelectorAll<HTMLButtonElement>(".ps-edit").forEach((b) => b.addEventListener("click", () => void openEditor(b.dataset.kind!)));
       host.querySelector<HTMLButtonElement>("#ps-ids-gen")?.addEventListener("click", () => void openIdsGenerator());
       host.querySelectorAll<HTMLButtonElement>(".ps-open").forEach((b) => b.addEventListener("click", () => opts.onOpen?.(b.dataset.open as "docs" | "standards" | "carbon")));
@@ -427,7 +430,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           `<div style="display:flex;align-items:center;gap:.5rem;padding:.4rem 0;flex-wrap:wrap">` +
           `<span style="color:#71717a;flex:1 1 14rem">A standard another Sentinel office exported (.json), installed as this project's next version of its kind.</span>` +
           `<select id="ps-adv-kind" aria-label="Kind of standard" style="background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.25rem;font:11.5px system-ui">` +
-          rows.filter(([k]) => k !== "evidence_pack").map(([k]) => `<option value="${esc(k)}">${esc(k)}</option>`).join("") + `</select>` +
+          rows.filter(([k]) => k !== "evidence_pack").map(([k]) => `<option value="${esc(k)}">${esc(KIND_WORDS[k] ?? k)}</option>`).join("") + `</select>` +
           `<button id="ps-adv-pick" style="${btn};padding:.2rem .5rem;font-size:11px">Choose file…</button></div></details>`);
         host.querySelector("#ps-adv-pick")!.addEventListener("click", () => pickAndInstall((host.querySelector("#ps-adv-kind") as HTMLSelectElement).value));
       }
@@ -436,14 +439,14 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         host.insertAdjacentHTML("beforeend",
           `<div style="display:flex;align-items:center;gap:.6rem;padding:.35rem 0;font-size:12px">` +
           `<span style="width:6.5rem;color:#9ca3af">audit pack</span>` +
-          `<span style="flex:1;color:#71717a;font-size:11px">the standards in force, the documents, the containers and versions, the review chains and every ledger row with its hash — one JSON, sealed by sha256</span>` +
+          `<span style="flex:1;color:#71717a;font-size:11px">the standards in force, the documents, the files and versions, the review chains and every History row with its hash — one JSON, sealed by sha256</span>` +
           `<button id="ps-audit-pack" style="${btn};padding:.2rem .5rem;font-size:11px">Download audit pack</button></div>`);
         const b = host.querySelector<HTMLButtonElement>("#ps-audit-pack")!;
         b.addEventListener("click", async () => {
           b.disabled = true; b.textContent = "Reading…";
           try {
             const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/audit-pack`);
-            if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `the bridge answered HTTP ${r.status}`);
+            if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `Sentinel could not answer (HTTP ${r.status})`);
             const text = await r.text();
             const filename = packFilename(r.headers.get("content-disposition"), key);
             saveAs(new Blob([text], { type: "application/json" }), filename);
@@ -466,11 +469,11 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           try {
             const r = await bfetch(anchorUrl);
             const j = (await r.json().catch(() => null)) as (AnchorStatus & { message?: string }) | null;
-            if (!r.ok || !j) throw new Error(j?.message || `the bridge answered HTTP ${r.status}`);
+            if (!r.ok || !j) throw new Error(j?.message || `Sentinel could not answer (HTTP ${r.status})`);
             const w = anchorWords(j);
             say(`${lead}${w.text}`, w.bad);
             stampNow.disabled = !j.configured;
-            stampNow.title = j.configured ? "Sends this project's latest ledger hash — only the hash — to the timestamp service" : "Not switched on for this bridge";
+            stampNow.title = j.configured ? "Sends this project's latest History hash — only the hash — to the timestamp service" : "Not switched on for this installation";
           } catch (e) { say(`${lead}Last external timestamp not read — ${(e as Error)?.message ?? String(e)}`, true); }
         };
         void showAnchor();
@@ -479,7 +482,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           try {
             const r = await bfetch(anchorUrl, { method: "POST" });
             const j = (await r.json().catch(() => null)) as { status?: string; message?: string } | null;
-            if (!r.ok) throw new Error(j?.message || `the bridge answered HTTP ${r.status}`);
+            if (!r.ok) throw new Error(j?.message || `Sentinel could not answer (HTTP ${r.status})`);
             await showAnchor(j?.status === "stamped" ? "Timestamped. " : j?.message ? `${j.message.charAt(0).toUpperCase()}${j.message.slice(1)}. ` : "");
           } catch (e) { say(`Not timestamped — ${(e as Error)?.message ?? String(e)}`, true); stampNow.disabled = false; }
           finally { stampNow.textContent = "Timestamp now"; }
@@ -488,7 +491,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           try {
             const r = await bfetch(`${base}/cde/${encodeURIComponent(key)}/audit-pack/verifier`);
             const j = (await r.json().catch(() => null)) as { file?: string; sha256?: string; source?: string; message?: string } | null;
-            if (!r.ok || !j?.source || !j.file) throw new Error(j?.message || `the bridge answered HTTP ${r.status}`);
+            if (!r.ok || !j?.source || !j.file) throw new Error(j?.message || `Sentinel could not answer (HTTP ${r.status})`);
             saveAs(new Blob([j.source], { type: "text/javascript" }), j.file);
             say(`Saved ${j.file} (sha256 ${String(j.sha256).slice(0, 12)}…) — give it to the auditor with the audit pack; it checks the pack offline with Node, nothing to install.`);
           } catch (e) { say(`Verifier not saved — ${(e as Error)?.message ?? String(e)}`, true); }
@@ -500,7 +503,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     }
     if (note) {
       const d = document.createElement("div");
-      d.textContent = note.text;
+      d.append(withDetails(note.text, note.detail));
       d.style.cssText = `font-size:11px;padding:.35rem 0;color:${note.bad ? "#fca5a5" : "#4ade80"}`;
       host.append(d);
     }
@@ -533,9 +536,9 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
         const text = await file.text();
         const p = await installArtefactFile(base, key, kind, file.name, text, await who());
         const mirror = await mirrorWords(kind, key, JSON.parse(text), `${kind}@${p.version}`, String(p.sha256));
-        await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
+        await loadStandards({ text: `✓ ${KIND_WORDS[kind] ?? kind} installed on ${key} from ${file.name}${mirror}.`, detail: `${kind}@${p.version} · sha256 ${String(p.sha256).slice(0, 12)}…` });
       } catch (e) {
-        await loadStandards({ text: `${kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
+        await loadStandards({ text: `${KIND_WORDS[kind] ?? kind} not installed on ${key}: ${(e as Error)?.message ?? String(e)}`, bad: true });
       }
     });
     input.click(); // detached: a cancelled pick fires no change event and leaves nothing in the page
@@ -555,10 +558,10 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       if (mine !== editSeq || key !== pid()) return;
       const prev = a?.body ?? null;
       const from = !a ? `Nothing installed yet on ${key} or its office — saving installs ${kind}@1 on ${key}.`
-        : a.source === "office" ? `Starts from the office's ${refLabel(a)}. Saving installs ${key}'s own version; the office's stays as it is.`
-        : `Starts from ${refLabel(a)}. Saving installs the next version on ${key}.`;
+        : a.source === "office" ? `Starts from the office's current standard. Saving installs ${key}'s own version; the office's stays as it is.`
+        : `Starts from this project's current standard. Saving installs the next version on ${key}.`;
       const formEl: HTMLElement = renderStandardForm(form, form.fromBody(prev), {
-        from,
+        from, fromDetail: a ? refLabel(a) : undefined,
         onCancel: () => box.replaceChildren(),
         onSave: async (m) => {
           try {
@@ -571,7 +574,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
             catch (e) { throw new Error(`Not saved — ${(e as Error)?.message ?? String(e)}`); }
             const mirror = await mirrorWords(kind, key, body, `${kind}@${p.version}`, String(p.sha256));
             if (formEl.isConnected) box.replaceChildren(); // another Edit… opened meanwhile keeps its form
-            await loadStandards({ text: `✓ ${kind}@${p.version} saved on ${key} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });
+            await loadStandards({ text: `✓ ${KIND_WORDS[kind] ?? kind} saved on ${key}${mirror}.`, detail: `${kind}@${p.version} · sha256 ${String(p.sha256).slice(0, 12)}…` });
           } catch (e) {
             // A form replaced while it saved shows its words nowhere: the section says them instead.
             if (!formEl.isConnected) await loadStandards({ text: `${kind} not saved on ${key} — ${(e as Error)?.message ?? String(e)}`, bad: true });
@@ -601,7 +604,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
     const mine = ++editSeq, key = pid();
     editScope = loadScope(key);
     const box = el("ps-std-edit");
-    box.innerHTML = `<div style="color:#9ca3af;font-size:11.5px;padding:.4rem 0">Making the IDS from the contract and naming rules in force…</div>`;
+    box.innerHTML = `<div style="color:#9ca3af;font-size:11.5px;padding:.4rem 0">Making the data requirements from the pre-publish check rules and naming rules in force…</div>`;
     try {
       const [g, role] = await Promise.all([generatedIds(key), myRole(base, key)]);
       if (mine !== editSeq || key !== pid()) return;
@@ -615,20 +618,20 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
           if (key !== pid()) throw new Error(`Not installed — the project in view is no longer ${key}`);
           const now = await generatedIds(key);
           if (JSON.stringify(now.ids) !== JSON.stringify(g.ids) || now.current !== g.current)
-            throw new Error(`Not installed — the IDS or the standards changed since this preview (the IDS in force is now ${now.current ?? "none"}); generate it again`);
+            throw new Error(`Not installed — the data requirements or the standards changed since this preview (the data requirements in force are now ${now.current ?? "none"}); generate them again`);
           const from = Object.values(g.ids.generated_from).filter(Boolean).map((f) => f!.label);
           let p: { version: number; sha256: string };
           try { p = await installArtefact(base, key, "ids", { ...g.ids, source: { generated_from: from, generated_at: new Date().toISOString() } }, await who()); }
           catch (e) { throw new Error(`Not installed — ${(e as Error)?.message ?? String(e)}`); }
           close();
-          await loadStandards({ text: `✓ ids@${p.version} installed on ${key}, made from ${from.join(" · ")} (sha ${String(p.sha256).slice(0, 12)}…).` });
+          await loadStandards({ text: `✓ Data requirements installed on ${key}, made from ${from.join(" · ")}.`, detail: `ids@${p.version} · sha256 ${String(p.sha256).slice(0, 12)}…` });
         },
       });
       box.replaceChildren(view);
       box.scrollIntoView?.({ block: "nearest" });
     } catch (e) {
       if (mine !== editSeq) return;
-      box.innerHTML = `<div style="color:#fca5a5;font-size:11.5px;padding:.4rem 0">The IDS was not made — ${esc((e as Error)?.message ?? String(e))}. Nothing was changed.</div>`;
+      box.innerHTML = `<div style="color:#fca5a5;font-size:11.5px;padding:.4rem 0">The data requirements were not made — ${esc((e as Error)?.message ?? String(e))}. Nothing was changed.</div>`;
     }
   }
 
@@ -703,7 +706,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const rows = (await r.json()) as ProjectRow[];
       if (mine !== seq) return;
       current = rows.find((p) => p.key === key) ?? null;
-      if (!current) { clearFields(); status(`Project "${key}" not found on the bridge.`); return; }
+      if (!current) { clearFields(); status(`Project "${key}" not found.`); return; }
       const s = current.settings ?? {};
       setVal("ps-name", current.name);
       setVal("ps-owner", s.owner ?? current.appointing_party);
@@ -739,7 +742,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       const officeNote = isOffice
         ? ` · this project is an office (${rows.filter((p) => p.office_key === key).length} project(s))`
         : "";
-      status(`${current.container_count} file container(s) · key "${current.key}" (keys are permanent).${officeNote}`);
+      status(`${current.container_count} file(s) · key "${current.key}" (keys are permanent).${officeNote}`);
       // Read-only below lead: the database refuses the writes anyway (projects update needs lead, delete
       // needs owner) — the panel must not offer controls the server will reject.
       const me = await myRoleRead(base, key);
@@ -752,7 +755,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       if (mine !== seq) return;
       current = null;
       clearFields();
-      status("Settings not read — " + ((e as Error)?.message ?? String(e)));
+      status("Settings not read — " + ((e as Error)?.message ?? String(e)), detailOf(e));
     }
   }
 
@@ -768,7 +771,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       // Refresh everyone who shows project names/cards (hub, switcher) without changing the active key.
       window.dispatchEvent(new CustomEvent("sentinel:project-changed", { detail: { key: pid() } }));
       await load();
-    } catch (e) { status("Save failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Save failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   function save() {
@@ -812,7 +815,7 @@ export function projectSettingsPanel(opts: { baseUrl?: string; onDeleted?: () =>
       setActiveProjectKey("default");
       opts.onDeleted?.();
     } catch (e) {
-      status("Delete refused: " + ((e as Error)?.message ?? String(e)));
+      status("Delete refused: " + ((e as Error)?.message ?? String(e)), detailOf(e));
     }
   }
 

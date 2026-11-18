@@ -2,6 +2,7 @@ import { askYesNo } from "./ask";
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
@@ -64,9 +65,9 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       if (mine !== gen) return;
       // A refusal or an absent route (bridge not restarted) keeps localStorage-only, and the Register says so.
       if (!r.ok) { registerError = data?.message || `HTTP ${r.status}`; return; }
-      if (!Array.isArray(data?.items)) { registerError = "the bridge answered without a list"; return; }
+      if (!Array.isArray(data?.items)) { registerError = "Sentinel could not answer"; return; }
       registerError = null; register = data.items; for (const it of data.items) if (it?.signature) known.add(it.signature); persistKnown();
-    } catch (e) { if (mine === gen) registerError = `can't reach the bridge (${(e as Error).message})`; } // offline → localStorage only
+    } catch (e) { if (mine === gen) registerError = `Sentinel is not connected (${(e as Error).message})`; } // offline → localStorage only
   };
   let knownReady = loadKnownFromServer();
   const pushKnownToServer = (items: { signature: string; status: string; volume?: number; label?: string; bcf_guid?: string | null; elements?: ClashElement[]; overlap?: number[] }[], key = pid()) =>
@@ -92,21 +93,21 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     `<button id="cl-run" style="${btn};background:#22303a;border-color:#2f6d8a;color:#bfe3f2">Run clash</button>` +
     "</div>" +
     '<div id="cl-fed" style="display:flex;align-items:center;gap:.5rem;padding:.4rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px;color:#9ca3af">' +
-    '<span id="cl-fed-text">Federation Gate: …</span><span style="flex:1"></span>' +
-    `<button id="cl-fed-run" style="${btn};padding:.2rem .45rem;font-size:11px" title="Cross-model data check before any clash run: GlobalIds, type naming, levels, grids, georeference, container names and verdicts">Run gate</button>` +
+    '<span id="cl-fed-text">Coordination check: …</span><span style="flex:1"></span>' +
+    `<button id="cl-fed-run" style="${btn};padding:.2rem .45rem;font-size:11px" title="Cross-model data check before any clash run: GlobalIds, type naming, levels, grids, georeference, file names and check results">Run check</button>` +
     "</div>" +
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.45rem .6rem;border-bottom:1px solid #2a2a30;font-size:11px;color:#9ca3af">' +
     '<select id="cl-mode" title="Hard: the solids intersect. Clearance: the solids come closer than the distance." style="background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.15rem .2rem;font:12px system-ui"><option value="hard">Hard</option><option value="clearance">Clearance</option></select>' +
     '<span id="cl-tol-label">min. penetration</span> <input id="cl-tol" type="number" step="0.005" min="0" value="0.02" style="width:4rem;background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .3rem;font:12px system-ui"/> m' +
     '<span style="flex:1"></span>' +
     `<button id="cl-colour" style="${btn}" title="Colour all clashing elements red">Colour</button>` +
-    `<button id="cl-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="Raise the listed clashes as BCF + record in CDE">⚑ Raise</button>` +
+    `<button id="cl-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="Raise the listed clashes as Issues + record in the project's files">⚑ Raise</button>` +
     `<button id="cl-reset" style="${btn}" title="Forget resolved/raised clashes (re-surface all)">Reset</button>` +
     "</div>" +
     '<div id="cl-list" style="flex:1;overflow:auto;padding:.35rem"></div>' +
     '<div id="cl-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">Load 2+ models (e.g. ARC + STR), then Run clash.</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("cl-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("cl-status").replaceChildren(withDetails(t, detail));
 
   // Federation Gate banner (decision D-01): the data checks a clash run should not start without. A run stays free; since
   // 2026-09-28 (3D spec Decision 4, the founder's "yes") ⚑ Raise is locked until the gate passed on the live set — the
@@ -127,15 +128,15 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         // No route, or no CDE (single desktop — gateAllowsRaise reads that as no gate): there is no gate here. Any other
         // refusal (401, 403, 503) is said in the bridge's words.
         const noGate = r.status === 404 || (r.status === 503 && /CDE not configured/i.test(why));
-        text.textContent = noGate ? "Federation Gate: not available on this bridge" : `Federation Gate: not read — ${why}`;
+        text.textContent = noGate ? "Coordination check: not available on this installation" : `Coordination check: not read — ${why}`;
         return;
       }
       const f = (await r.json()) as FedState;
       if (mine !== gen) return;
-      const lock = f.raise && !f.raise.ok ? " · ⚑ Raise locked until the gate passes" : "";
+      const lock = f.raise && !f.raise.ok ? " · ⚑ Raise is locked until the coordination check passes" : "";
       if (!f.latest) {
         text.style.color = fedColour.not_checkable;
-        text.textContent = `Federation Gate: NOT RUN · ${f.live_set.length} live model(s), ${f.live_set.filter((m) => m.has_manifest).length} with a manifest${lock}`;
+        text.textContent = `Coordination check: NOT RUN · ${f.live_set.length} live model(s), ${f.live_set.filter((m) => m.has_manifest).length} with a manifest${lock}`;
         return;
       }
       const v = f.latest.result.verdict;
@@ -143,7 +144,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       const models = f.latest.result.models ?? [];
       const read = models.filter((m) => m.has_manifest).length;
       text.style.color = f.stale ? fedColour.not_checkable : (fedColour[v] ?? "#9ca3af");
-      text.textContent = `Federation Gate: ${v === "not_checkable" ? "NOT CHECKABLE" : v.toUpperCase()}` +
+      text.textContent = `Coordination check: ${v === "not_checkable" ? "CANNOT BE CHECKED" : v.toUpperCase()}` +
         (failing.length ? ` · ${failing.join(", ")} — see Issues` : "") +
         ` · ${f.latest.set.length} model(s) · ${String(f.latest.at).slice(0, 10)}` +
         (models.length && read < models.length ? ` · ${read} of ${models.length} read` : "") +
@@ -151,7 +152,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     } catch (e) {
       if (mine !== gen) return;
       text.style.color = "#9ca3af";
-      text.textContent = e instanceof TypeError ? "Federation Gate: not read — can't reach the bridge" : `Federation Gate: not read — ${(e as Error).message}`;
+      text.textContent = e instanceof TypeError ? "Coordination check: not read — Sentinel is not connected" : `Coordination check: not read — ${(e as Error).message}`;
     }
   }
   el("cl-fed-run").onclick = async () => {
@@ -163,7 +164,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     catch (e) { refusal = (e as Error).message; }
     await loadFederation();
     if (refusal) el("cl-fed-text").textContent += ` · not run — ${refusal}`;
-    b.disabled = false; b.textContent = "Run gate";
+    b.disabled = false; b.textContent = "Run check";
   };
   void loadFederation();
 
@@ -205,7 +206,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   // shows the new status only once the bridge has taken it, and a refusal is said in the bridge's words.
   const setStatus = async (rec: ClashRecord, next: string) => {
     try { await bwrite(`${base}/clash/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ signature: rec.signature, status: next }) }); }
-    catch (e) { renderRegister(); status(`Not changed — ${(e as Error).message}`); return; }
+    catch (e) { renderRegister(); status(`Not changed — ${(e as Error).message}`, detailOf(e)); return; }
     rec.status = next;
     renderRegister();
     status(`Clash marked ${next}.`);
@@ -216,7 +217,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     for (const e of rec.elements ?? []) if (e?.model_id && e.local_id != null) (map[e.model_id] ??= new Set<number>()).add(e.local_id);
     if (!Object.keys(map).length) { status("No element ids recorded to isolate."); return; }
     try { await hider.isolate(map); await refreshView(); status(`Isolated ${rec.label ?? rec.signature} (raise-time ids — may be stale after a re-export).`); }
-    catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+    catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   function renderRegister() {
@@ -240,7 +241,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
             `<span style="flex:1;color:#e5e7eb;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(rec.label ?? rec.signature)}</span>` +
             `<span style="color:#9ca3af;font:11px ui-monospace,Consolas,monospace">${vol}</span>` +
           `</div>` +
-          `<div style="color:#9ca3af;font-size:11px;margin:.25rem 0 .3rem">${prov || '<span style="color:#6b7280">no provenance recorded</span>'}${rec.bcf_guid ? ' <span style="color:#60a5fa" title="Linked BCF topic">⚑</span>' : ""}</div>` +
+          `<div style="color:#9ca3af;font-size:11px;margin:.25rem 0 .3rem">${prov || '<span style="color:#6b7280">no provenance recorded</span>'}${rec.bcf_guid ? ' <span style="color:#60a5fa" title="Linked Issue">⚑</span>' : ""}</div>` +
           (rec.reason || rec.group ? `<div style="color:#6b7280;font-size:11px;margin-bottom:.3rem">${rec.reason ? `Not a clash: ${esc(rec.reason)}` : ""}${rec.reason && rec.group ? " · " : ""}${rec.group ? `Group: ${esc(rec.group.split("|").slice(1).join(" · "))}` : ""}</div>` : "") +
           `<div style="display:flex;gap:.4rem;align-items:center">` +
             `<select class="cl-reg-status" data-i="${i}" style="background:#111;color:${col};border:1px solid #333;border-radius:.25rem;font:600 11px system-ui;padding:.15rem .25rem;cursor:pointer">${opts}</select>` +
@@ -259,7 +260,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (highlighter as any).highlightByID?.("select", map, true, true);
       status(`Isolated clash ${label(c, "a")} ↔ ${label(c, "b")} · ${c.volume.toFixed(3)} m³. Show all in Visibility to restore.`);
-    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   async function run() {
@@ -289,7 +290,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       console.log("[Sentinel] clash run", { ...res, confirmed, solidsError });
       renderList();
       status(runSentence({ modelCount: res.modelCount, scanned: res.scanned, candidates: res.clashes.length, known: 0, mode: m, confirmed, solidsError }));
-    } catch (e) { status("Clash failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Clash failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   async function colourAll() {
@@ -303,7 +304,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       await hl.highlightByID?.("clash", map, true, false);
       await refreshView();
       status(`Coloured ${Object.values(map).reduce((a, s) => a + s.size, 0)} clashing element(s) red.`);
-    } catch (e) { status("Colour failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Colour failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   // Fetch each element's IFC identity at raise-time (GlobalId + category + name) for provenance + the viewpoint.
@@ -343,11 +344,11 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/federation`);
       if (r.status === 503 && /CDE not configured/i.test(await r.clone().text().catch(() => ""))) return { ok: true, why: "" };
-      if (!r.ok) return { ok: false, why: `the Federation Gate could not be read (HTTP ${r.status})` };
+      if (!r.ok) return { ok: false, why: `the coordination check could not be read (HTTP ${r.status})` };
       const f = (await r.json()) as FedState;
-      if (!f.raise) return { ok: false, why: "this bridge does not report the gate's lock — restart it on the current version" };
+      if (!f.raise) return { ok: false, why: "this installation does not report the coordination check's lock — ask your administrator to update it" };
       return { ok: f.raise.ok, why: f.raise.why ?? "" };
-    } catch (e) { return { ok: false, why: `the Federation Gate could not be read — ${(e as Error).message}` }; }
+    } catch (e) { return { ok: false, why: `the coordination check could not be read — ${(e as Error).message}` }; }
   }
 
   async function raise() {
@@ -392,7 +393,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     try { await pushKnownToServer(raisedItems, key); }
     catch (e) {
       const why = (e as Error).message.replace(/\s*—\s*nothing was saved\s*$/i, "");
-      status(`Raised ${raised} Issue(s), but the clash register did not record them — ${why}. They are not on the register or the ledger and will re-surface on the next run.`);
+      status(`Raised ${raised} Issue(s), but the clash register did not record them — ${why}. They are not on the register or in History and will re-surface on the next run.`);
       return;
     }
     if (pid() !== key) { status(`Raised ${raised} clash(es) in ${key} and recorded them there; the project changed meanwhile.`); return; }
@@ -401,7 +402,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     clashes = clashes.filter((c) => !known.has(c.id));
     renderList();
     loadRegister(); // reflect the newly-recorded clashes in the Register view
-    status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the clash register and on the ledger. They won't re-surface on the next run.`);
+    status(`Raised ${raised} clash(es) → Issues + Revit; provenance recorded in the clash register and in History. They won't re-surface on the next run.`);
   }
 
   // ── Groups (clash triage, spec 2026-10-20): the new clashes grouped by pair × level × the discipline that gives way.
@@ -443,7 +444,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         if (mine !== gen || forClashes !== clashes) return;
         runHits = forClashes.map((c) => ({ id: c.id, a: sideOf(c, "a", info), b: sideOf(c, "b", info), volume: c.volume, touching: c.touching, distance: c.distance }));
         triageOf = forClashes;
-      } catch (e) { status(`Groups not built — ${(e as Error).message}`); return; }
+      } catch (e) { status(`Groups not built — ${(e as Error).message}`, detailOf(e)); return; }
     }
     await loadOwners();
     if (view === "groups") renderGroups();
@@ -471,10 +472,10 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         const col = g.kind === "duplicate" ? "#eab308" : g.kind === "touching" ? "#9ca3af" : "#f87171";
         const vol = g.volume ? (g.volume < 0.01 ? g.volume.toExponential(1) : g.volume.toFixed(2)) + " m³" : "";
         const act = g.kind === "touching"
-          ? `<button class="cl-g-nac" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="Record these as not a clash, with the reason, on the register and the ledger">Mark not a clash</button>`
+          ? `<button class="cl-g-nac" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="Record these as not a clash, with the reason, on the register and in History">Mark not a clash</button>`
           : `<button class="cl-g-raise" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px;background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5" title="One Issue for the whole group, assigned to its owner">⚑ Raise group</button>` +
             // Human-error guards §3: a lead's — a changeset that deletes the copies in Revit, each ticked by a person with a reason
-            (g.kind === "duplicate" ? `<button class="cl-g-del" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="A lead's: propose deleting the copies as a changeset. Nothing is deleted now — in Revit (Review AI Proposals) each copy needs a person's tick and a reason, and Revit removes it only when it is the same type, level, place and size as the one kept">Propose deleting the copies…</button>` : "");
+            (g.kind === "duplicate" ? `<button class="cl-g-del" data-i="${i}" style="${btn};padding:.15rem .4rem;font-size:11px" title="A lead's: propose deleting the copies as proposed changes. Nothing is deleted now — in Revit (Review AI Proposals) each copy needs a person's tick and a reason, and Revit removes it only when it is the same type, level, place and size as the one kept">Propose deleting the copies…</button>` : "");
         return `<div style="border:1px solid #2a2a30;background:#1b1b20;border-radius:.35rem;margin-bottom:.3rem;padding:.4rem .5rem;font-size:12px">` +
           `<div style="display:flex;gap:.5rem;align-items:center"><span style="width:.5rem;height:.5rem;border-radius:50%;background:${col};flex:none"></span>` +
           `<span style="flex:1;color:#e5e7eb">${esc(groupTitle(g))}</span><span style="color:#e5e7eb;font-weight:600">${esc(String(g.hits.length))}</span>` +
@@ -504,8 +505,8 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     try {
       const r = await bwrite<{ disciplines?: Record<string, string> } | null>(`${base}/clash/${encodeURIComponent(pid())}/owners`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ disciplines: next }) });
       owners = r?.disciplines ?? next;
-      status(email ? `${discipline} clash groups are owned by ${email} (team-wide, on the ledger).` : `${discipline} has no owner now.`);
-    } catch (e) { status(`Owner not saved — ${(e as Error).message}`); }
+      status(email ? `${discipline} clash groups are owned by ${email} (team-wide, in History).` : `${discipline} has no owner now.`);
+    } catch (e) { status(`Owner not saved — ${(e as Error).message}`, detailOf(e)); }
     renderGroups();
   }
 
@@ -514,7 +515,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     for (const h of g.hits) for (const x of [h.a, h.b]) if (x.localId != null && x.localId >= 0) (map[x.modelId] ??= new Set<number>()).add(x.localId);
     if (!Object.keys(map).length) { status("No loaded elements to show for this group."); return; }
     try { await hider.isolate(map); await refreshView(); status(`Isolated ${groupTitle(g)} — ${g.hits.length} clash(es). Show all in Visibility to restore.`); }
-    catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+    catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   // Records a group's hits on the register (the bridge takes at most 500 a request), then drops them from the lists.
@@ -542,17 +543,17 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
         title: `Clash group: ${groupTitle(g)} (${g.hits.length})`, topic_type: "Clash", priority: g.kind === "duplicate" ? "Normal" : "High",
         creation_author: "Clash", assigned_to: owner, labels: ["clash-group"], description: `${groupInstruction(g)}\n\n${lines}`,
       }) });
-    } catch (e) { status(`Not raised — ${(e as Error).message}`); return; }
+    } catch (e) { status(`Not raised — ${(e as Error).message}`, detailOf(e)); return; }
     if (topic?.guid && guids.length)
       await bwrite(`${base}/bcf/3.0/projects/${encodeURIComponent(key)}/topics/${topic.guid}/viewpoints`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ components: { selection: guids.map((ifc_guid) => ({ ifc_guid })) } }) }).catch(() => {});
     const overlapOf = new Map(clashes.map((c) => [c.id, c.overlap]));
     try {
       await recordHits(key, g.hits.map((h) => ({ signature: h.id, status: "raised", volume: h.volume, label: hitLabel(h), bcf_guid: topic?.guid ?? null, elements: elementsOf(h), overlap: overlapOf.get(h.id), group: g.key })));
-    } catch (e) { status(`The Issue was raised, but the clash register did not record its ${g.hits.length} clash(es) — ${(e as Error).message}. They will re-surface on the next run.`); return; }
+    } catch (e) { status(`The Issue was raised, but the clash register did not record its ${g.hits.length} clash(es) — ${(e as Error).message}. They will re-surface on the next run.`, detailOf(e)); return; }
     if (pid() !== key) return;
     dropHits(new Set(g.hits.map((h) => h.id)));
     renderGroups(); void loadKnownFromServer();
-    status(`Raised ${groupTitle(g)} as one Issue${owner ? ` assigned to ${owner}` : " (no owner yet)"}; ${g.hits.length} clash(es) on the register and the ledger.`);
+    status(`Raised ${groupTitle(g)} as one Issue${owner ? ` assigned to ${owner}` : " (no owner yet)"}; ${g.hits.length} clash(es) on the register and in History.`);
   }
 
   // Human-error guards §3 (spec 2026-10-21): a duplicate group as a changeset of deletes — a lead's (the bridge refuses anyone else in words, and
@@ -568,10 +569,10 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     if (!gate.ok) { status(`Not proposed — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
     const overlapOf = new Map(clashes.map((c) => [c.id, c.overlap]));
     try { await recordHits(key, p.hits.map((h) => ({ signature: h.id, status: "raised", volume: h.volume, label: hitLabel(h), elements: elementsOf(h), overlap: overlapOf.get(h.id), group: g.key }))); }
-    catch (e) { status(`Not proposed — the clash register did not record the pairs (${(e as Error).message}); nothing was sent.`); return; }
+    catch (e) { status(`Not proposed — the clash register did not record the pairs (${(e as Error).message}); nothing was sent.`, detailOf(e)); return; }
     let cs: { name?: string } | null;
     try { cs = await bwrite<{ name?: string } | null>(`${base}/changesets/${encodeURIComponent(key)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p.body) }); }
-    catch (e) { status(`The pairs are on the clash register, but the deletes were not proposed — ${(e as Error).message}`); void loadKnownFromServer(); return; }
+    catch (e) { status(`The pairs are on the clash register, but the deletes were not proposed — ${(e as Error).message}`, detailOf(e)); void loadKnownFromServer(); return; }
     if (pid() !== key) return;
     dropHits(new Set(p.hits.map((h) => h.id)));
     renderGroups(); void loadKnownFromServer();
@@ -584,11 +585,11 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
     const gate = await gateAllowsRaise();
     if (!gate.ok) { status(`Not recorded — ${gate.why}. Nothing was sent.`); void loadFederation(); return; }
     try { await recordHits(key, g.hits.map((h) => ({ signature: h.id, status: "not_a_clash", reason: NAC_REASON, volume: h.volume, label: hitLabel(h), elements: elementsOf(h), group: g.key }))); }
-    catch (e) { status(`Not recorded — ${(e as Error).message}`); return; }
+    catch (e) { status(`Not recorded — ${(e as Error).message}`, detailOf(e)); return; }
     if (pid() !== key) return;
     dropHits(new Set(g.hits.map((h) => h.id)));
     renderGroups(); void loadKnownFromServer();
-    status(`${g.hits.length} touching pair(s) recorded as not a clash (${NAC_REASON}) — on the register and the ledger; the Register can move one back.`);
+    status(`${g.hits.length} touching pair(s) recorded as not a clash (${NAC_REASON}) — on the register and in History; the Register can move one back.`);
   }
 
   // The optional door: open Clash Issues no register record links to (they came in as BCF from Navisworks or ACC) are
@@ -601,7 +602,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
       const r = await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(key)}/topics`);
       if (!r.ok) { status(`Imported clashes not read — ${(await r.json().catch(() => null))?.message || `HTTP ${r.status}`}`); return; }
       topics = await r.json();
-    } catch (e) { status(`Imported clashes not read — ${(e as Error).message}`); return; }
+    } catch (e) { status(`Imported clashes not read — ${(e as Error).message}`, detailOf(e)); return; }
     const linked = new Set(register.map((x) => x.bcf_guid).filter(Boolean));
     const pairs = topics.filter((t) => /clash/i.test(t.topic_type ?? "") && !/closed|resolved/i.test(t.topic_status ?? "") && !linked.has(t.guid))
       .map((t) => ({ t, g: (t.viewpoints ?? []).map((v) => v.components?.selection ?? []).find((s) => s.length >= 2)?.slice(0, 2).map((s) => s.ifc_guid) }))
@@ -632,7 +633,7 @@ export function clashPanel(components: OBC.Components, opts: { baseUrl?: string 
   el("cl-raise").addEventListener("click", raise);
   // Clearing the register is a lead's (H0 D4): this browser's list is cleared only once the bridge has cleared the team's.
   el("cl-reset").addEventListener("click", async () => {
-    try { await resetKnownOnServer(); } catch (e) { status(`Not cleared — ${(e as Error).message}`); return; }
+    try { await resetKnownOnServer(); } catch (e) { status(`Not cleared — ${(e as Error).message}`, detailOf(e)); return; }
     known.clear(); persistKnown(); status("Cleared known clashes (this project, team-wide) — the next run re-surfaces all.");
   });
   el("cl-tol").addEventListener("change", (e) => { const v = parseFloat((e.target as HTMLInputElement).value); if (v >= 0) tol = v; });

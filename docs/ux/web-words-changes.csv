@@ -1,0 +1,718 @@
+file,line,old,new,group
+bridge/artefact-store.mjs,109,"if (type === ""readiness"" || type === ""tidp"") throw bad(kind, at, ""has no review chain — a READINESS or a TIDP is not published through a round; only bep and eir are"");","if (type === ""readiness"" || type === ""tidp"") throw bad(kind, at, ""has no review chain — a READINESS or a team delivery plan is not published through a round; only bep and eir are"");",A1
+bridge/artefact-store.mjs,667,"if (a.source === ""none"") return { status: 404, body: { message: `no ${kind} artefact installed for ${key} or its office (PUT /cde/${key}/artefacts/${kind})`, reason: ""not_installed"" } };","if (a.source === ""none"") return { status: 404, body: { message: `no ${kind} standard installed for ${key} or its office — install one in Settings > Standards library`, detail: `PUT /cde/${key}/artefacts/${kind}`, reason: ""not_installed"" } };",A1
+bridge/artefact-store.mjs,715,"try { validateArtefact(kind, a.body); } catch (e) { broken.push({ from: kind, item: refLabel(a), reason: `did not parse, so nothing of it is in the IDS: ${e.message}` }); return null; }","try { validateArtefact(kind, a.body); } catch (e) { broken.push({ from: kind, item: refLabel(a), reason: `did not parse, so nothing of it is in the data requirements: ${e.message}` }); return null; }",A1
+bridge/artefact-store.mjs,759,"if (typeof body.ids === ""string"") throw err(400, ""Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only."");","if (typeof body.ids === ""string"") throw err(400, ""Send the data requirements as a JSON spec — an .ids file is read in the browser only."");",A1
+bridge/check-registry.mjs,47,"const id = ""naming.containers"", label = ""Container naming"";","const id = ""naming.containers"", label = ""File naming"";",A1
+bridge/check-registry.mjs,50,"if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no containers yet — nothing to check."" });","if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no files yet — nothing to check."" });",A1
+bridge/check-registry.mjs,58,"? result(id, label, ""violations"", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} container name(s) fail ${which} (“${ruleset.title}”).` })","? result(id, label, ""violations"", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} file name(s) fail ${which} (“${ruleset.title}”).` })",A1
+bridge/check-registry.mjs,59,": result(id, label, ""met"", { summary: `All ${files.length} container name(s) satisfy ${which} (“${ruleset.title}”).` });",": result(id, label, ""met"", { summary: `All ${files.length} file name(s) satisfy ${which} (“${ruleset.title}”).` });",A1
+bridge/check-registry.mjs,64,"if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no containers yet — nothing to check."" });","if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no files yet — nothing to check."" });",A1
+bridge/check-registry.mjs,73,"? result(id, label, ""violations"", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} container(s) are not ${[...allowed].join(""/"")}.` })","? result(id, label, ""violations"", { count: bad.length, evidence: bad, summary: `${bad.length} of ${files.length} file(s) are not ${[...allowed].join(""/"")}.` })",A1
+bridge/check-registry.mjs,74,": result(id, label, ""met"", { summary: `All ${files.length} container(s) are ${[...allowed].join(""/"")}.` });",": result(id, label, ""met"", { summary: `All ${files.length} file(s) are ${[...allowed].join(""/"")}.` });",A1
+bridge/check-registry.mjs,79,"if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no containers yet — nothing to check."" });","if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no files yet — nothing to check."" });",A1
+bridge/check-registry.mjs,90,"if (!liveCount) return result(id, label, ""not_checkable"", { reason: ""No container has a live version yet, so there are no suitability codes to check — see the cde.versioned check for that gap."" });","if (!liveCount) return result(id, label, ""not_checkable"", { reason: ""No file has a live version yet, so there are no suitability codes to check — see the cde.versioned check for that gap."" });",A1
+bridge/check-registry.mjs,97,"const id = ""cde.versioned"", label = ""Every container has a live version"";","const id = ""cde.versioned"", label = ""Every file has a live version"";",A1
+bridge/check-registry.mjs,98,"if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no containers yet — nothing to check."" });","if (!files.length) return result(id, label, ""not_checkable"", { reason: ""This project has no files yet — nothing to check."" });",A1
+bridge/check-registry.mjs,101,"? result(id, label, ""violations"", { count: bad.length, evidence: bad, summary: `${bad.length} container(s) have no live version.` })","? result(id, label, ""violations"", { count: bad.length, evidence: bad, summary: `${bad.length} file(s) have no live version.` })",A1
+bridge/check-registry.mjs,102,": result(id, label, ""met"", { summary: `All ${files.length} container(s) have a live version.` });",": result(id, label, ""met"", { summary: `All ${files.length} file(s) have a live version.` });",A1
+bridge/check-registry.mjs,108,"const id = ""gate.stage"", label = ""Stage gate"";","const id = ""gate.stage"", label = ""Stage check"";",A1
+bridge/check-registry.mjs,109,"if (!gate.checks.length) return result(id, label, ""not_checkable"", { reason: `Stage “${stage}” has no gate defined (it is terminal).` });","if (!gate.checks.length) return result(id, label, ""not_checkable"", { reason: `Stage “${stage}” has no stage check defined (it is terminal).` });",A1
+bridge/check-registry.mjs,111,"if (failing.length) return result(id, label, ""violations"", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” gate check(s) not met.` });","if (failing.length) return result(id, label, ""violations"", { count: failing.length, evidence: failing, summary: `${failing.length} “${stage}” stage check(s) not met.` });",A1
+bridge/check-registry.mjs,120,"reason: `${unmeasured.length} of ${gate.checks.length} gate metrics have no server source (${unmeasured.map((c) => c.label).join("", "")}) — the gate cannot be confirmed.`,","reason: `${unmeasured.length} of ${gate.checks.length} stage check measures have no server source (${unmeasured.map((c) => c.label).join("", "")}) — the stage check cannot be confirmed.`,",A1
+bridge/check-registry.mjs,123,"return result(id, label, ""met"", { summary: `The “${stage}” stage gate passes.` });","return result(id, label, ""met"", { summary: `The “${stage}” stage check passes.` });",A1
+bridge/check-registry.mjs,131,"return result(id, label, ""violations"", { count: 1, summary: `No ${kind} standard is installed for this project or its office.`, evidence: [{ label: kind, detail: `not installed — PUT /cde/:key/artefacts/${kind}` }] });","return result(id, label, ""violations"", { count: 1, summary: `No ${kind} standard is installed for this project or its office.`, evidence: [{ label: kind, detail: `not installed — install one in Settings > Standards library` }] });",A1
+bridge/check-registry.mjs,142,"const id = ""ids.last_verdict"", label = ""Governed adjudication verdicts"";","const id = ""ids.last_verdict"", label = ""Publish check results"";",A1
+bridge/check-registry.mjs,145,"return result(id, label, ""not_checkable"", { reason: `Read ${verdictRows.length} of ${total} verdict rows on this project's ledger — a partial read cannot confirm each version's latest verdict.` });","return result(id, label, ""not_checkable"", { reason: `Read ${verdictRows.length} of ${total} check result rows in this project's History — a partial read cannot confirm each version's latest verdict.` });",A1
+bridge/check-registry.mjs,151,"if (!newest.size) return result(id, label, ""not_checkable"", { reason: ""No governed verdict has been recorded on this project yet — publish through Sentinel ▸ Publish to produce one."" });","if (!newest.size) return result(id, label, ""not_checkable"", { reason: ""No publish check result has been recorded on this project yet — publish through Sentinel ▸ Publish to produce one."" });",A1
+bridge/check-registry.mjs,168,"? `${recordedCount} of ${newest.size} version(s) were merely recorded, not adjudicated (no IDS installed, or no element in its scope) — the result cannot be confirmed as met.`","? `${recordedCount} of ${newest.size} version(s) were merely recorded, not adjudicated (no data requirements installed, or no element in its scope) — the result cannot be confirmed as met.`",A1
+bridge/check-registry.mjs,169,": `All ${recordedCount} version(s) were recorded, not adjudicated (no IDS installed, or no element in its scope), so nothing was actually checked.`,",": `All ${recordedCount} version(s) were recorded, not adjudicated (no data requirements installed, or no element in its scope), so nothing was actually checked.`,",A1
+bridge/check-registry.mjs,176,"const id = ""midp.milestones"", label = ""Delivery milestones (MIDP/TIDP)"";","const id = ""midp.milestones"", label = ""Delivery milestones (delivery plans)"";",A1
+bridge/check-registry.mjs,271,"const id = ""midp.distribution"", label = ""Issue distribution (MIDP)"";","const id = ""midp.distribution"", label = ""Issue distribution (delivery plan)"";",A1
+bridge/check-registry.mjs,369,"const id = ""midp.review"", label = ""Review before issue (MIDP)"";","const id = ""midp.review"", label = ""Review before issue (delivery plan)"";",A1
+bridge/check-registry.mjs,379,"return result(id, label, ""not_checkable"", { reason: `Read ${(auditRows || []).length} of ${total} state transitions of the published versions on this project's ledger — a partial read cannot judge review before issue.` });","return result(id, label, ""not_checkable"", { reason: `Read ${(auditRows || []).length} of ${total} state transitions of the published versions in this project's History — a partial read cannot judge review before issue.` });",A1
+bridge/check-registry.mjs,402,"? ""its state:wip->shared or state:shared->published row is not on the ledger, so review cannot be judged""","? ""its state:wip->shared or state:shared->published row is not in History, so review cannot be judged""",A1
+bridge/check-registry.mjs,425,"classifyMidpExpectation(status, ""revision"", ""midp.revision"", ""Delivered revisions (MIDP)"", ""revision"");","classifyMidpExpectation(status, ""revision"", ""midp.revision"", ""Delivered revisions (delivery plan)"", ""revision"");",A1
+bridge/check-registry.mjs,427,"classifyMidpExpectation(status, ""suitability"", ""midp.suitability"", ""Delivered suitability (MIDP)"", ""suitability"");","classifyMidpExpectation(status, ""suitability"", ""midp.suitability"", ""Delivered suitability (delivery plan)"", ""suitability"");",A1
+bridge/check-registry.mjs,435,"description: ""Every information container's name satisfies the naming standard installed on the project or its office."",","description: ""Every information file's name satisfies the naming standard installed on the project or its office."",",A1
+bridge/check-registry.mjs,445,"description: ""Every container's live version sits in one of the expected ISO 19650 states."",","description: ""Every file's live version sits in one of the expected ISO 19650 states."",",A1
+bridge/check-registry.mjs,459,"description: ""No container is left without a current version."",","description: ""No file is left without a current version."",",A1
+bridge/check-registry.mjs,465,"label: ""Stage gate"",","label: ""Stage check"",",A1
+bridge/check-registry.mjs,466,"description: ""The project passes the gate for its current stage, measured by the bridge on the ledger's stage."",","description: ""The project passes the stage check for its current stage, measured by Sentinel from History's stage."",",A1
+bridge/check-registry.mjs,477,"description: ""A scan ruleset artefact is in force for the project or its office."",","description: ""A scan rules standard is in force for the project or its office."",",A1
+bridge/check-registry.mjs,486,"label: ""Governed adjudication verdicts"",","label: ""Publish check results"",",A1
+bridge/check-registry.mjs,487,"description: ""The most recent governed verdict recorded against each version was an acceptance."",","description: ""The most recent publish check result recorded against each version was an acceptance."",",A1
+bridge/check-registry.mjs,496,"label: ""Delivery milestones (MIDP/TIDP)"",","label: ""Delivery milestones (delivery plans)"",",A1
+bridge/check-registry.mjs,516,"label: ""Delivered revisions (MIDP)"",","label: ""Delivered revisions (delivery plan)"",",A1
+bridge/check-registry.mjs,526,"label: ""Delivered suitability (MIDP)"",","label: ""Delivered suitability (delivery plan)"",",A1
+bridge/check-registry.mjs,547,"label: ""Review before issue (MIDP)"",","label: ""Review before issue (delivery plan)"",",A1
+bridge/check-registry.mjs,561,"label: ""Issue distribution (MIDP)"",","label: ""Issue distribution (delivery plan)"",",A1
+bridge/check-registry.mjs,599,"description: ""Every row of a BEP level-of-information-need table names an element, a milestone and a property, and maps to an IDS specification."",","description: ""Every row of a BEP level-of-information-need table names an element, a milestone and a property, and maps to a data requirement."",",A1
+bridge/check-registry.mjs,612,"{ id: ""qa.scorecard"", label: ""Model health scorecard"", reason: ""The QA engine runs bridge-side but model element facts are only available in the browser; no scan report is persisted."" },","{ id: ""qa.scorecard"", label: ""Model health scorecard"", reason: ""The QA engine runs on the office PC but model element facts are only available in the browser; no scan report is persisted."" },",A1
+bridge/check-registry.mjs,613,"{ id: ""exchanges.scheduled"", label: ""Exchanges made as scheduled"", reason: ""Exchanges are not compared with CDE uploads yet."" },","{ id: ""exchanges.scheduled"", label: ""Exchanges made as scheduled"", reason: ""Exchanges are not compared with files uploaded to the project yet."" },",A1
+bridge/changesets-store.mjs,52,"if (!cs) throw err(404, ""changeset not found"");","if (!cs) throw err(404, ""proposed changes not found"");",A1
+bridge/changesets-store.mjs,60,"throw err(503, ""the changeset changed three times while this was being written — nothing was saved; send it again"");","throw err(503, ""the proposed changes changed three times while this was being written — nothing was saved; send it again"");",A1
+bridge/changesets-store.mjs,87,"if (back) throw err(503, `the ledger did not take the ${what} — nothing was saved; send it again`);","if (back) throw err(503, `History did not take the ${what} — nothing was saved; send it again`);",A1
+bridge/changesets-store.mjs,88,"throw err(502, `the ${what} is saved on the changeset but the ledger has no row for it (${e.message}), and the changeset changed before it could be taken back — tell the project lead`);","throw err(502, `the ${what} is saved on the proposed changes but History has no row for it (${e.message}), and the proposed changes changed before it could be taken back — tell the project lead`);",A1
+bridge/changesets-store.mjs,213,"catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to this changeset; send it again`); }","catch (e) { throw err(503, `the project's earlier proposed changes could not be read (${e.message}) — nothing was filed: a decline made before could not be carried to these proposed changes; send it again`); }",A1
+bridge/changesets-store.mjs,220,"catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit of an earlier ${v.elements.some((x) => x.from_scan) ? ""terrain"" : ""stair""} could be missed; nothing was filed, send it again`); }","catch (e) { throw err(503, `History could not be read (${e.message}) — an Undo in Revit of an earlier ${v.elements.some((x) => x.from_scan) ? ""terrain"" : ""stair""} could be missed; nothing was filed, send it again`); }",A1
+bridge/changesets-store.mjs,287,"catch (e) { throw err(503, `the project's earlier changesets could not be read (${e.message}) — nothing was previewed`); }","catch (e) { throw err(503, `the project's earlier proposed changes could not be read (${e.message}) — nothing was previewed`); }",A1
+bridge/changesets-store.mjs,405,"catch (e) { throw err(503, `the project's changesets could not be read (${e.message}) — nothing was saved; send it again`); }","catch (e) { throw err(503, `the project's proposed changes could not be read (${e.message}) — nothing was saved; send it again`); }",A1
+bridge/changesets-store.mjs,511,: `no changeset of ${id} was stored: ${what} (${e.message}) — propose it again`);,: `no proposed changes of ${id} were stored: ${what} (${e.message}) — propose it again`);,A1
+bridge/changesets-store.mjs,561,"throw err(409, `${cs.job.id} on this PC is ledger #${row.ledger.id}, not the job ${cs.name} was built from (ledger #${cs.job.ledger_id}) — its scan cannot be read again here`);","throw err(409, `${cs.job.id} on this PC is History #${row.ledger.id}, not the job ${cs.name} was built from (History #${cs.job.ledger_id}) — its scan cannot be read again here`);",A1
+bridge/changesets-store.mjs,563,"throw err(409, `ledger #${row.ledger.id} holds no params or seed — the cloud ${cs.job.id} measured cannot be read again; run the survey again`);","throw err(409, `History #${row.ledger.id} holds no params or seed — the cloud ${cs.job.id} measured cannot be read again; run the survey again`);",A1
+bridge/changesets-store.mjs,600,"throw err(403, ""measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved."");","throw err(403, ""measuring proposed changes against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved."");",A1
+bridge/changesets-store.mjs,602,"catch (e) { throw e.status === 403 ? err(403, `${e.message} — measuring a placed changeset against its scan is a contributor's; nothing was saved`) : unsaved(e); }","catch (e) { throw e.status === 403 ? err(403, `${e.message} — measuring placed proposed changes against its scan is a contributor's; nothing was saved`) : unsaved(e); }",A1
+bridge/changesets-store.mjs,663,"} catch (e) { throw err(502, `${cs.name} was measured, but the ledger did not take its row (${e.message}) — nothing was saved; measure it again`); }","} catch (e) { throw err(502, `${cs.name} was measured, but History did not take its row (${e.message}) — nothing was saved; measure it again`); }",A1
+bridge/changesets-store.mjs,665,"if (status === ""refused"") throw err(409, `${cs.name} was not measured: ${error} — ledger #${ledger?.id ?? ""?""} records the run; nothing else was saved`);","if (status === ""refused"") throw err(409, `${cs.name} was not measured: ${error} — History #${ledger?.id ?? ""?""} records the run; nothing else was saved`);",A1
+bridge/changesets-store.mjs,666,"if (status !== ""done"") throw err(502, `the measure of ${cs.name} did not finish: ${error} — ledger #${ledger?.id ?? ""?""} records the run; nothing else was saved`);","if (status !== ""done"") throw err(502, `the measure of ${cs.name} did not finish: ${error} — History #${ledger?.id ?? ""?""} records the run; nothing else was saved`);",A1
+bridge/changesets-store.mjs,673,"if (!cs) throw err(404, `no changeset ${id} on ${key}`);","if (!cs) throw err(404, `no proposed changes ${id} on ${key}`);",A1
+bridge/changesets-store.mjs,680,"catch (e) { throw err(503, `${cs.name}'s ledger rows could not be read (${e.message}) — an Undo in Revit or an earlier measure would be missed`); }","catch (e) { throw err(503, `${cs.name}'s History rows could not be read (${e.message}) — an Undo in Revit or an earlier measure would be missed`); }",A1
+bridge/changesets-store.mjs,684,"if ((page.total ?? 0) > rows.length) throw err(503, `${cs.name} has more ledger rows (${page.total}) than one read returns — an Undo in Revit could be missed`);","if ((page.total ?? 0) > rows.length) throw err(503, `${cs.name} has more History rows (${page.total}) than one read returns — an Undo in Revit could be missed`);",A1
+bridge/changesets-store.mjs,699,"throw err(409, `${cs.name} was measured on these same inputs as ledger #${prev.id} — the same bytes, seed and geometry give the same numbers; nothing was saved`);","throw err(409, `${cs.name} was measured on these same inputs as History #${prev.id} — the same bytes, seed and geometry give the same numbers; nothing was saved`);",A1
+bridge/changesets-store.mjs,723,"throw err(403, ""showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown"");","throw err(403, ""showing the scan behind proposed changes needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown"");",A1
+bridge/changesets-store.mjs,725,"catch (e) { throw e.status === 403 ? err(403, `${e.message} — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown`) : e; }","catch (e) { throw e.status === 403 ? err(403, `${e.message} — showing the scan behind survey proposed changes runs sentinel-survey: a contributor's — its scan is not shown`) : e; }",A1
+bridge/changesets-store.mjs,728,"if (!cs) throw err(404, `no changeset ${id} on ${key}`);","if (!cs) throw err(404, `no proposed changes ${id} on ${key}`);",A1
+bridge/changesets-store.mjs,732,"const noSlice = fl ? "" — a stair flag on it has no scan slice: flag the stair on a survey changeset of this storey"" : """";","const noSlice = fl ? "" — a stair flag on it has no scan slice: flag the stair on survey proposed changes of this storey"" : """";",A1
+bridge/changesets-store.mjs,877,"catch (e) { throw err(503, `the ledger could not be read (${e.message}) — an Undo in Revit could be missed, so no edit cost is shown`); }","catch (e) { throw err(503, `History could not be read (${e.message}) — an Undo in Revit could be missed, so no edit cost is shown`); }",A1
+bridge/changesets-store.mjs,894,"if (!r.complete) throw err(409, `${r.label} is still being reviewed (${r.pending} ghost(s) pending) — publish when every changeset of it is decided`);","if (!r.complete) throw err(409, `${r.label} is still being reviewed (${r.pending} ghost(s) pending) — publish when every set of proposed changes of it is decided`);",A1
+bridge/changesets-store.mjs,898,"catch (e) { throw err(503, `the ledger could not be read (${e.message}) — nothing was saved`); }","catch (e) { throw err(503, `History could not be read (${e.message}) — nothing was saved`); }",A1
+bridge/changesets-store.mjs,900,"throw err(409, `${r.label}'s edit cost was published on these same numbers as ledger #${prev.id} — nothing was saved`);","throw err(409, `${r.label}'s edit cost was published on these same numbers as History #${prev.id} — nothing was saved`);",A1
+bridge/changesets-store.mjs,911,"if (!cs) throw err(404, ""changeset not found"");","if (!cs) throw err(404, ""proposed changes not found"");",A1
+bridge/changesets-store.mjs,1055,"if (cs.status !== ""proposed"") throw err(409, `changeset is ${cs.status} — a result can be reported exactly once, from proposed`);","if (cs.status !== ""proposed"") throw err(409, `the proposed changes are ${cs.status} — a result can be reported exactly once, from proposed`);",A1
+bridge/changesets-store.mjs,1058,"if (held) throw err(409, held.replace(""nothing was changed"", ""this result was not recorded; the changeset stays proposed""));","if (held) throw err(409, held.replace(""nothing was changed"", ""this result was not recorded; the proposed changes stay proposed""));",A1
+bridge/changesets-store.mjs,1067,"throw err(403, ""a rehost removes an element — its result is a signed-in member's (sign in in Revit); nothing was recorded and the changeset stays proposed"" +","throw err(403, ""a rehost removes an element — its result is a signed-in member's (sign in in Revit); nothing was recorded and the proposed changes stay proposed"" +",A1
+bridge/changesets-store.mjs,1082,"throw err(409, conflicts.refused.map((x) => `${x.name} was ${declineWords(x)}: ""${x.reason}"" — ${x.carried_from ? ""the changeset was filed with it declined (review_rev 0)"" : `review_rev ${x.rev}, which this result says Revit re-checked`}`).join(""; "") +","throw err(409, conflicts.refused.map((x) => `${x.name} was ${declineWords(x)}: ""${x.reason}"" — ${x.carried_from ? ""the proposed changes were filed with it declined (review_rev 0)"" : `review_rev ${x.rev}, which this result says Revit re-checked`}`).join(""; "") +",A1
+bridge/changesets-store.mjs,1083,"""; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed"");","""; Revit refuses that tick, so this result is refused. Nothing was recorded; the proposed changes stay proposed"");",A1
+bridge/changesets-store.mjs,1208,"if (cs.status !== ""proposed"") throw err(409, `""${cs.name}"" is ${String(cs.status).replace(""_"", "" "")} — only a proposed changeset is applied; nothing was changed`);","if (cs.status !== ""proposed"") throw err(409, `""${cs.name}"" is ${String(cs.status).replace(""_"", "" "")} — only proposed changes still waiting are applied; nothing was changed`);",A1
+bridge/changesets-store.mjs,1226,"if (!cs) throw err(404, ""changeset not found"");","if (!cs) throw err(404, ""proposed changes not found"");",A1
+bridge/changesets-store.mjs,1238,"if (!canWithdraw(cs.status)) throw err(409, `changeset is ${cs.status} — only a proposed changeset can be withdrawn`);","if (!canWithdraw(cs.status)) throw err(409, `the proposed changes are ${cs.status} — only proposed changes still waiting can be withdrawn`);",A1
+bridge/changesets-store.mjs,1277,"if (!cs) throw err(404, ""changeset not found"");","if (!cs) throw err(404, ""proposed changes not found"");",A1
+bridge/changesets-store.mjs,1279,"throw err(409, `changeset is ${cs.status} — only an applied changeset can be undone`);","throw err(409, `the proposed changes are ${cs.status} — only applied changes can be undone`);",A1
+bridge/changesets-store.mjs,1282,"if (stray) throw err(400, `""${stray}"" was not applied by this changeset`);","if (stray) throw err(400, `""${stray}"" was not applied by these proposed changes`);",A1
+bridge/changesets-store.mjs,1328,"if (cs.status !== ""applied"" && cs.status !== ""partially_applied"") throw err(409, `changeset is ${cs.status} — only an applied changeset can be confirmed saved; nothing was saved`);","if (cs.status !== ""applied"" && cs.status !== ""partially_applied"") throw err(409, `the proposed changes are ${cs.status} — only applied changes can be confirmed saved; nothing was saved`);",A1
+bridge/changesets-store.mjs,1356,"if (cs.status === ""withdrawn"") throw err(409, `${cs.name} is withdrawn — flag the stair on a changeset that is still live; nothing was saved`);","if (cs.status === ""withdrawn"") throw err(409, `${cs.name} is withdrawn — flag the stair on proposed changes that are still live; nothing was saved`);",A1
+bridge/evidence-store.mjs,121,"if (!doc) throw Object.assign(err(404, `${key} has no evidence pack yet — a lead makes it (POST /cde/${key}/evidence) — nothing was saved`), { noPack: true });","if (!doc) throw Object.assign(err(404, `${key} has no evidence pack yet — ask a project lead to make it — nothing was saved`), { noPack: true, detail: `POST /cde/${key}/evidence` });",A1
+bridge/evidence-store.mjs,204,"catch { throw err(503, ""the NOTICE needs the build:run rows and the ledger could not be read — nothing was made""); }","catch { throw err(503, ""the NOTICE needs the build:run rows and History could not be read — nothing was made""); }",A1
+bridge/evidence-store.mjs,602,"catch { throw err(503, ""the placement is in the ledger and the ledger could not be read — nothing was shown""); }","catch { throw err(503, ""the placement is in History and History could not be read — nothing was shown""); }",A1
+bridge/recipe-logic.mjs,104,"if (st.state === ""withdrawn"") return `${ref} was withdrawn (ledger #${st.withdrawn.id}) and runs no more — draft a new recipe from a run`;","if (st.state === ""withdrawn"") return `${ref} was withdrawn (History #${st.withdrawn.id}) and runs no more — draft a new recipe from a run`;",A1
+bridge/platform-gate-ledger.mjs,128,"catch (e) { return { written, skipped, reason: `the platform's gate runs were not read — ${why(e)}` }; }","catch (e) { return { written, skipped, reason: `the platform check runs were not read — ${why(e)}` }; }",A1
+bridge/platform-gate-ledger.mjs,129,"if (!Array.isArray(runs)) return { written, skipped, reason: ""the platform's gate runs were not read — the answer was not a list"" };","if (!Array.isArray(runs)) return { written, skipped, reason: ""the platform check runs were not read — the answer was not a list"" };",A1
+bridge/platform-gate-ledger.mjs,151,"} catch (e) { return { written, skipped, reason: `the ledger was not read — ${why(e)}` }; }","} catch (e) { return { written, skipped, reason: `History was not read — ${why(e)}` }; }",A1
+bridge/drawing-plan.mjs,530,"reason: `over the ${MAX_CHANGESET_ELEMENTS} elements one changeset (one Undo) holds — propose the drawing again once this one is applied, and it is filed then` });","reason: `over the ${MAX_CHANGESET_ELEMENTS} elements one set of proposed changes (one Undo) holds — propose the drawing again once this one is applied, and it is filed then` });",A1
+bridge/drawing-plan.mjs,533,"throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; nothing was saved`);","throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one set of proposed changes (one Undo) holds; nothing was saved`);",A1
+bridge/cde-store.mjs,321,"if (stage !== current) throw Object.assign(new Error(`the gate to run is the current stage's: ${current}`), { status: 409 });","if (stage !== current) throw Object.assign(new Error(`the stage check to run is the current stage's: ${current}`), { status: 409 });",A1
+bridge/cde-store.mjs,322,"if (stage === STAGES[STAGES.length - 1]) throw Object.assign(new Error(`${stage} is the final stage — there is no gate to run`), { status: 409 });","if (stage === STAGES[STAGES.length - 1]) throw Object.assign(new Error(`${stage} is the final stage — there is no stage check to run`), { status: 409 });",A1
+bridge/cde-store.mjs,1167,"return { mirrored: false, reason: ""the mirror failed (the bridge log has the cause)"" };","return { mirrored: false, reason: ""the mirror failed (the cause is in Sentinel's log on the office PC)"" };",A1
+bridge/cde-store.mjs,1451,"if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note on the ledger is a lead's (you are ${role || ""not a member""}) — nothing was saved`), { status: 403 });","if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note in History is a lead's (you are ${role || ""not a member""}) — nothing was saved`), { status: 403 });",A1
+bridge/cde-store.mjs,1597,"throw Object.assign(new Error(""not read — the hold rows or the file list could not be read (the bridge log has the cause)""), { status: 502 });","throw Object.assign(new Error(""not read — the hold rows or the file list could not be read (the cause is in Sentinel's log on the office PC)""), { status: 502 });",A1
+bridge/cde-store.mjs,1692,"throw Object.assign(new Error(""not read — the review rows or the file list could not be read (the bridge log has the cause)""), { status: 502 });","throw Object.assign(new Error(""not read — the review rows or the file list could not be read (the cause is in Sentinel's log on the office PC)""), { status: 502 });",A1
+bridge/cde-store.mjs,1939,"export const NO_NAMING_REASON = ""no naming standard installed for this project or its office (PUT /cde/:key/artefacts/naming)"";","export const NO_NAMING_REASON = ""no naming standard installed for this project or its office — install one in Settings > Standards library"";",A1
+bridge/cde-store.mjs,2424,"if (!URL || !ANON) throw feedErr(503, ""the data feed is not set up on this bridge (SUPABASE_URL + SUPABASE_ANON_KEY) — nothing was read"");","if (!URL || !ANON) throw feedErr(503, ""the data feed is not set up on this installation — nothing was read"");",A1
+bcf-service.mjs,625,"{ message: e.message }, String(e.status)","{ message: e.message, ...(e.detail ? { detail: e.detail } : {}) }, String(e.status)",A2
+bcf-service.mjs,285,"body = { ...body, message: ""Internal error — see the bridge log."" };","body = { ...body, message: ""Sentinel could not answer. The cause is in Sentinel's log on the office PC."", detail: ""Internal error (HTTP 500)"" };",A2
+bcf-service.mjs,678,"throw Object.assign(new Error(""CDE not configured — an upload is checked against its project's office, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env.""), { status: 503 });","throw Object.assign(new Error(""Sentinel's storage is not set up on this installation, so this upload cannot be checked.""), { status: 503, detail: ""CDE not configured: an upload is checked against its project's office, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env."" });",A2
+bcf-service.mjs,752,"send(res, 503, { message: ""the team store is not configured on this bridge (SUPABASE_URL + SUPABASE_SERVICE_KEY) — a signed-in user cannot use the single-desktop files; nothing was read or saved"" });","send(res, 503, { message: ""Sentinel's team storage is not set up on this installation — a signed-in user cannot use the single-desktop files; nothing was read or saved"", detail: ""SUPABASE_URL + SUPABASE_SERVICE_KEY are not configured"" });",A2
+bcf-service.mjs,759,"send(res, 503, { message: ""this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved"" });","send(res, 503, { message: ""this installation cannot accept sign-ins yet — a signed-in user cannot be served; nothing was read or saved"", detail: ""SUPABASE_ANON_KEY is not set, so the bridge does not forward sign-ins"" });",A2
+bcf-service.mjs,1110,"send(res, 403, { message: ""the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published"" });","send(res, 403, { message: ""the standards-pack registry is written by Sentinel's own account — a signed-in publish, fork or install count is not open yet; nothing was published"", detail: ""written by the bridge's machine credential"" });",A2
+bcf-service.mjs,1247,"{ message: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` }","{ message: ""Sentinel's connection to That Open was not accepted or has expired — ask your administrator to renew it."", detail: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` }",A2
+bcf-service.mjs,1285,"send(res, 503, { message: ""CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY."" });","send(res, 503, { message: ""Sentinel's storage is not set up on this installation — encrypted files are stored per project."", detail: ""CDE not configured: the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY."" });",A2
+bcf-service.mjs,1343,"send(res, 503, { message: ""CDE not configured — set SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env, then restart the service."" });","send(res, 503, { message: ""Sentinel's storage is not set up on this installation. Ask your administrator to finish the set-up."", detail: ""CDE not configured — set SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env, then restart the service."" });",A2
+bcf-service.mjs,2040,"{ message: `storey ""${cs.name}"" has no create with a shape to show — ${r.creates} create(s) in ${parts.length} changeset(s), ${r.skipped.length} skipped${r.skipped.length ? "": "" + r.skipped.slice(0, 3).join(""; "") : """"}` }","{ message: `storey ""${cs.name}"" has no new element with a shape to show — ${r.creates} new element(s) in ${parts.length} set(s) of proposed changes, ${r.skipped.length} skipped`, ...(r.skipped.length ? { detail: r.skipped.slice(0, 3).join(""; "") } : {}) }",A2
+bcf-service.mjs,2048,"{ message: `changeset ${p2} has no create with a shape to show — ${r.creates} create(s), ${r.skipped.length} skipped${r.skipped.length ? "": "" + r.skipped.slice(0, 3).join(""; "") : """"}` }","{ message: `proposed changes ${p2} have no new element with a shape to show — ${r.creates} new element(s), ${r.skipped.length} skipped`, ...(r.skipped.length ? { detail: r.skipped.slice(0, 3).join(""; "") } : {}) }",A2
+bcf-service.mjs,2509,inside this BCF file is not kept — Sentinel keeps models in its CDE; the issues still name it,inside this BCF file is not kept — Sentinel keeps models in the project's files; the issues still name it,A2
+bcf-service.mjs,2532,": ""not saved — see the bridge log"";",": ""not saved — the cause is in Sentinel's log on the office PC"";",A2
+federation-store.mjs,111,"""the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate)""","""the coordination check has not been run on this project — run it first (Models ▸ Clash ▸ Run check)""",A2
+federation-store.mjs,116,`the Federation Gate's last run did not judge,`the coordination check's last run did not judge,A2
+federation-store.mjs,117,"""the Federation Gate's last run is stale","""the coordination check's last run is stale",A2
+federation-store.mjs,122,`the Federation Gate failed (,`the coordination check failed (,A2
+federation-store.mjs,126,`the Federation Gate could not judge the models,`the coordination check could not judge the models,A2
+build-jobs.mjs,16,"const err = (status, message) => Object.assign(new Error(message), { status });","const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });",A2
+build-jobs.mjs,193,"""its sha256 in the pack is not the one the job read""","""its file in the pack is not the one the job read""",A2
+build-jobs.mjs,246,is already running on this bridge (one at a time),is already running on this installation (one at a time),A2
+build-jobs.mjs,251,was just taken by another bridge on this PC,was just taken by another Sentinel process on this PC,A2
+build-jobs.mjs,330,"error: ""the bridge stopped while it ran","error: ""Sentinel stopped while it ran",A2
+build-jobs.mjs,357,its result.json does not match the sha256 on its record — it changed after the job; its candidates are not shown,its result file does not match its record — it changed after the job; its candidates are not shown,A2
+build-jobs.mjs,380,(the ledger write failed when it ran),(the History write failed when it ran),A2
+build-jobs.mjs,378,"const untrusted = (why) => err(409, `${id}'s result is not trusted: ${why} — run the survey again; nothing was saved`);","const untrusted = (why, detail) => err(409, `${id}'s result is not trusted: ${why} — run the survey again; nothing was saved`, detail);",A2
+build-jobs.mjs,386,"untrusted(`ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER}, ${DRAWING} or ${IFC} … · done, claimed false)`)","untrusted(`History #${rowId} is not ${id}'s own run record`, `ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER}, ${DRAWING} or ${IFC} … · done, claimed false)`)",A2
+build-jobs.mjs,389,untrusted(`its result.json does not hash to the sha256 on ledger #${rowId} — it changed after the job`),"untrusted(`its result file does not match History #${rowId} — it changed after the job`, `its result.json does not hash to the sha256 on ledger #${rowId}`)",A2
+build-jobs.mjs,393,untrusted(`its result is not the contract's shape over what ledger #${rowId} says was read (${bad})`),"untrusted(`its result is not the shape the pre-publish check rules expect over what History #${rowId} says was read`, bad)",A2
+recipe-store.mjs,15,"const err = (status, message) => Object.assign(new Error(message), { status });","const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });",A2
+recipe-store.mjs,70,more than ${LEDGER_READ} recipe ledger rows,more than ${LEDGER_READ} recipe History rows,A2
+recipe-store.mjs,87,is not the body it was installed with (its hash differs),is not the body it was installed with (its fingerprint differs),A2
+recipe-store.mjs,111,"""its body does not hash to the sha256 it was installed with""","""its body does not match the fingerprint it was installed with""",A2
+recipe-store.mjs,157,`ledger #${L} on ${key} is not a job's build:run row — a recipe repeats a job's run; nothing was saved`,`History #${L} on ${key} is not a job's run record — a recipe repeats a job's run; nothing was saved`,A2
+recipe-store.mjs,159,"`${jobId} on this PC is ledger #${tj.row.ledger.id}, not the run's #${L} — nothing was saved`","`${jobId} on this PC is History #${tj.row.ledger.id}, not the run's #${L} — nothing was saved`",A2
+recipe-store.mjs,167,a recipe repeats a run whose changesets were reviewed,a recipe repeats a run whose proposed changes were reviewed,A2
+recipe-store.mjs,181,when every changeset of it is decided,when every set of proposed changes in it is decided,A2
+recipe-store.mjs,127,a Promote or agent changeset has no reader to repeat,a Promote or agent set of proposed changes has no reader to repeat,A2
+recipe-store.mjs,184,since ledger #${published.id} was published,since History #${published.id} was published,A2
+recipe-store.mjs,221,was withdrawn (ledger #${st.withdrawn.id}),was withdrawn (History #${st.withdrawn.id}),A2
+recipe-store.mjs,223,you approved ${t.ref} already (ledger #${mine.id}),you approved ${t.ref} already (History #${mine.id}),A2
+recipe-store.mjs,245,was withdrawn already (ledger #${st.withdrawn.id}),was withdrawn already (History #${st.withdrawn.id}),A2
+recipe-store.mjs,258,this bridge plans with ${v.planner} — draft a new recipe from a run on this bridge,this installation plans with ${v.planner} — draft a new recipe from a run on this installation,A2
+recipe-store.mjs,260,this bridge reads with ${v.reader} — draft a new recipe from a run on this bridge,this installation reads with ${v.reader} — draft a new recipe from a run on this installation,A2
+recipe-store.mjs,279,is not a recipe this bridge reads (${e.message}) — nothing was saved`),"is not a recipe this installation reads — nothing was saved`, e.message)",A2
+recipe-store.mjs,284,you approved ${ref} (ledger #${mine.id}) — a recipe,you approved ${ref} (History #${mine.id}) — a recipe,A2
+recipe-store.mjs,274,its build:run row names who ran it,its run record names who ran it,A2
+survey-plan.mjs,285,over the 200 one Holding Area row holds;,over the 200 that can wait for approval at once;,A2
+survey-plan.mjs,435,one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part,one set of proposed changes (one Undo) holds; a storey is not split into several sets yet — survey a part,A2
+ifc-plan.mjs,321,one changeset (one Undo) holds; a storey is not split into changesets yet — export a part,one set of proposed changes (one Undo) holds; a storey is not split into several sets yet — export a part,A2
+topic-ledger.mjs,57,the ledger gave no row back,History gave no row back,A2
+rounds-store.mjs,13,"const err = (status, message) => Object.assign(new Error(message), { status });","const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });",A2
+rounds-store.mjs,17,"sign in (and the bridge must forward the session: SUPABASE_ANON_KEY). Nothing was done."";","sign in. Nothing was done."";
+const NO_SESSION_DETAIL = ""the bridge must forward the session: SUPABASE_ANON_KEY"";",A2
+rounds-store.mjs,21,"throw err(403, NO_SESSION); };","throw err(403, NO_SESSION, NO_SESSION_DETAIL); };",A2
+changesets-logic.mjs,1115,needs a reason — the ledger records it and Revit shows it,needs a reason — History records it and Revit shows it,A2
+changesets-logic.mjs,1123,`changeset is ${cs.status} — the web desk decides only while it is proposed`,`proposed changes are ${cs.status} — the web desk decides only while they are proposed`,A2
+evidence-logic.mjs,478,is read inside the bridge — at most,is read inside Sentinel — at most,A2
+bridge/ids-compile.mjs,288-358,"unmatched reasons: ""Sentinel's IDS"", ""the contract's delivery gate"", ""the contract checks"", ""an IDS"", ""the IDS in force""","""Sentinel's data requirements"", ""the pre-publish check"", ""the pre-publish check rules check"", ""data requirements"", ""the data requirements in force"" (about 25 sentences, wording only)",A2
+bridge/bcf-service.mjs,all refusal replies,{message},"{message, detail?} - detail now passed on by every refusal reply that sets it",A2
+journey-logic.mjs,15,Compile to IDS ▸ Install on this project,Turn into data requirements ▸ Install on this project,B
+journey-logic.mjs,27,"label: ""TIDP drafted""","label: ""Team delivery plans drafted""",B
+journey-logic.mjs,29,"label: ""First governed verdict""","label: ""First publish checked""",B
+journey-logic.mjs,32,Models ▸ Clash ▸ Run gate,Models ▸ Clash ▸ Run check,B
+journey-logic.mjs,77,"""no governed verdict recorded yet""","""no publish check result recorded yet""",B
+journey-logic.mjs,99,"""the Federation Gate has not run""","""the coordination check has not run""",B
+journey-logic.mjs,100,latest Federation Gate:,latest coordination check:,B
+journey-logic.mjs,105,run the Federation Gate on the whole live set,run the coordination check on the whole live set,B
+journey-logic.mjs,108,re-run the Federation Gate,re-run the coordination check,B
+journey-store.mjs,68,"UTC · ledger #${row.id}`,","UTC · History #${row.id}`,",B
+ledger-anchor.mjs,70,"throw err(409, ""external timestamps are not switched on for this bridge (no timestamp service is set) — nothing was sent"");","throw Object.assign(err(409, ""External timestamps are not switched on for this installation — nothing was sent.""), { detail: ""No timestamp service is set."" });",B
+ledger-anchor.mjs,74,"message: ""this project's ledger has no rows yet — nothing to timestamp""","message: ""This project's History has no entries yet — nothing to timestamp.""",B
+ledger-anchor.mjs,87,"throw err(409, ""external timestamps are not switched on for this bridge — nothing was sent"");","throw err(409, ""External timestamps are not switched on for this installation — nothing was sent."");",B
+manifest-store.mjs,106,"throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (sha256 ${sha.slice(0, 12)}… ≠ ${recorded.slice(0, 12)}…) — nothing was saved`), { status: 409 });","throw Object.assign(new Error(""These bytes are not the file recorded for this version — nothing was saved.""), { status: 409, detail: `version ${versionId} · sha256 ${sha.slice(0, 12)}… ≠ ${recorded.slice(0, 12)}…` });",B
+manifest-store.mjs,110,"throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (${bytes.length} bytes ≠ ${row.size_bytes} recorded; it has no sha256 to compare) — nothing was saved`), { status: 409 });","throw Object.assign(new Error(""These bytes are not the file recorded for this version — nothing was saved.""), { status: 409, detail: `version ${versionId} · ${bytes.length} bytes ≠ ${row.size_bytes} recorded; it has no sha256 to compare` });",B
+platform-state.mjs,52,the version has no state: row on the ledger,the version has no state entry in History,B
+platform-state.mjs,68,and the ledger's link recorded no tag,and History's link recorded no tag,B
+platform-state.mjs,73,"the gate's labels live there, only","the check labels live there, only",B
+platform-state.mjs,76,the label already names ledger #${row.id} or a newer state: row,the label already names History #${row.id} or a newer state entry,B
+platform-state.mjs,80,the platform or the ledger answered:,the platform or History answered:,B
+platform-state.test.mjs,115,the version has no state: row on the ledger,the version has no state entry in History,B
+platform-state.test.mjs,155,and the ledger's link recorded no tag,and History's link recorded no tag,B
+platform-state.test.mjs,177,the label already names ledger #812 or a newer state: row,the label already names History #812 or a newer state entry,B
+platform-state.test.mjs,184,the platform or the ledger answered:,the platform or History answered:,B
+office-checks.mjs,51,"The snapshot carried no ruleset, so the office's naming rules cannot be checked.","The snapshot carried no naming rules, so the office's naming rules cannot be checked.",B
+office-checks.mjs,63,No type-naming (TN) rule in the office ruleset —,No type-naming (TN) rule in the office standards —,B
+office-checks.mjs,68,types in the governed categories (,types in the categories the standard covers (,B
+office-checks.mjs,72,of ${governed.length} governed types (,of ${governed.length} types the standard covers (,B
+office-checks.mjs,85,No workset whitelist rule in the office ruleset.,No workset whitelist rule in the office standards.,B
+office-checks.mjs,109,"names no ruleset (${scan.doc_title}, ${day(scan.at)}) — install a ruleset on the project","names no rules (${scan.doc_title}, ${day(scan.at)}) — install standards on the project",B
+office-checks.mjs,160,The office ruleset carries naming rules,The office standards carry naming rules,B
+office-checks.mjs,166,Every parameter the ruleset requires,Every parameter the standards require,B
+office-checks.mjs,179,A container naming standard (the naming artefact) is in force,A file naming standard is in force,B
+photo-store.mjs,19,survey/blur.py is missing from the bridge's checkout,survey/blur.py is missing from this installation,B
+drawing-service.mjs,25,build it in the bridge's checkout (dotnet,build it in this installation's folder (dotnet,B
+drawing-service.test.mjs,73,build it in the bridge's checkout (dotnet,build it in this installation's folder (dotnet,B
+survey-service.mjs,33,survey/service.py is missing from the bridge's checkout,survey/service.py is missing from this installation,B
+survey-service.test.mjs,91,survey/service.py is missing from the bridge's checkout,survey/service.py is missing from this installation,B
+proposal-model.mjs,83,on a level this changeset does not tell,on a level these proposed changes do not tell,B
+request-limits.mjs,67,the bridge is reading too many large requests at once,Sentinel is reading too many large requests at once,B
+request-limits.mjs,140,you already have an upload running on the bridge — wait,you already have an upload running — wait,B
+request-limits.mjs,142,the bridge is already taking ${MAX_UPLOADS} uploads,Sentinel is already taking ${MAX_UPLOADS} uploads,B
+ai-gateway.mjs,122,return `No API key — set ${p.env} in config/.env and restart the bridge.`;,return `No API key is set for this provider. Ask your administrator to add one and restart Sentinel (${p.env} in config/.env).`;,B
+proposal-model.test.mjs,111,on a level this changeset does not tell,on a level these proposed changes do not tell,B
+ai-gateway.mjs,122,No API key is set for this provider. Ask your administrator to add one and restart Sentinel (${p.env} in config/.env).`;,No API key is set for this provider. Ask your administrator to add one and restart Sentinel.`;,B
+ai-gateway.mjs,129,export function listProviders(,"/** The setting behind a blockedReason, for the administrator (a Details line), or null. */
+export function blockedDetail(id) {
+  const p = Object.hasOwn(PROVIDERS, id) ? PROVIDERS[id] : undefined;
+  return p?.cloud && id !== ""claude"" && !keyOf(id) ? `Set ${p.env} in config/.env, then restart the bridge.` : null;
+}
+
+export function listProviders(",B
+ai-gateway.mjs,188,"if (blocked) throw Object.assign(new Error(blocked), { status: 400 });","if (blocked) throw Object.assign(new Error(blocked), { status: 400, detail: blockedDetail(provider) });",B
+deliverables-logic.mjs,370,"L.push(""## By task team (TIDP)"");","L.push(""## By task team"");",B
+deliverables-logic.mjs,374,so there are no TIDPs to report.,so there are no team delivery plans to report.,B
+deliverables-logic.mjs,398,derived from the CDE at read time,derived from the project's files at read time,B
+deliverables-logic.mjs,346,stuck in WIP.**,stuck in work in progress.**,B
+deliverables-logic.mjs,353,"${k.replace(""_"", "" "")} |","${k === ""in_wip"" ? ""work in progress"" : k.replace(""_"", "" "")} |",B
+deliverables-logic.test.mjs,591,stuck in WIP/,stuck in work in progress/,B
+bimdocs-store.mjs,215,"err(409, ""A TIDP is never published; its rows live in Documents ▸ Delivery plan."")","err(409, ""A team delivery plan is never published; its rows live in Documents ▸ Delivery plan."")",B
+rounds-store.test.mjs,220,A TIDP is never published; its rows live,A team delivery plan is never published; its rows live,B
+bimdocs-store.mjs,565,"throw err(422, `This section is bound to checks (${ids.join("", "")}); confirm to remove it. Nothing was saved.`);","throw Object.assign(err(422, ""This section is tied to checks; confirm to remove it. Nothing was saved.""), { detail: `Checks: ${ids.join("", "")}` });",B
+bimdocs-structure.test.mjs,144,This section is bound to checks (naming.containers); confirm to remove it. Nothing was saved,This section is tied to checks; confirm to remove it. Nothing was saved,B
+doc-checks.mjs,131,incomplete or not mappable to IDS.`,incomplete or not mappable to a data requirement.`,B
+doc-checks.mjs,132,complete and mapped to IDS.`,complete and mapped to data requirements.`,B
+doc-checks.test.mjs,82,complete and mapped to IDS.,complete and mapped to data requirements.,B
+doc-text.mjs,37,another document is being read on the bridge — try again,another document is being read — try again,B
+doc-text.mjs,68,this file is not a .docx the bridge reads (${why}) — save it again from Word as .docx and upload that; nothing was read or saved,this file is not a .docx Sentinel can read (${why}) — save it again from Word as .docx and upload that; nothing was read or saved,B
+doc-text.test.mjs,176,another document is being read on the bridge — try,another document is being read — try,B
+doc-text.test.mjs,65,not a .docx the bridge reads,not a .docx Sentinel can read,B
+clash-triage.ts,132,in one changeset — propose the rest after these are applied,in one set of proposed changes — propose the rest after these are applied,B
+schedule.ts,117,not in the MIDP — nobody is due,not in the delivery plan — nobody is due,B
+schedule.test.ts,38,not in the MIDP — nobody is due,not in the delivery plan — nobody is due,B
+journey-logic.test.mjs,66,Quality ▸ Compile to IDS ▸ Install on this project,Quality ▸ Turn into data requirements ▸ Install on this project,B
+journey-logic.test.mjs,132,the latest pass did not judge 1 live model(s) — run the Federation Gate on the whole live set,the latest pass did not judge 1 live model(s) — run the coordination check on the whole live set,B
+journey-logic.test.mjs,133,"""the Federation Gate has not run""","""the coordination check has not run""",B
+journey-logic.test.mjs,134,latest Federation Gate: fail,latest coordination check: fail,B
+journey-logic.test.mjs,208,re-run the Federation Gate,re-run the coordination check,B
+journey-store.test.mjs,44,the Federation Gate has not run,the coordination check has not run,B
+journey-store.test.mjs,91,UTC · ledger #,UTC · History #,B
+src/setups/active-ruleset.ts,14,No ruleset installed for this project — install one from Settings ▸ Standards library,No project standards are installed for this project — install them from Settings ▸ Standards library,C1
+src/setups/active-ruleset.ts,113,and the ruleset sets none.`,and the project standards set none.`,C1
+src/setups/active-ruleset.ts,114,which the ruleset does not set:,which the project standards do not set:,C1
+src/setups/ai-picker.ts,19,keys stay in the bridge;,keys stay on the office PC;,C1
+src/setups/carbon-panel.ts,75,"(a lead's; versioned, on the ledger)","(a lead's; versioned, recorded in History)",C1
+src/setups/carbon-panel.ts,257,— on the ledger; every carbon figure now names it.,— recorded in History; every carbon figure now names it.,C1
+src/setups/carbon-panel.ts,257,"Installed as carbon_factors@${a?.version ?? ""?""} —","Installed as the carbon factors, version ${a?.version ?? ""?""} —",C1
+src/setups/active-ruleset.test.ts,33,"toBe(""No ruleset installed for this project — install one from Settings","toBe(""No project standards are installed for this project — install them from Settings",C1
+src/setups/copilot-panel.ts,51,throw new Error(`can't reach the bridge (${(e as Error)?.message ?? String(e)})`),throw new Error(`Sentinel is not connected (${(e as Error)?.message ?? String(e)})`),C1
+src/setups/copilot-panel.ts,254,"a.sources.includes(""BCF service"")) a = { text: `Issues not read — ${g.issuesNotRead}`, sources: [""BCF service""] }","a.sources.includes(""Issues"")) a = { text: `Issues not read — ${g.issuesNotRead}`, sources: [""Issues""] }",C1
+src/setups/copilot/engine.ts,157,"sources: [""BCF service""]","sources: [""Issues""]",C1
+src/setups/copilot/engine.ts,85,"""no ruleset"");","""no project standards"");",C1
+src/setups/deliverables-panel.ts,106,The MIDP as ISO 19650 defines it — an aggregation of task-team TIDPs,The delivery plan as ISO 19650 defines it — an aggregation of each task team's delivery plan,C1
+src/setups/deliverables-panel.ts,240,"— in the CDE, named by no deliverable","— in the project's files, named by no deliverable",C1
+src/setups/deliverables-panel.ts,478,"""MIDP — by task team""","""Delivery plan — by task team""",C1
+src/setups/deliverables-panel.ts,496,`TIDP not read —,`Team delivery plan not read —,C1
+src/setups/deliverables-panel.ts,502,`MIDP · ${rep.midp.total},`Delivery plan · ${rep.midp.total},C1
+src/setups/deliverables-panel.ts,514,"— an empty TIDP, not a finished one.","— an empty team delivery plan, not a finished one.",C1
+src/setups/deliverables-panel.ts,561,This TIDP is empty —,This team delivery plan is empty —,C1
+src/setups/deliverables-panel.ts,698,it owns a TIDP and names one accountable person.,it owns a team delivery plan and names one accountable person.,C1
+src/setups/deliverables-panel.ts,848,— each change is on the ledger.`,— each change is recorded in History.`,C1
+src/setups/deliverables-panel.ts,152,"names the container expected,","names the file expected,",C1
+src/setups/deliverables-panel.ts,173,who published a container but,who published a file but,C1
+src/setups/deliverables-panel.ts,332,"""Expected container name (required)""","""Expected file name (required)""",C1
+src/setups/deliverables-panel.ts,353,Expected container name — how,Expected file name — how,C1
+src/setups/deliverables-panel.ts,397,"One row per line: container name, title,","One row per line: file name, title,",C1
+src/setups/deliverables-panel.ts,651,Owns no container: works,Owns no file: works,C1
+src/setups/deliverables-panel.ts,791,"One row per line: container name, then","One row per line: file name, then",C1
+src/setups/sheet-midp.ts,21,`MIDP not read —,`Delivery plan not read —,C1
+src/setups/sheet-midp.ts,25,`MIDP: ${label},`Delivery plan: ${label},C1
+src/setups/sheet-midp.test.ts,13,"toBe(""not in the MIDP"")","toBe(""not in the delivery plan"")",C1
+src/setups/sheet-midp.test.ts,14,"toBe(""MIDP not read — HTTP 500"")","toBe(""Delivery plan not read — HTTP 500"")",C1
+src/workspace/live-editors.ts,13,"[""midp"", ""MIDP""], [""tidp"", ""TIDP of a task team""]","[""midp"", ""Delivery plan""], [""tidp"", ""Team delivery plan of a task team""]",C1
+src/workspace/live-editors.ts,84,whose TIDP to show.,whose team delivery plan to show.,C1
+src/workspace/live-editors.test.ts,52,"[""MIDP"", ""TIDP of a task team"",","[""Delivery plan"", ""Team delivery plan of a task team"",",C1
+src/setups/sheet-midp.ts,23,"text: ""not in the MIDP""","text: ""not in the delivery plan""",C1
+src/setups/files-panel.ts,240,${failed} of ${got.length} ledger reads failed:,${failed} of ${got.length} History reads failed:,C1
+src/setups/files-panel.ts,241,of ${total} ledger rows (the newest).,of ${total} History rows (the newest).,C1
+src/setups/files-panel.ts,272,Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).,Sentinel's storage is not set up on this installation — ask your administrator.,C1
+src/setups/files-panel.ts,457,its record and sha256 stay on the pack and the ledger.,its record and fingerprint stay on the pack and in History.,C1
+src/setups/files-panel.ts,665,Why dismiss it? The ledger records the reason.,Why dismiss it? History records the reason.,C1
+src/setups/files-panel.ts,673,(the ledger row keeps the first 50),(the History entry keeps the first 50),C1
+src/setups/files-panel.ts,696,this bridge is older than MA-2c,this installation is older than MA-2c,C1
+src/setups/files-panel.ts,711,"counted in Revit, not by the bridge)","counted in Revit, not by Sentinel)",C1
+src/setups/files-panel.ts,898,A lead proposes a done job: the bridge types walls,A lead proposes a done job: Sentinel types walls,C1
+src/setups/files-panel.ts,898,into one changeset per storey for review,into one set of proposed changes per storey for review,C1
+src/setups/files-panel.ts,905,the bridge types its walls exactly,Sentinel types its walls exactly,C1
+src/setups/files-panel.ts,906,reads an admitted .ifc inside the bridge (,reads an admitted .ifc inside Sentinel (,C1
+src/setups/files-panel.ts,922,"title=""Re-hash every admitted file; a changed one goes on hold""","title=""Compare every admitted file with its record; a changed one goes on hold""",C1
+src/setups/files-panel.ts,973,Your reason — recorded on the ledger,Your reason — recorded in History,C1
+src/setups/files-panel.ts,1107,"`IDS ${r.ids ?? """"} — ${r.passing}",`Data requirements — ${r.passing},C1
+src/setups/files-panel.ts,1107,"""governed verdict""","""check result""",C1
+src/setups/files-panel.ts,1148,"with a reason, which the ledger records.","with a reason, which History records.",C1
+src/setups/files-panel.ts,1186,the ledger's geometry link could not be read,the geometry link in History could not be read,C1
+src/setups/geometry-check.ts,49,the ledger links another platform item,History links another platform item,C1
+src/setups/geometry-check.ts,52,geometry checked against the ledger's link,geometry checked against its record in History,C1
+src/setups/geometry-check.ts,55,geometry not hash-checked — the item's first,geometry not compared with its record — the item's first,C1
+src/setups/geometry-check.ts,56,geometry not hash-checked — the ledger holds no geometry link,geometry not compared with its record — History holds no geometry link,C1
+src/setups/geometry-check.ts,57,geometry not hash-checked — this version was linked before Sentinel recorded the geometry's hash,geometry not compared with its record — this version was linked before Sentinel recorded the geometry's fingerprint,C1
+src/setups/geometry-check.test.ts,32,the ledger links another platform item,History links another platform item,C1
+src/setups/geometry-check.test.ts,21,geometry checked against the ledger's link,geometry checked against its record in History,C1
+src/setups/geometry-check.test.ts,11,geometry not hash-checked — the item's first,geometry not compared with its record — the item's first,C1
+src/setups/geometry-check.test.ts,10,geometry not hash-checked — the ledger holds no geometry link,geometry not compared with its record — History holds no geometry link,C1
+src/setups/geometry-check.test.ts,9,geometry not hash-checked — this version was linked before Sentinel recorded the geometry's hash,geometry not compared with its record — this version was linked before Sentinel recorded the geometry's fingerprint,C1
+src/setups/geometry-check.test.ts,71,the ledger's geometry link could not be read,the geometry link in History could not be read,C1
+src/setups/holding.ts,56,"gate: ""delivery gate"", naming: ""naming standard"", ids: ""IDS""","gate: ""pre-publish check"", naming: ""naming standard"", ids: ""data requirements""",C1
+src/setups/holding.ts,57,"revit: ""Governed Publish""","revit: ""Publish""",C1
+src/setups/holding.ts,84,(the bridge may have stored it; ↻ to check),(Sentinel may have stored it; ↻ to check),C1
+src/setups/holding.ts,90,"words: ""the delivery gate""","words: ""the pre-publish check""",C1
+src/setups/holding.ts,92,"words: ""the IDS""","words: ""the data requirements""",C1
+src/setups/holding.ts,99,not on hold — the bridge returned no hold row,not on hold — Sentinel returned no hold entry,C1
+src/setups/holding.ts,105,"""recorded (the IDS did not judge it)""","""recorded (the data requirements did not judge it)""",C1
+src/setups/holding.ts,106,"`accepted · IDS ${r.ids_ref ?? """"}: ${passing} of ${inScope} checks passed, kept as warnings (the IDS is set to warn)`.replace(""IDS :"", ""IDS:"")","`accepted · data requirements ${r.ids_ref ?? """"}: ${passing} of ${inScope} checks passed, kept as warnings (the data requirements are set to warn)`.replace(""requirements :"", ""requirements:"")",C1
+src/setups/holding.ts,107,"${r.ids_ref ?? ""IDS""}: ${passing}/${inScope} passed","${r.ids_ref ?? ""data requirements""}: ${passing}/${inScope} passed",C1
+src/setups/holding.ts,124,the bridge answered without a list,Sentinel could not answer,C1
+src/setups/holding.ts,154,a dismissal needs a reason — the ledger records it,a dismissal needs a reason — History records it,C1
+src/setups/holding.test.ts,50,(the bridge may have stored it; ↻ to check),(Sentinel may have stored it; ↻ to check),C1
+src/setups/holding.test.ts,64,"accepted · IDS ids@3: 0 of 2 checks passed, kept as warnings (the IDS is set to warn)","accepted · data requirements ids@3: 0 of 2 checks passed, kept as warnings (the data requirements are set to warn)",C1
+src/setups/holding.test.ts,69,recorded (the IDS did not judge it),recorded (the data requirements did not judge it),C1
+src/setups/holding.test.ts,74,Not uploaded — the delivery gate refused,Not uploaded — the pre-publish check refused,C1
+src/setups/holding.test.ts,84,Not uploaded — the IDS refused,Not uploaded — the data requirements refused,C1
+src/setups/holding.test.ts,136,the bridge answered without a list,Sentinel could not answer,C1
+src/setups/holding.test.ts,151,a dismissal needs a reason — the ledger records it,a dismissal needs a reason — History records it,C1
+src/setups/holding.test.ts,90,not on hold — the bridge returned no hold row,not on hold — Sentinel returned no hold entry,C1
+src/setups/ids-from-standards.ts,32,"${g.current ?? ""The IDS""} was generated from an earlier contract or naming rules","${g.current ?? ""The data requirements""} were generated from earlier pre-publish check rules or naming rules",C1
+src/setups/ids-from-standards.ts,44,>IDS from the standards in force<,>Data requirements from the standards in force<,C1
+src/setups/ids-from-standards.ts,45,"""no contract or naming rules — none is installed""","""no pre-publish check rules or naming rules — none is installed""",C1
+src/setups/ids-from-standards.ts,46,"""No IDS is installed yet.""","""No data requirements are installed yet.""",C1
+src/setups/ids-from-standards.ts,50,can be checked as an IDS — see below.,can be checked as data requirements — see below.,C1
+src/setups/ids-from-standards.ts,51,Not in the IDS (,Not in the data requirements (,C1
+src/setups/ids-from-standards.ts,55,"an IDS needs at least one check, and neither these standards nor ${esc(g.current ?? ""an IDS in force"")} give one.","data requirements need at least one check, and neither these standards nor ${esc(g.current ?? ""the data requirements in force"")} give one.",C1
+src/setups/ids-from-standards.ts,58,Install as the project's IDS,Use as the project's data requirements,C1
+src/setups/ids-from-standards.test.ts,22,was generated from an earlier contract or naming rules,were generated from earlier pre-publish check rules or naming rules,C1
+src/setups/ids-from-standards.ts,32,— generate it again to bring it up to date,— generate them again to bring them up to date,C1
+src/setups/ids-from-standards.test.ts,22,— generate it again to bring it up to date,— generate them again to bring them up to date,C1
+src/workspace/loin-compile.ts,26,"btn(d, ""Compile to IDS"")","btn(d, ""Turn into data requirements"")",C1
+src/workspace/loin-compile.ts,34,`The IDS in force could not be read: ,`The data requirements in force could not be read: ,C1
+src/workspace/loin-compile.ts,47,"specifications""} out of the IDS.`","specifications""} out of the data requirements.`",C1
+src/workspace/loin-compile.ts,48,"""Nothing to install: the IDS in force already requires every row.""","""Nothing to install: the data requirements in force already require every row.""",C1
+src/workspace/loin-compile.ts,49,"""The IDS in force could not be read; nothing can be installed now.""","""The data requirements in force could not be read; nothing can be installed now.""",C1
+src/workspace/loin-compile.ts,51,Install as the project's IDS,Use as the project's data requirements,C1
+src/workspace/loin-compile.ts,57,"install.textContent = ""Installed""; result.textContent = `Installed ids@${p.version} on ${key}.`;","install.textContent = ""Installed""; result.replaceChildren(withDetails(""Data requirements installed."", `ids@${p.version} on ${key}`));",C1
+src/workspace/loin-compile.ts,61,"""The IDS in force changed while you looked; compile again. Nothing was installed.""","""The data requirements in force changed while you looked; turn them again. Nothing was installed.""",C1
+src/workspace/loin-compile.test.ts,36,Installed ids@4 on k.,Data requirements installed.,C1
+src/workspace/loin-compile.test.ts,48,the IDS in force already requires every row,the data requirements in force already require every row,C1
+src/workspace/loin-compile.test.ts,43,out of the IDS.,out of the data requirements.,C1
+src/workspace/loin-compile.test.ts,61,The IDS in force changed while you looked; compile again.,The data requirements in force changed while you looked; turn them again.,C1
+src/workspace/loin-compile.ts,4,"import { canGovernRole } from ""../setups/my-role"";","import { canGovernRole } from ""../setups/my-role"";
+import { withDetails } from ""../setups/details"";",C1
+src/workspace/loin-compile.test.ts,31,"""Compile to IDS""","""Turn into data requirements""",C1
+src/workspace/loin-compile.test.ts,34,Install as the project's IDS,Use as the project's data requirements,C1
+src/workspace/loin-compile.ts,58,"result.replaceChildren(withDetails(""Data requirements installed."", `ids@${p.version} on ${key}`));","result.textContent = ""Data requirements installed.""; const det = h(d, ""details"", ""display:inline-block;margin-left:.4rem""); det.append(h(d, ""summary"", ""cursor:pointer"", ""Details""), h(d, ""code"", """", `ids@${p.version} on ${key}`)); result.append(det);",C1
+src/workspace/r3-editors.test.ts,35,"""Compile to IDS""","""Turn into data requirements""",C1
+src/setups/sheet-midp.test.ts,9,"""MIDP: in WIP","""Delivery plan: in WIP",C1
+src/setups/sheet-midp.test.ts,10,"toBe(""MIDP: delivered"")","toBe(""Delivery plan: delivered"")",C1
+src/setups/project-shell.ts,173,`Ruleset not read — ${rulesetErr}`,`Project standards not read — ${rulesetErr}`,C1
+src/setups/project-shell.ts,226,"msg(""Running the gate on the bridge…"")","msg(""Running the stage check…"")",C1
+src/setups/project-shell.ts,230,`Gate not run — ${String(,`Stage check not run — ${String(,C1
+src/setups/project-shell.ts,251,"`${gate} · ${ledgerLine(row.ledger ?? null)}` : ""no gate recorded""","`${gate === ""pass"" ? ""Ready"" : gate === ""hold"" ? ""Not ready"" : ""Cannot be checked""} · ${ledgerLine(row.ledger ?? null)}` : ""no stage check recorded""",C1
+src/setups/project-shell.ts,298,"""preview — Run gate measures on the bridge""","""preview — the stage check measures it when you run it""",C1
+src/setups/project-shell.ts,300,Stage gate · ${esc(,Stage check · ${esc(,C1
+src/setups/project-shell.ts,302,No gate defined for this stage.,No stage check defined for this stage.,C1
+src/setups/project-shell.ts,310,"""measured on the bridge from the newest lod_state ledger row — Run gate""","""measured by Sentinel from the newest level-of-detail entry in History — when you run the stage check""",C1
+src/setups/project-shell.ts,319,"""GATE PASS"" : st === ""not_checkable"" ? `GATE NOT CHECKABLE — not measured: ${esc(naLabels)}` : ""GATE HOLD""","""READY"" : st === ""not_checkable"" ? `CANNOT BE CHECKED — not measured: ${esc(naLabels)}` : ""NOT READY""",C1
+src/setups/project-shell.ts,323,>Run gate → advance to ${esc(next.nm)}<,>Check and move to ${esc(next.nm)}<,C1
+src/setups/project-shell.ts,325,a lead or owner runs the gate.,a lead or owner runs the stage check.,C1
+src/setups/next-strip.ts,43,`Standards in force: IDS ${refText(j.standards.ids)} · Rules ${refText(j.standards.ruleset)} ·,`Standards in force: Data requirements ${refText(j.standards.ids)} · Project standards ${refText(j.standards.ruleset)} ·,C1
+src/setups/next-strip.test.ts,51,Standards in force: IDS ,Standards in force: Data requirements ,C1
+src/setups/next-strip.test.ts,51, · Rules ruleset@1, · Project standards ruleset@1,C1
+src/setups/my-role.ts,37,sign-in not accepted by the bridge — sign in again; read-only,Your sign-in was not accepted. Sign in again — read-only,C1
+src/setups/my-role.test.ts,33,sign-in not accepted by the bridge — sign in again; read-only,Your sign-in was not accepted. Sign in again — read-only,C1
+src/setups/qa-panel.ts,207,"""the ruleset installed for this project""","""the project standards installed for this project""",C1
+src/setups/tender-panel.ts,76,can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)},Sentinel is not connected. Ask your administrator to start Sentinel on the office PC.<br>${esc((e as Error).message)},C1
+src/setups/projects-hub-panel.ts,71,>governed CDE dataset<,>your project files<,C1
+src/setups/projects-hub-panel.ts,226,— the bridge lists them only for a signed-in account.,— Sentinel lists them only for a signed-in account.,C1
+src/setups/projects-hub-panel.ts,335,"""Not signed in — the bridge answered 401.""","""Your sign-in was not accepted. Sign in again.""",C1
+src/setups/projects-hub-panel.ts,347,`can’t reach the bridge at ${base}`,`Sentinel is not connected (${base})`,C1
+src/setups/projects-hub-panel.ts,388,"""The CDE isn’t configured yet. Add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to "" +","""Sentinel’s storage is not set up on this installation. <details><summary>Details</summary>For the administrator: add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to "" +",C1
+src/setups/projects-hub-panel.ts,389,"and restart the bridge (<code>npm run bcf:serve</code>) to list governed projects."" +","and restart Sentinel (<code>npm run bcf:serve</code>) to list projects.</details>"" +",C1
+src/setups/projects-hub-panel.ts,391,"""CDE not configured (503).""","""Sentinel’s storage is not set up on this installation.""",C1
+src/setups/projects-hub-panel.ts,426,"`Can’t reach the bridge at ${base}${/localhost|127\.0\.0\.1/.test(base) ? "" — start it with: npm run bcf:serve"" : """"}.`",`Sentinel is not connected (${base}). Ask your administrator to start Sentinel on the office PC.`,C1
+src/workspace/workspace-state.ts,55,"""The bridge did not answer. Nothing was saved.""","""Sentinel is not connected. Nothing was saved.""",C1
+src/workspace/workspace-state.ts,67,`The bridge refused this (HTTP ${r.status}).${tail}`,"`${r.status === 403 ? ""You do not have permission for this"" : ""Sentinel could not do this""} (HTTP ${r.status}).${tail}`",C1
+src/workspace/workspace-state.ts,101,"""the bridge did not answer""","""Sentinel is not connected""",C1
+src/workspace/workspace-state.ts,157,"""The bridge did not answer.""","""Sentinel is not connected.""",C1
+src/workspace/workspace-state.test.ts,159,The bridge did not answer. Nothing was saved.,Sentinel is not connected. Nothing was saved.,C1
+src/workspace/review-tab.ts,50-52,· ledger #n,· History #n,C1
+src/workspace/review-tab.test.ts,47-260,· ledger #n (quoted),· History #n,C1
+src/setups/standard-forms.ts,88,when it passes the delivery gate.,when it passes the pre-publish check.,C1
+src/setups/standard-forms.ts,89,when a saved model passes the gate,when a saved model passes the pre-publish check,C1
+src/setups/standard-forms.ts,182,Minutes saved per delivery gate run,Minutes saved per pre-publish check run,C1
+src/setups/standard-forms.ts,185,multiplies Sentinel's ledger counts by,multiplies Sentinel's History counts by,C1
+src/setups/standard-forms.ts,268,"title: ""Delivery contract""","title: ""Pre-publish check rules""",C1
+src/setups/standard-forms.ts,269,"to pass the delivery gate (intake, Governed Publish and the platform gate read it).","to pass the pre-publish check (intake, Publish and the platform check read it).",C1
+src/setups/standard-forms.ts,271,"""Contract name (letters","""Rules name (letters",C1
+src/setups/standard-forms.ts,306,"""The contract name is 1 to 100","""The rules name is 1 to 100",C1
+src/setups/views-panel.ts,46,"title=""Reload views from the Bridge""","title=""Reload views from Sentinel""",C1
+src/setups/views-panel.ts,111,"""Loading views from the Bridge…""","""Loading views from Sentinel…""",C1
+src/setups/views-panel.ts,138,`can't reach the bridge (${m})`,`Sentinel is not connected (${m})`,C1
+src/setups/views-panel.ts,141,`Couldn't reach the Bridge (${m}). Start it: node bridge/bcf-service.mjs`,`Sentinel is not connected (${m}). Ask your administrator to start Sentinel on the office PC.`,C1
+src/setups/visibility-panel.ts,38,"title=""Validate the model against an IDS (results in console)"">IDS ✓<","title=""Check the model against the data requirements (results in console)"">Check data<",C1
+src/setups/visibility-panel.ts,39,(else the built-in demo IDS is used),(else the built-in demo data requirements are used),C1
+src/setups/visibility-panel.ts,134,All visible · ghosts + IDS colours cleared.,All visible · ghosts + data-check colours cleared.,C1
+src/setups/visibility-panel.ts,156,built-in demo IDS (project IDS not read — ${why}),built-in demo data requirements (project data requirements not read — ${why}),C1
+src/setups/visibility-panel.ts,163,`project ids@${a.version}`,`project data requirements (ids@${a.version})`,C1
+src/setups/visibility-panel.ts,167,notRead(reached ? m : `can't reach the bridge (${m})`),notRead(reached ? m : `Sentinel is not connected (${m})`),C1
+src/setups/visibility-panel.ts,174,· Running IDS “${idsSpec.title}”…,· Checking data against “${idsSpec.title}”…,C1
+src/setups/visibility-panel.ts,185,`IDS “${idsSpec.title}”: no in-scope,`Data requirements “${idsSpec.title}”: no in-scope,C1
+src/setups/visibility-panel.ts,186,`IDS “${idsSpec.title}”: ${compliant}/,`Data requirements “${idsSpec.title}”: ${compliant}/,C1
+src/setups/visibility-panel.ts,187,"""IDS failed: ""","""Data check failed: """,C1
+src/setups/visibility-panel.ts,216,"font-weight:600;margin-bottom:.4rem"">IDS “${esc(idsSpec.title)}”","font-weight:600;margin-bottom:.4rem"">Data requirements “${esc(idsSpec.title)}”",C1
+src/setups/visibility-panel.ts,225,"title=""Create a BCF issue per requirement + an immutable CDE audit record"">⚑ Raise ${rows.length} BCF issue(s) + record in CDE<","title=""Create an issue per requirement and record it in History"">⚑ Raise ${rows.length} issue(s) + record in History<",C1
+src/setups/visibility-panel.ts,250,"""Run IDS first.""","""Run the data check first.""",C1
+src/setups/visibility-panel.ts,269,already have open BCF issues — nothing new,already have open issues — nothing new,C1
+src/setups/visibility-panel.ts,290,"`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : """"} → Issues + Revit; recorded in the CDE audit (hash-chained).`","`Raised ${raised} new issue(s)${skipped ? `, skipped ${skipped} already tracked` : """"} → Issues + Revit; recorded in History.`",C1
+src/setups/visibility-panel.ts,314,status(`Loaded IDS “${idsSpec.title}”,status(`Loaded data requirements “${idsSpec.title}”,C1
+src/setups/visibility-panel.ts,314,Press “IDS ✓” to run.,Press “Check data” to run.,C1
+src/setups/visibility-panel.ts,316,"""IDS parse failed: ""","""Could not read the .ids file: """,C1
+src/setups/visibility-panel.ts,150,built-in demo IDS,built-in demo data requirements,C1
+src/setups/review-desk.ts,153,from the survey changeset this was proposed from (the bridge checked its level,from the survey's proposed changes this was proposed from (Sentinel checked its level,C1
+src/setups/review-desk.ts,192,carried here by the bridge`,carried here by Sentinel`,C1
+src/setups/review-desk.ts,258,the bridge answered without a list,Sentinel could not answer,C1
+src/setups/review-desk.ts,287,the bridge answered without rows,Sentinel could not answer,C1
+src/setups/review-desk.ts,550,the bridge answered without runs,Sentinel could not answer,C1
+src/setups/review-desk.ts,593,the bridge answered without recipes,Sentinel could not answer,C1
+src/setups/review-desk.ts,298,the ledger holds more rows for these reports,History holds more rows for these reports,C1
+src/setups/review-desk.ts,315,the older ones are on the ledger.,the older ones are in History.,C1
+src/setups/review-desk.ts,326,`ledger row ${ledger.message}`,`History entry ${ledger.message}`,C1
+src/setups/review-desk.ts,326,"""no ledger row found for it""","""no History entry found for it""",C1
+src/setups/review-desk.ts,328,· reverted in Revit by ${rev.revert.by},· undone in Revit by ${rev.revert.by},C1
+src/setups/review-desk.ts,331,a changeset_reverted row follows the report,an undo is recorded after the report,C1
+src/setups/review-desk.ts,366,a decline needs a reason — the ledger records it and Revit shows it,a decline needs a reason — History records it and Revit shows it,C1
+src/setups/review-desk.ts,376,a re-open needs a reason — the ledger records it,a re-open needs a reason — History records it,C1
+src/setups/review-desk.ts,396,"""the bridge named no ledger row""","""Sentinel named no History entry""",C1
+src/setups/review-desk.ts,432,"`Survey changeset ${x.entity_id.slice(0, 8)}`","`Survey proposed changes ${x.entity_id.slice(0, 8)}`",C1
+src/setups/review-desk.ts,469," as filed (the changeset's geometry,"," as filed (the proposed changes' geometry,",C1
+src/setups/review-desk.ts,619,its body does not hash to the sha256 it was installed with,its content no longer matches its fingerprint from when it was installed,C1
+src/setups/review-desk.ts,786,Revit has reported no changeset on this project.,Revit has reported no proposed changes on this project.,C1
+src/setups/review-desk.ts,824,the bridge refuses an undone one,Sentinel refuses an undone one,C1
+src/setups/review-desk.ts,953,A changeset stays proposed until Revit applies or declines it — a decline is carried: the next changeset that proposes the same change,Proposed changes stay proposed until Revit applies or declines them — a decline is carried: the next proposed changes that propose the same change,C1
+src/setups/review-desk.ts,953,a lead re-opens it here while its changeset is still proposed.,a lead re-opens it here while its proposed changes are still proposed.,C1
+src/setups/review-desk.ts,957,ghost(s) in ${s.changesets.length} changeset(s),ghost(s) in ${s.changesets.length} set(s) of proposed changes,C1
+src/setups/review-desk.ts,667,a level no element of this changeset stands on,a level no element of these proposed changes stands on,C1
+src/setups/review-desk.ts,various,ledger #n (13 places),History #n,C1
+src/setups/carbon-panel.ts,290,`can't reach the bridge (${m})`,`Sentinel is not connected (${m})`,C1
+src/setups/stage-gate.ts,34,"return `ledger #${id} · receipt ${hash.slice(0, 16)}…`;","return `History #${id} · receipt ${hash.slice(0, 16)}…`;",C2
+src/setups/stage-gate.ts,36,"return ""not confirmed — the bridge returned no chain hash"";","return ""not confirmed — Sentinel returned no receipt"";",C2
+src/setups/stage-gate.ts,44,`Gate PASS — advanced to ${stageName(reply.next_stage ?? reply.stage)} · ${row}`,`Stage check: Ready — moved to ${stageName(reply.next_stage ?? reply.stage)} · ${row}`,C2
+src/setups/stage-gate.ts,45,`Gate HOLD — clear the failing checks below · ${row}`,`Stage check: Not ready — clear the failing checks below · ${row}`,C2
+src/setups/stage-gate.ts,47,`Gate not checkable — ${na} · ${row}`,`Stage check: Cannot be checked — ${na} · ${row}`,C2
+src/setups/guide-panel.ts,29,boundary a <b>gate</b> checks the standard,boundary a <b>stage check</b> checks the standard,C2
+src/setups/guide-panel.ts,38,the current <b>stage gate</b>.,the current <b>stage check</b>.,C2
+src/setups/guide-panel.ts,41,<li>Read the gate: green,<li>Read the stage check: green,C2
+src/setups/guide-panel.ts,42,"<li>Press <b>Run gate → advance</b> — the bridge measures the gate itself, records it on the ledger and moves the project forward only on a pass; a check nothing measured leaves it not checkable, never passed.","<li>Press <b>Check and move to the next stage</b> — Sentinel measures the stage check itself, records it in History and moves the project forward only when it is ready; a check nothing measured is shown as cannot be checked, never as ready.",C2
+src/setups/guide-panel.ts,74,"QA, the Copilot and every gate immediately enforce it.","QA, the Copilot and every check immediately enforce it.",C2
+src/setups/guide-panel.ts,76,it becomes the active ruleset.,it becomes the project's standards.,C2
+src/setups/guide-panel.ts,120,Open RFIs block the coordination gate —,Open RFIs block the stage check —,C2
+src/setups/guide-panel.ts,127,to pass the handover gate.,to pass the handover stage check.,C2
+src/setups/account-line.ts,13,"""Signed in · not accepted by the bridge — sign in again""","""Your sign-in was not accepted. Sign in again.""",C2
+src/setups/auth.ts,152,"""at its next token refresh""","""the next time it renews its sign-in""",C2
+src/setups/project-switcher.ts,106,`can’t reach the bridge at ${base}`,`Sentinel is not connected (${base})`,C2
+src/setups/template-form.ts,37,A task team's delivery plan (TIDP) is made in Documents,A team delivery plan is made in Documents,C2
+src/setups/timeline-panel.ts,71,the last names the MIDP information each task needs,the last names the delivery plan information each task needs,C2
+src/setups/timeline-panel.ts,177,`MIDP not read — ${infoNotRead}.`,`Delivery plan not read — ${infoNotRead}.`,C2
+src/setups/owner-panel.ts,69,throw new Error(`can't reach the bridge (${(e as Error)?.message ?? String(e)})`),throw new Error(`Sentinel is not connected (${(e as Error)?.message ?? String(e)})`),C2
+src/setups/owner-panel.ts,93,not the recorded stage gate`,not the recorded stage check`,C2
+src/setups/deleted-items.ts,30,"""the bridge answered without a list""","""Sentinel could not answer""",C2
+src/setups/snapshot-store.ts,49,when the bridge dropped them,when they were dropped,C2
+src/setups/snapshot-store.ts,55,`can't reach the bridge (${(e as Error)?.message ?? e})`,`Sentinel is not connected (${(e as Error)?.message ?? e})`,C2
+src/setups/snapshot-store.ts,73,"""the bridge answered without a revision id""","""Sentinel could not answer""",C2
+src/setups/rfi-panel.ts,144,"""the bridge answered without a list""","""Sentinel could not answer""",C2
+src/setups/rfi-panel.ts,149,`can't reach the bridge (${e.message})`,`Sentinel is not connected (${e.message})`,C2
+src/setups/crypto.ts,203,"`the bridge answered HTTP ${r.status}${m ? `: ${m}` : """"}`","`Sentinel could not answer (HTTP ${r.status}${m ? `: ${m}` : """"})`",C2
+src/setups/crypto.ts,207,"""the bridge's answer was not JSON""","""Sentinel's answer could not be read""",C2
+src/setups/crypto.ts,282,"""Could not reach the bridge — the passphrase may not have been stored; unlock again with the same passphrase""","""Sentinel is not connected — the passphrase may not have been stored; unlock again with the same passphrase""",C2
+src/setups/bridge-fetch.ts,71,"""The bridge refused this (HTTP 403).""","""You do not have permission for this.""",C2
+src/setups/audit-pack.ts,24,ledger row(s)${,History row(s)${,C2
+src/setups/audit-pack.ts,24,"count(""ledger"", pack.ledger","count(""History"", pack.ledger",C2
+src/setups/audit-pack.ts,46,are not switched on for this bridge — no hash has been sent,are not switched on for this installation — no hash has been sent,C2
+src/setups/platform-deliveries-panel.ts,34,`can't reach the bridge (${(e as Error)?.message || String(e)})`,`Sentinel is not connected (${(e as Error)?.message || String(e)})`,C2
+src/setups/platform-deliveries-panel.ts,57,`can't reach the bridge (${e.message})`,`Sentinel is not connected (${e.message})`,C2
+src/setups/cde-panel.ts,32,"wip: ""WIP"", shared","wip: ""Work in progress"", shared",C2
+src/setups/cde-panel.ts,57,▤ CDE</span>,▤ Project files</span>,C2
+src/setups/cde-panel.ts,62,""">+ Container</button>",""">+ New file</button>",C2
+src/setups/cde-panel.ts,227,${inFolder(selected).length} container(s).`,${inFolder(selected).length} file(s).`,C2
+src/setups/cde-panel.ts,227,All files · ${containers.length} container(s).,All files · ${containers.length} file(s).,C2
+src/setups/cde-panel.ts,308,const why = down ? `can't reach the bridge (${(e as Error).message})` : (e as Error).message;,"const why = down ? ""Sentinel is not connected"" : (e as Error).message;",C2
+src/setups/cde-panel.ts,311,"status(`CDE not read — ${why}${down ? "". Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set."" : """"}`);","status(`Files not read — ${why}${down ? "". Ask your administrator to start Sentinel on the office PC."" : """"}`);
+      if (down) el(""cde-status"").append(withDetails("""", `${(e as Error).message}. Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set.`));",C2
+src/setups/cde-panel.ts,321,`Ledger: not read — ${e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message}`,`History: not read — ${e instanceof TypeError ? `Sentinel is not connected (${e.message})` : (e as Error).message}`,C2
+src/setups/cde-panel.ts,392,"""Your reason — recorded on the ledger""","""Your reason — recorded in History""",C2
+src/setups/cde-panel.ts,451,"""Note — a rejection needs one; the ledger records it""","""Note — a rejection needs one; History records it""",C2
+src/setups/cde-panel.ts,489,Ledger (append-only · one hash chain across all projects) — newest,History (append-only) — newest,C2
+src/setups/cde-panel.ts,517,"with a reason, which the ledger records.","with a reason, which History records.",C2
+src/setups/cde-panel.ts,535,New container in <b,New file in <b,C2
+src/setups/cde-panel.ts,545,"status(""Enter an ISO container name."")","status(""Enter an ISO file name."")",C2
+src/setups/cde-panel.ts,542,""">Create (WIP)</button>",""">Create (Work in progress)</button>",C2
+src/setups/clash-panel.ts,67,"registerError = ""the bridge answered without a list""","registerError = ""Sentinel could not answer""",C2
+src/setups/clash-panel.ts,69,registerError = `can't reach the bridge (${(e as Error).message})`,registerError = `Sentinel is not connected (${(e as Error).message})`,C2
+src/setups/clash-panel.ts,95,"<span id=""cl-fed-text"">Federation Gate: …</span>","<span id=""cl-fed-text"">Coordination check: …</span>",C2
+src/setups/clash-panel.ts,96,"container names and verdicts"">Run gate</button>","file names and check results"">Run check</button>",C2
+src/setups/clash-panel.ts,103,"title=""Raise the listed clashes as BCF + record in CDE"">","title=""Raise the listed clashes as Issues + record in the project's files"">",C2
+src/setups/clash-panel.ts,130,"""Federation Gate: not available on this bridge""","""Coordination check: not available on this installation""",C2
+src/setups/clash-panel.ts,130,`Federation Gate: not read — ${why}`,`Coordination check: not read — ${why}`,C2
+src/setups/clash-panel.ts,135,""" · ⚑ Raise locked until the gate passes""",""" · ⚑ Raise is locked until the coordination check passes""",C2
+src/setups/clash-panel.ts,138,`Federation Gate: NOT RUN ·,`Coordination check: NOT RUN ·,C2
+src/setups/clash-panel.ts,146,"`Federation Gate: ${v === ""not_checkable"" ? ""NOT CHECKABLE"" : v.toUpperCase()}`","`Coordination check: ${v === ""not_checkable"" ? ""CANNOT BE CHECKED"" : v.toUpperCase()}`",C2
+src/setups/clash-panel.ts,154,"""Federation Gate: not read — can't reach the bridge""","""Coordination check: not read — Sentinel is not connected""",C2
+src/setups/clash-panel.ts,154,`Federation Gate: not read — ${(e as Error).message}`,`Coordination check: not read — ${(e as Error).message}`,C2
+src/setups/clash-panel.ts,166,"b.textContent = ""Run gate"";","b.textContent = ""Run check"";",C2
+src/setups/clash-panel.ts,243,"title=""Linked BCF topic""","title=""Linked Issue""",C2
+src/setups/clash-panel.ts,346,`the Federation Gate could not be read (HTTP ${r.status})`,`the coordination check could not be read (HTTP ${r.status})`,C2
+src/setups/clash-panel.ts,348,"""this bridge does not report the gate's lock — restart it on the current version""","""this installation does not report the coordination check's lock — ask your administrator to update it""",C2
+src/setups/clash-panel.ts,350,`the Federation Gate could not be read — ${(e as Error).message}`,`the coordination check could not be read — ${(e as Error).message}`,C2
+src/setups/clash-panel.ts,395,They are not on the register or the ledger and will,They are not on the register or in History and will,C2
+src/setups/clash-panel.ts,404,provenance recorded in the clash register and on the ledger. They,provenance recorded in the clash register and in History. They,C2
+src/setups/clash-panel.ts,474,"with the reason, on the register and the ledger"">Mark not a clash","with the reason, on the register and in History"">Mark not a clash",C2
+src/setups/clash-panel.ts,477,propose deleting the copies as a changeset.,propose deleting the copies as proposed changes.,C2
+src/setups/clash-panel.ts,507,"(team-wide, on the ledger)","(team-wide, in History)",C2
+src/setups/clash-panel.ts,555,clash(es) on the register and the ledger.`,clash(es) on the register and in History.`,C2
+src/setups/clash-panel.ts,591,— on the register and the ledger; the Register can move one back.,— on the register and in History; the Register can move one back.,C2
+src/setups/evidence.ts,94,"""its record and sha stay""","""its record and fingerprint stay""",C2
+src/setups/evidence.ts,123,every file matches its admitted sha.`,every file matches its admitted fingerprint.`,C2
+src/setups/evidence.ts,437,(the bridge takes 1:1 to 1:2000),(Sentinel takes 1:1 to 1:2000),C2
+src/setups/evidence.ts,444,(the bridge refuses over 100),(Sentinel refuses over 100),C2
+src/setups/evidence.ts,505,element(s) in the Holding Area${held},element(s) in Waiting for approval${held},C2
+src/setups/evidence.ts,511,— ${v.topics.raised.length} BCF topic(s) raised,— ${v.topics.raised.length} issue(s) raised,C2
+src/setups/evidence.ts,519,each a person's row on the changeset (Sentinel never deletes),each a person's row in the proposed changes (Sentinel never deletes),C2
+src/setups/evidence.ts,521,"${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing","${r.changesets.length} set(s) of proposed changes, ${ghosts} ghost(s), none pre-ticked (a drawing",C2
+src/setups/evidence.ts,523,"${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (an IFC","${r.changesets.length} set(s) of proposed changes, ${ghosts} ghost(s), none pre-ticked (an IFC",C2
+src/setups/evidence.ts,525,"${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked","${r.changesets.length} set(s) of proposed changes, ${ghosts} ghost(s), ${pre} pre-ticked",C2
+src/setups/evidence.ts,525,what the office IDS rejects,what the office data requirements reject,C2
+src/setups/project-settings-panel.ts,382,async function loadStandards(note?: { text: string; bad?: boolean }),async function loadStandards(note?: { text: string; bad?: boolean; detail?: string }),C2
+src/setups/project-settings-panel.ts,413,"<span style=""width:6.5rem;color:#9ca3af"">${esc(kind)}</span>","<span style=""width:6.5rem;color:#9ca3af"">${esc(KIND_WORDS[kind] ?? kind)}</span>",C2
+src/setups/project-settings-panel.ts,430,"`<option value=""${esc(k)}"">${esc(k)}</option>`","`<option value=""${esc(k)}"">${esc(KIND_WORDS[k] ?? k)}</option>`",C2
+src/setups/project-settings-panel.ts,439,"the documents, the containers and versions, the review chains and every ledger row with its hash","the documents, the files and versions, the review chains and every History row with its hash",C2
+src/setups/project-settings-panel.ts,446,`the bridge answered HTTP ${r.status}`,`Sentinel could not answer (HTTP ${r.status})`,C2
+src/setups/project-settings-panel.ts,473,Sends this project's latest ledger hash — only the hash — to the timestamp service,Sends this project's latest History hash — only the hash — to the timestamp service,C2
+src/setups/project-settings-panel.ts,473,"""Not switched on for this bridge""","""Not switched on for this installation""",C2
+src/setups/project-settings-panel.ts,536,"await loadStandards({ text: `✓ ${kind}@${p.version} installed on ${key} from ${file.name} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });","await loadStandards({ text: `✓ ${KIND_WORDS[kind] ?? kind} installed on ${key} from ${file.name}${mirror}.`, detail: `${kind}@${p.version} · sha256 ${String(p.sha256).slice(0, 12)}…` });",C2
+src/setups/project-settings-panel.ts,574,"await loadStandards({ text: `✓ ${kind}@${p.version} saved on ${key} (sha ${String(p.sha256).slice(0, 12)}…)${mirror}.` });","await loadStandards({ text: `✓ ${KIND_WORDS[kind] ?? kind} saved on ${key}${mirror}.`, detail: `${kind}@${p.version} · sha256 ${String(p.sha256).slice(0, 12)}…` });",C2
+src/setups/project-settings-panel.ts,538,`${kind} not installed on ${key}: ,`${KIND_WORDS[kind] ?? kind} not installed on ${key}: ,C2
+src/setups/project-settings-panel.ts,604,Making the IDS from the contract and naming rules in force…,Making the data requirements from the pre-publish check rules and naming rules in force…,C2
+src/setups/project-settings-panel.ts,618,"Not installed — the IDS or the standards changed since this preview (the IDS in force is now ${now.current ?? ""none""}); generate it again","Not installed — the data requirements or the standards changed since this preview (the data requirements in force are now ${now.current ?? ""none""}); generate them again",C2
+src/setups/project-settings-panel.ts,624,"await loadStandards({ text: `✓ ids@${p.version} installed on ${key}, made from ${from.join("" · "")} (sha ${String(p.sha256).slice(0, 12)}…).` });","await loadStandards({ text: `✓ Data requirements installed on ${key}, made from ${from.join("" · "")}.`, detail: `ids@${p.version} · sha256 ${String(p.sha256).slice(0, 12)}…` });",C2
+src/setups/project-settings-panel.ts,631,The IDS was not made —,The data requirements were not made —,C2
+src/setups/project-settings-panel.ts,706,not found on the bridge.`,not found.`,C2
+src/setups/project-settings-panel.ts,742,${current.container_count} file container(s),${current.container_count} file(s),C2
+src/setups/project-settings-panel.ts,503,      d.textContent = note.text;,"      d.append(withDetails(note.text, note.detail));",C2
+src/workspace/eir-compile.ts,30,A sentence in red is in the EIR but not in the IDS.,A sentence in red is in the EIR but not in the data requirements.,C2
+src/workspace/eir-compile.ts,32,The checks made from the contract and naming rules stay.,The checks made from the pre-publish check rules and naming rules stay.,C2
+src/workspace/eir-compile.ts,33,"""No IDS is installed on this project yet.""","""No data requirements are installed on this project yet.""",C2
+src/workspace/eir-compile.ts,39,`Not in the IDS: “${u.sentence}”`,`Not in the data requirements: “${u.sentence}”`,C2
+src/workspace/eir-compile.ts,53,"btn(d, ""Compile to IDS"")","btn(d, ""Turn into data requirements"")",C2
+src/workspace/eir-compile.ts,55,"""IDS from this EIR""","""Data requirements from this EIR""",C2
+src/workspace/eir-compile.ts,59,"compile.textContent = ""Compile to IDS"";","compile.textContent = ""Turn into data requirements"";",C2
+src/workspace/eir-compile.ts,62,`The IDS in force could not be read: ${(e as Error).message}`,`The data requirements in force could not be read: ${(e as Error).message}`,C2
+src/workspace/eir-compile.ts,83,"""The IDS in force could not be read; nothing can be installed now.""","""The data requirements in force could not be read; nothing can be installed now.""",C2
+src/workspace/eir-compile.ts,92,result.textContent = `Installed ids@${p.version} on ${key}.`;,"result.replaceChildren(withDetails(`Installed the data requirements on ${key}.`, `ids@${p.version}`));",C2
+src/workspace/eir-compile.ts,95,"""The IDS in force changed while you looked; compile again. Nothing was installed.""","""The data requirements in force changed while you looked; turn the EIR into data requirements again. Nothing was installed.""",C2
+src/workspace/eir-compile.ts,70,"""The compile did not finish. Nothing was installed.""","""This did not finish. Nothing was installed.""",C2
+src/workspace/eir-compile.ts,7,"import { canGovernRole } from ""../setups/my-role"";","import { canGovernRole } from ""../setups/my-role"";
+import { withDetails } from ""../setups/details"";",C2
+src/workspace/eir-compile.test.ts,32,"""Not in the IDS: “The model shall be nice.”""","""Not in the data requirements: “The model shall be nice.”""",C2
+src/workspace/eir-compile.test.ts,64,"""Installed ids@3 on k.""","""Installed the data requirements on k.""",C2
+src/workspace/eir-compile.test.ts,77,"""The IDS in force changed while you looked; compile again. Nothing was installed.""","""The data requirements in force changed while you looked; turn the EIR into data requirements again. Nothing was installed.""",C2
+src/workspace/eir-compile.test.ts,100,"""The IDS in force could not be read: HTTP 500""","""The data requirements in force could not be read: HTTP 500""",C2
+src/workspace/eir-compile.test.ts,109,"""The IDS in force could not be read; nothing can be installed now.""","""The data requirements in force could not be read; nothing can be installed now.""",C2
+src/workspace/eir-compile.test.ts,62,"""Compile to IDS""","""Turn into data requirements""",C2
+src/setups/platform-deliveries.ts,43,"`Passed — ${contract ?? ""contract""}`","`Passed — ${contract ?? ""pre-publish check rules""}`",C2
+src/setups/platform-deliveries.ts,44,"`Refused — ${contract ?? ""contract""} — ${report.failures","`Refused — ${contract ?? ""pre-publish check rules""} — ${report.failures",C2
+src/setups/platform-deliveries.ts,45,"report.reason ?? ""no contract on the platform project""","report.reason ?? ""no pre-publish check rules on the platform project""",C2
+src/setups/platform-deliveries.ts,51,"labels!.sentinel_contract) : ""contract"";","labels!.sentinel_contract) : ""pre-publish check rules"";",C2
+src/setups/platform-deliveries.ts,54,"[""no contract on the platform project — install one in Sentinel""]","[""no pre-publish check rules on the platform project — install them in Sentinel""]",C2
+src/setups/platform-deliveries.ts,55,"headline: ""Gate did not run""","headline: ""Pre-publish check did not run""",C2
+src/setups/platform-deliveries.ts,57,"[""no verdict yet — the platform's Sentinel gate has not written one for this version""]","[""no check result yet — the platform's Sentinel check has not written one for this version""]",C2
+src/setups/platform-deliveries.ts,160,"""the ledger does not show that the contract installed in Sentinel judged it""","""History does not show that the pre-publish check rules installed in Sentinel judged it""",C2
+src/setups/platform-deliveries.ts,163,"""the ledger's row for this run does not show the contract installed in Sentinel judged it""","""History's row for this run does not show the pre-publish check rules installed in Sentinel judged it""",C2
+src/setups/platform-deliveries.ts,163,"""no ledger row shows this run judged by the contract installed in Sentinel""","""no History row shows this run judged by the pre-publish check rules installed in Sentinel""",C2
+src/setups/platform-deliveries-panel.ts,23,"    `<div style=""color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace"">sha256 ${esc(shortSha(c.sha256))}${c.run ? ` · run ${esc(c.run)}` : """"} · ${esc(ledger)}</div></div>`;","    `<div style=""color:#71717a;font-size:10.5px"">${esc(historyWords(ledger))}</div>` +
+    `<details style=""color:#71717a;font-size:10.5px""><summary>Details</summary><code>sha256 ${esc(shortSha(c.sha256))}${c.run ? ` · run ${esc(c.run)}` : """"}</code></details></div>`;",C2
+src/setups/platform-deliveries-panel.ts,16,export function cardHtml(,"/** The ledger line is also the AI reply's (ask-sentinel.ts): the card says it in the screen's words. */
+const historyWords = (s: string): string => s.replace(/^ledger /, ""History "").replace(""this project's ledger"", ""this project's History"");
+
+export function cardHtml(",C2
+src/setups/issue-panel.ts,192,"msg(""Closing superseded IDS issues…"")","msg(""Closing issues raised by superseded data requirements…"")",C2
+src/setups/issue-panel.ts,217,Raised by a superseded IDS (${sup.length}),Raised by superseded data requirements (${sup.length}),C2
+src/setups/issue-panel.ts,233,"""an IDS without a ref (before refs were recorded)""","""data requirements without a version (before versions were recorded)""",C2
+src/setups/issue-panel.ts,271,"msg(n ? `✅ Saved — recorded in the ledger #${n}.` : ""✅ Saved."", ""#22c55e"");","msg(n ? ""✅ Saved — recorded in History."" : ""✅ Saved."", ""#22c55e""); if (n) el(""ip-msg"").append(withDetails("""", `History entry ${n}`));",C2
+src/setups/issue-panel.ts,296,"throw new Error(""the bridge answered without a list"")","throw new Error(""Sentinel could not answer"")",C2
+src/setups/issue-panel.ts,304,`can't reach the bridge (${e.message})`,`Sentinel is not connected (${e.message})`,C2
+src/setups/issue-panel.ts,4,"import { relayStandardEvent } from ""./active-ruleset"";","import { relayStandardEvent } from ""./active-ruleset"";
+import { withDetails } from ""./details"";",C2
+src/setups/packs-panel.ts,55,"const msg = (t: string, c = ""#9ca3af"") => { el(""pk-msg"").textContent = t; el(""pk-msg"").style.color = c; };","const msg = (t: string, c = ""#9ca3af"", detail?: string) => { el(""pk-msg"").replaceChildren(withDetails(t, detail)); el(""pk-msg"").style.color = c; };",C2
+src/setups/packs-panel.ts,3,"import { bfetch } from ""./bridge-fetch"";","import { bfetch } from ""./bridge-fetch"";
+import { withDetails } from ""./details"";",C2
+src/setups/packs-panel.ts,63,`the bridge answered HTTP ${r.status}`,`Sentinel could not answer (HTTP ${r.status})`,C2
+src/setups/packs-panel.ts,91,`ruleset in force unknown: ${(e as Error).message}`,`project standards in force unknown: ${(e as Error).message}`,C2
+src/setups/packs-panel.ts,102,`can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}`,"`Sentinel is not connected. Ask your administrator to start Sentinel on the office PC.<details style=""display:inline-block;margin-left:.3rem""><summary>Details</summary><code>npm run bcf:serve — ${esc((e as Error).message)}</code></details>`",C2
+src/setups/packs-panel.ts,118,"${p.ids ? "" · ids"" : """"}","${p.ids ? "" · data requirements"" : """"}",C2
+src/setups/packs-panel.ts,118,"${p.contract ? "" · contract"" : """"}","${p.contract ? "" · pre-publish check rules"" : """"}",C2
+src/setups/packs-panel.ts,146,"msg(`Installed ${pack.name} as ${refs.join("" + "")} on ${target}",msg(`Installed ${pack.name} on ${target},C2
+src/setups/packs-panel.ts,146,"QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, ""#22c55e"");","QA, the Copilot and the stage checks now enforce it — re-run a Scan to see it apply.`, ""#22c55e"", refs.join("" + ""));",C2
+src/setups/packs-panel.ts,148,"msg(""Install failed: "" + ((e as Error)?.message ?? String(e)) + (refs.length ? ` — ${refs.join("" + "")} did install` : """"), ""#ef4444"");","msg(""Install failed: "" + ((e as Error)?.message ?? String(e)) + (refs.length ? "" — part of it did install"" : """"), ""#ef4444"", refs.length ? `${refs.join("" + "")} did install` : undefined);",C2
+src/setups/packs-panel.ts,165,"""the <b>project's active ruleset</b>""","""the <b>project's standards</b>""",C2
+src/setups/review-chain.ts,49,"""the bridge answered without a list""","""Sentinel could not answer""",C2
+src/setups/review-chain.ts,60,"""a rejection says why — the ledger records it""","""a rejection says why — History records it""",C2
+src/setups/review-chain.ts,79,(the decision may be on the ledger; ↻ to check),(the decision may be in History; ↻ to check),C2
+src/setups/review-chain.ts,92,back to WIP`,back to Work in progress`,C2
+src/setups/review-chain.ts,93,` · BCF topic ${r.bcf.guid}`,` · Issue ${r.bcf.guid}`,C2
+src/setups/review-chain.ts,93,` · BCF topic not raised — ${r.bcf.error}`,` · Issue not raised — ${r.bcf.error}`,C2
+src/setups/sheets-panel.ts,35,"title=""Reload sheets from the Bridge""","title=""Reload sheets""",C2
+src/setups/sheets-panel.ts,52,"Make sure the Bridge is running, then press ↻.","Make sure Sentinel is connected, then press ↻.",C2
+src/setups/sheets-panel.ts,80,Loading sheets from the Bridge…,Loading sheets…,C2
+src/setups/sheets-panel.ts,116,`can't reach the bridge (${m})`,`Sentinel is not connected (${m})`,C2
+src/setups/sheets-panel.ts,119,`Couldn't reach the Bridge (${m}). Start it: node bridge/bcf-service.mjs`);,"""Sentinel is not connected. Ask your administrator to start Sentinel on the office PC."");
+      if (!reached) el(""sh-status"").append(withDetails("""", `${m}. Start it: node bridge/bcf-service.mjs`));",C2
+src/setups/sheets-panel.ts,3,"import { bfetch, bridgeImage, refusalText } from ""./bridge-fetch"";","import { bfetch, bridgeImage, refusalText } from ""./bridge-fetch"";
+import { withDetails } from ""./details"";",C2
+src/workspace/eir-compile.ts,93,"result.replaceChildren(withDetails(`Installed the data requirements on ${key}.`, `ids@${p.version}`));",result.textContent = `Installed the data requirements on ${key} (ids@${p.version}).`;,C2
+src/workspace/eir-compile.ts,7,"
+import { withDetails } from ""../setups/details"";",,C2
+src/workspace/eir-compile.test.ts,64,"""Installed the data requirements on k.""","""Installed the data requirements on k (ids@3).""",C2
+src/workspace/quality-tab.test.ts,91,Compile to IDS,Turn into data requirements,C2
+src/setups/audit-pack.ts,20,"count(""container(s)""","count(""file(s)""",C2
+src/setups/audit-pack.test.ts,11,"1 container(s), 0 review","1 file(s), 0 review",C2
+src/setups/audit-pack.test.ts,11,187 of 187 ledger row(s); sealed,187 of 187 History row(s); sealed,C2
+src/setups/audit-pack.test.ts,18,5000 of 9000 ledger row(s),5000 of 9000 History row(s),C2
+src/setups/audit-pack.test.ts,19,"187 of 187 ledger row(s), 190","187 of 187 History row(s), 190",C2
+src/setups/audit-pack.test.ts,24,for this bridge — no hash,for this installation — no hash,C2
+src/setups/auth-password.test.ts,32,each stops at its next token refresh,each stops the next time it renews its sign-in,C2
+src/setups/account-line.test.ts,20,"""Signed in · not accepted by the bridge — sign in again""","""Your sign-in was not accepted. Sign in again.""",C2
+src/setups/bridge-stream.test.ts,60,"""The bridge refused this (HTTP 403).""","""You do not have permission for this.""",C2
+src/setups/audit-pack.ts,49,newer ledger row(s) not yet fixed,newer History row(s) not yet fixed,C2
+src/setups/audit-pack.test.ts,27,3 newer ledger row(s) not yet fixed,3 newer History row(s) not yet fixed,C2
+src/setups/crypto.ts,203,"`Sentinel could not answer (HTTP ${r.status}${m ? `: ${m}` : """"})`","`Sentinel could not answer — HTTP ${r.status}${m ? `: ${m}` : """"}`",C2
+src/setups/crypto.test.ts,139,"""Could not reach the bridge — the passphrase","""Sentinel is not connected — the passphrase",C2
+src/setups/crypto.test.ts,145,(the bridge answered HTTP 403: a member,(Sentinel could not answer — HTTP 403: a member,C2
+src/setups/crypto.test.ts,146,(the bridge answered HTTP 401),(Sentinel could not answer — HTTP 401),C2
+src/setups/crypto.test.ts,147,(the bridge answered HTTP 404: Project,(Sentinel could not answer — HTTP 404: Project,C2
+src/setups/deleted-items.test.ts,25,not read — the bridge answered without a list,not read — Sentinel could not answer,C2
+src/setups/platform-deliveries.test.ts,69,"""Gate did not run""","""Pre-publish check did not run""",C2
+src/setups/platform-deliveries.test.ts,216,"""can't reach the bridge (Failed to fetch)""","""Sentinel is not connected (Failed to fetch)""",C2
+src/setups/snapshot-store.test.ts,24,"""can't reach the bridge (Failed to fetch)""","""Sentinel is not connected (Failed to fetch)""",C2
+src/setups/review-chain.test.ts,65,a rejection says why — the ledger records it,a rejection says why — History records it,C2
+src/setups/review-chain.test.ts,44,/^not read — the bridge answered without a list$/,/^not read — Sentinel could not answer$/,C2
+src/setups/review-chain.test.ts,106,back to WIP · History #950 · receipt 9a8b7c6d5e4f3021… · BCF topic 4f2a9c1e,back to Work in progress · History #950 · receipt 9a8b7c6d5e4f3021… · Issue 4f2a9c1e,C2
+src/setups/review-chain.test.ts,108,BCF topic not raised — BCF store not configured,Issue not raised — BCF store not configured,C2
+src/setups/platform-deliveries.test.ts,31,"""the ledger does not show that the contract installed in Sentinel judged it""","""History does not show that the pre-publish check rules installed in Sentinel judged it""",C2
+src/setups/platform-deliveries.test.ts,14,"""the ledger's row for this run does not show the contract installed in Sentinel judged it""","""History's row for this run does not show the pre-publish check rules installed in Sentinel judged it""",C2
+src/setups/platform-deliveries.test.ts,16,"""no ledger row shows this run judged by the contract installed in Sentinel""","""no History row shows this run judged by the pre-publish check rules installed in Sentinel""",C2
+src/setups/audit-pack.test.ts,17,"not read, ledger not read; sealed 1f028f686ca3…. Not read: review chain(s) (forbidden); ledger (no count).","not read, History not read; sealed 1f028f686ca3…. Not read: review chain(s) (forbidden); History (no count).",C2
+src/setups/review-chain.test.ts,84,(the decision may be on the ledger; ↻ to check),(the decision may be in History; ↻ to check),C2
+src/setups/review-chain.test.ts,108,back to WIP · History #950 · receipt 9a8b7c6d5e4f3021… · Issue not,back to Work in progress · History #950 · receipt 9a8b7c6d5e4f3021… · Issue not,C2
+src/setups/evidence.test.ts,245,"GR-FFL · ledger #2210""","GR-FFL · History #2210""",C2
+src/setups/stage-gate.ts,new,(none),"ledgerParts/gateParts: text 'Recorded in History', detail 'History entry n · receipt …'",D
+src/setups/project-shell.ts,83/236,msg(gateLine(...)),"msg(text,color,detail) via withDetails; stage-check error shows err.detail",D
+src/setups/platform-deliveries-panel.ts,20-28,History #N / ledger #N on screen,'Recorded in History'; 'History entry N' in Details,D
+src/setups/active-ruleset.ts,new,(none),refParts: 'office standard'/'project standard' + refLabel in detail,D
+src/setups/qa-panel.ts,205/body,panel label '… · ruleset@n · source · sha',label key+semver; ref in closed Details,D
+src/setups/packs-panel.ts,91/111,in force: ruleset@n · source · sha,in force: <office|project> standard; ref in Details,D
+src/setups/project-settings-panel.ts,417/561,refLabel on screen,standard name + Details; 'Starts from ...' + fromDetail,D
+src/setups/standard-forms.ts,572-581,from text,from + optional fromDetail via withDetails,D
+src/setups/visibility-panel.ts,47/163/174,project data requirements (ids@n),"status(text, detail); ids@n in Details",D
+src/workspace/eir-compile.ts,92,Installed ... (ids@n).,Installed ... . + closed Details ids@n (test updated),D
+bridge/build-jobs.mjs,notSetErr,'X is not set up on this PC: <setting> — nothing was saved',message without setting; setting in detail (tests updated),D
+bridge/photo-store.mjs,offErr,same for blur/detect/e57 503,message plain; cause in detail (test updated),D
+bridge/changesets-store.mjs,561/563/665/666/699/900,History #n in 409/502 messages,'History' wording; 'History entry n' in detail; err/unsaved/shown carry detail (tests updated),D
+bridge/cde-store.mjs,-,"const feedErr = (status, message) => Object.assign(new Error(message), { status });","const feedErr = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });",E
+bridge/cde-store.mjs,-,"feedErr(503, ""the data feed is not set up on this installation — nothing was read"")","feedErr(503, ""the data feed is not set up on this installation — nothing was read"", ""SUPABASE_URL + SUPABASE_ANON_KEY are not set in config/.env"")",E
+bridge/cde-store.mjs,-,"""this bridge does not forward the session (SUPABASE_ANON_KEY is not set) — no review decision can be recorded here""","""this installation cannot accept sign-ins yet — no review decision can be recorded here""",E
+bridge/cde-store.mjs,-,"throw refuse(403, ""a review decision is a signed-in person's — sign in (and the bridge must forward the session: SUPABASE_ANON_KEY)"");","throw Object.assign(refuse(403, ""a review decision is a signed-in person's — sign in; if you are signed in, ask your administrator to finish the sign-in set-up""), { detail: ""SUPABASE_ANON_KEY is not set, so Sentinel does not forward the session"" });",E
+bridge/build-jobs.mjs,-,its result is not the shape the pre-publish check rules expect over what,its result is not in the survey result format expected over what,E
+bridge/check-registry.mjs,-,"""Container states""","""File states""",E
+bridge/check-registry.mjs,-,"label: ""Container naming""","label: ""File naming""",E
+bridge/check-registry.mjs,-,"""Every container has a live version""","""Every file has a live version""",E
+bridge/office-checks.mjs,-,"""Container naming standard installed""","""File naming standard installed""",E
+bridge/federation-store.mjs,-,(NOT CHECKABLE${first,(it cannot be checked${first,E
+bridge/ids-compile.mjs,-,"the data requirements check every level, so it is stricter","the data requirements check every level, so they are stricter",E
+bridge/ids-compile.mjs,-,"the data requirements check every one, so it is stricter","the data requirements check every one, so they are stricter",E
+bridge/ids-compile.mjs,-,"names files (containers), not what","names files, not what",E
+bridge/intake-logic.mjs,-,name must be the container's ISO name ending in .ifc,name must be the file's ISO name ending in .ifc,E
+bridge/journey-store.mjs,-,LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one),LOD state: not measured yet — Promote (DD) in Revit records it,E
+bridge/cde-store.mjs:1939,restored,NO_NAMING_REASON = no naming standard installed ... — install one in Settings > Standards library,master text (PUT /cde/:key/artefacts/naming); stored in naming_reason,E
+bridge/check-registry.mjs:49,display,NO_NAMING_REASON,own plain sentence (install one in Settings > Standards library),E
+bridge/drawing-plan.mjs:530,restored,one set of proposed changes (one Undo),one changeset (one Undo) (stored exception reason),E
+"bridge/check-registry.mjs, office-checks.mjs",consistency,Container states / naming / Every container,File states / File naming / Every file ...,E
+src/setups/details.ts,new,withDetails only,"+ errorLine, detailOf, hideInline (History row/ids@n/sha to Details), setLine; withDetails takes a doc",F
+src/setups/bridge-fetch.ts,69,refusalText only,"+ refusalParts {message,detail}; refusalText kept",F
+src/setups/{views,sheets}-panel.ts,~118,refusalText,F
+src/setups/tender-panel.ts,76,cause inline,cause + npm run bcf:serve in Details,F
+src/setups/projects-hub-panel.ts,~347-426,Sentinel is not connected (${base}) ...,base + start command in Details; Most containers->Most files; N containers->N files,F
+src/setups/visibility-panel.ts,188,result status without idsVer,result status passes idsVer; error passes detail,F
+src/setups/snapshot-store.ts,57-73,detail dropped,detail kept on thrown errors,F
+src/setups/{carbon,cobie,cost,data-feed,F
+src/setups/{clash,cde,files,project-browser,F
+src/setups/review-desk.ts,say/el/errDiv,textContent,"say(text,bad,detail); not-read throws keep detail; el uses setLine",F
+src/workspace/workspace-state.ts,say/words,message only,"messageDetail {for,detail} + showMessage(); read by comments/people/review/outline/eir/loin/workspace-page",F
+src/setups/next-strip.ts,43,Data requirements ids@4 · office · 23bb…,Data requirements (office) ...; standardsDetail() in Details (strip + guide),F
+src/setups/ids-from-standards.ts,32/46/55,ids@n inline,names on screen; version/fingerprint in Details (detailsHtml),F
+src/setups/project-settings-panel.ts,20,ruleset: rules,ruleset: project standards,F
+src/workspace/eir-compile.ts,87-99,Install on this project,Use as the project's data requirements; an earlier EIR compile -> an earlier EIR,F
+src/workspace/loin-compile.ts,62,turn them again,turn them into data requirements again,F
+src/setups/project-shell.ts,~300,History #n · receipt in heading,Recorded in History + Details,F
+src/workspace/review-tab.ts,114,History #n inline,setLine: Recorded in History + Details,F
+src/setups/standard-forms.ts,116/217/218,shared container / Container naming / file and container names,shared file / File naming / file names,F
+src/workspace/print-render.ts + read-view.ts,40/56/23/124,Container ID,File ID,F

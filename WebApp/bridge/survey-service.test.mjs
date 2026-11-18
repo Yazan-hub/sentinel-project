@@ -88,7 +88,7 @@ describe("runSurvey (MA-4c) — the supervisor, with a Node stand-in for sentine
     expect(notSetUp({ python: join(tmpdir(), "no-such-python.exe") }))
       .toBe("sentinel-survey is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved");
     expect(notSetUp({ python: process.execPath, script: join(tmpdir(), "no-such.py") }))
-      .toBe("sentinel-survey is not set up on this PC: survey/service.py is missing from the bridge's checkout — nothing was saved");
+      .toBe("sentinel-survey is not set up on this PC: survey/service.py is missing from this installation — nothing was saved");
     expect(notSetUp({ python: process.execPath })).toBeNull();
   });
 

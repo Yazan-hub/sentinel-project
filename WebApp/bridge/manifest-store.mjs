@@ -103,11 +103,11 @@ export async function backfillManifest(key, versionId, bytes, opts = {}, deps) {
   const recorded = String(row.sha256 || "").toLowerCase();
   const sha = createHash("sha256").update(bytes).digest("hex");
   if (recorded && recorded !== sha)
-    throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (sha256 ${sha.slice(0, 12)}… ≠ ${recorded.slice(0, 12)}…) — nothing was saved`), { status: 409 });
+    throw Object.assign(new Error("These bytes are not the file recorded for this version — nothing was saved."), { status: 409, detail: `version ${versionId} · sha256 ${sha.slice(0, 12)}… ≠ ${recorded.slice(0, 12)}…` });
   // A version registered before fingerprints has no sha256; when its size was recorded, the bytes must at least be that
   // size (a weaker check than a hash, said as such) — a lead's upload of any other file is refused.
   if (!recorded && Number.isFinite(Number(row.size_bytes)) && row.size_bytes != null && Number(row.size_bytes) !== bytes.length)
-    throw Object.assign(new Error(`these bytes are not version ${versionId}'s file (${bytes.length} bytes ≠ ${row.size_bytes} recorded; it has no sha256 to compare) — nothing was saved`), { status: 409 });
+    throw Object.assign(new Error("These bytes are not the file recorded for this version — nothing was saved."), { status: 409, detail: `version ${versionId} · ${bytes.length} bytes ≠ ${row.size_bytes} recorded; it has no sha256 to compare` });
   return captureManifest(key, versionId, bytes, opts, d);
 }
 

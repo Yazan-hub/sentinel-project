@@ -32,12 +32,12 @@ describe("loinEditor", () => {
     expect((e.value().data as any).rows[1].element).toBe("IfcDoor");
     click(btn(e.el, "Remove row")!);
     expect((e.value().data as any).rows.map((r: any) => r.element)).toEqual(["IfcDoor"]);
-    expect(btn(e.el, "Compile to IDS")).toBeDefined();
+    expect(btn(e.el, "Turn into data requirements")).toBeDefined();
   });
   it("Compile to IDS posts the rows as they are typed now", async () => {
     const ctx = ctxWith(), e = loinEditor(block("loin", data), ctx, "s1");
     type(field(e.el, "value")[0], "REI 90");
-    click(btn(e.el, "Compile to IDS")!); await flush(); await flush();
+    click(btn(e.el, "Turn into data requirements")!); await flush(); await flush();
     expect(ctx.ws.post).toHaveBeenCalledWith("/cde/k/artefacts/ids/loin", { rows: [expect.objectContaining({ value: "REI 90" })], title: "T, level of information need" });
   });
 });

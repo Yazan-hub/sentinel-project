@@ -22,7 +22,7 @@ describe("readDeleted — GET /cde/:key/files/deleted", () => {
 
   it.each([
     ["a refusal", res(403, { message: "not a member" }), "not read — not a member"],
-    ["an answer without a list", res(200, { rows: [] }), "not read — the bridge answered without a list"],
+    ["an answer without a list", res(200, { rows: [] }), "not read — Sentinel could not answer"],
     ["a 500 with no body", res(500, null), "not read — HTTP 500"],
   ])("%s is 'not read — …', never an empty list", async (_w, r, msg) => {
     bfetch.mockResolvedValue(r);

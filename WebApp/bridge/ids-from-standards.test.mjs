@@ -59,7 +59,7 @@ describe("standardsToIds — contract and naming rules → the IDS (Q5)", () => 
     expect(first.ids.enforce).toBe("reject");
     expect(first.ids.specifications[0]).toBe(eir);
     expect(first.ids.specifications.some((s) => s.name === "Doors · contract q5-proof")).toBe(false);
-    expect(first.unmatched).toContainEqual({ from: "contract", item: "Pset_DoorCommon.FireRating", reason: "already required by the IDS in force ('Doors carry a fire rating')", checked_by: "the IDS in force" });
+    expect(first.unmatched).toContainEqual({ from: "contract", item: "Pset_DoorCommon.FireRating", reason: "already required by the data requirements in force ('Doors carry a fire rating')", checked_by: "the data requirements in force" });
     const again = run({ current: first.ids });
     expect(again.ids.specifications).toEqual(first.ids.specifications);
     expect(again.kept).toBe(1);

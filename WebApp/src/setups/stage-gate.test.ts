@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { bfetch } = vi.hoisted(() => ({ bfetch: vi.fn() }));
 vi.mock("./bridge-fetch", () => ({ bfetch }));
 
-import { runStageGate, ledgerLine, gateLine, type GateReply } from "./stage-gate";
+import { runStageGate, ledgerLine, ledgerParts, gateParts, gateLine, type GateReply } from "./stage-gate";
 
 const res = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as unknown as Response;
 const HASH = "6e7f8091a2b3c4d5".padEnd(64, "0");
@@ -48,10 +48,10 @@ describe("runStageGate — POST /cde/:key/gate", () => {
 
 describe("ledgerLine", () => {
   it("names the row only with an id and a 64-hex hash", () => {
-    expect(ledgerLine({ id: 901, hash: HASH })).toBe("ledger #901 · receipt 6e7f8091a2b3c4d5…");
+    expect(ledgerLine({ id: 901, hash: HASH })).toBe("History #901 · receipt 6e7f8091a2b3c4d5…");
   });
   it("is 'not confirmed' without either — an id alone, a short or upper-case hash, no id, no ledger at all", () => {
-    const no = "not confirmed — the bridge returned no chain hash";
+    const no = "not confirmed — Sentinel returned no receipt";
     expect(ledgerLine({ id: 901, hash: null })).toBe(no);
     expect(ledgerLine({ id: 901, hash: "abc" })).toBe(no);
     expect(ledgerLine({ id: 901, hash: HASH.toUpperCase() })).toBe(no);
@@ -62,11 +62,11 @@ describe("ledgerLine", () => {
 
 describe("gateLine", () => {
   it("PASS names the stage the project advanced to and the row", () => {
-    expect(gateLine(reply(), nm)).toBe("Gate PASS — advanced to Design · ledger #901 · receipt 6e7f8091a2b3c4d5…");
+    expect(gateLine(reply(), nm)).toBe("Stage check: Ready — moved to Design · History #901 · receipt 6e7f8091a2b3c4d5…");
   });
   it("HOLD points at the checks below", () => {
     const r = reply({ stage: "tender", status: "hold", checks: [check("Standards pack selected", false)] });
-    expect(gateLine(r, nm)).toBe("Gate HOLD — clear the failing checks below · ledger #901 · receipt 6e7f8091a2b3c4d5…");
+    expect(gateLine(r, nm)).toBe("Stage check: Not ready — clear the failing checks below · History #901 · receipt 6e7f8091a2b3c4d5…");
   });
   it("not checkable names every check nothing measured — never a pass", () => {
     const r = reply({ stage: "design", status: "not_checkable", next_stage: "coord", checks: [
@@ -74,9 +74,17 @@ describe("gateLine", () => {
       check("No 'block' violations", false, true, NO_SOURCE),
       check("Standards compliance ≥ 70%", false, true, NO_SOURCE),
     ] });
-    expect(gateLine(r, nm)).toBe("Gate not checkable — Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70% · ledger #901 · receipt 6e7f8091a2b3c4d5…");
+    expect(gateLine(r, nm)).toBe("Stage check: Cannot be checked — Model health ≥ 80%, No 'block' violations, Standards compliance ≥ 70% · History #901 · receipt 6e7f8091a2b3c4d5…");
   });
   it("a reply without a chain hash says so instead of a receipt", () => {
-    expect(gateLine(reply({ ledger: { id: 901, hash: null } }), nm)).toBe("Gate PASS — advanced to Design · not confirmed — the bridge returned no chain hash");
+    expect(gateLine(reply({ ledger: { id: 901, hash: null } }), nm)).toBe("Stage check: Ready — moved to Design · not confirmed — Sentinel returned no receipt");
+  });
+});
+
+describe("ledgerParts / gateParts — plain words on screen, the exact row in Details", () => {
+  it("splits the row from the sentence and keeps the old line whole", () => {
+    expect(ledgerParts({ id: 901, hash: HASH })).toEqual({ text: "Recorded in History", detail: "History entry 901 · receipt 6e7f8091a2b3c4d5…" });
+    expect(ledgerParts(null)).toEqual({ text: "not confirmed — Sentinel returned no receipt" });
+    expect(gateParts(reply(), nm)).toEqual({ text: "Stage check: Ready — moved to Design · Recorded in History", detail: "History entry 901 · receipt 6e7f8091a2b3c4d5…" });
   });
 });

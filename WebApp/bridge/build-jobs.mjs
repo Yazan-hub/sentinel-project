@@ -13,7 +13,13 @@ import { resolveActor } from "./bridge-auth.mjs";
 import { nextId } from "./evidence-logic.mjs";
 import { insideFolder, surveyStart } from "./evidence-store.mjs";
 
-const err = (status, message) => Object.assign(new Error(message), { status });
+const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
+/** A "<tool> is not set up on this PC: <what is missing> — nothing was saved" cause as a 503: the sentence says it plainly, the
+ *  setting names / paths ride in `detail` (a closed Details on screen). Any other wording stays whole. */
+const notSetErr = (text) => {
+  const m = /^(.+? is not set up on this PC): (.+?)( — nothing was saved)?$/s.exec(text);
+  return m ? err(503, `${m[1]}${m[3] ?? ""}`, m[2]) : err(503, text);
+};
 export const READER = "sentinel-survey";
 /** MA-5a-3: the second reader — sentinel-drawing (drawing/, .NET with PdfPig) on the admitted vector PDF plans; drawing-service.mjs runs it.
  *  Its candidates are walls and doors in paper millimetres (units "paper_mm"): proposed with a 2-point alignment, MA-5a-4. */
@@ -190,7 +196,7 @@ export function stillAdmitted(row, pack, id) {
     const sent = row.items.find((i) => i.id === rid), now = pack.items.find((i) => i.id === rid);
     const why = !sent ? "its row lists it as read but not as sent" : !now ? "it is no longer in the pack" : now.state === "changed" ? "Re-check flagged it changed"
       : now.state === "expired" ? `it expired on ${now.expired_at.slice(0, 10)} (delete-by)` // MA-7-5
-      : now.sha256 !== sent.sha256 ? "its sha256 in the pack is not the one the job read" : null;
+      : now.sha256 !== sent.sha256 ? "its file in the pack is not the one the job read" : null;
     if (why) throw err(409, `${rid} is not the bytes ${id} read (${why}) — ${row.reader === DRAWING ? "read the admitted drawing" : row.reader === IFC ? "read the admitted IFC" : "survey the admitted scan"} again; nothing was saved`);
     return { id: rid, sha256: sent.sha256 };
   });
@@ -241,14 +247,14 @@ export async function startJob(key, b = {}, deps = {}) {
       : `no admitted scan in ${body.pack} that sentinel-survey reads${listed ?? " — admit a .las, .laz or .e57 under Evidence first"}; nothing was saved`);
   }
   const notSet = ifc ? null : drawing ? d.notSetUpDrawing() : d.notSetUp(); // the IFC reader runs in this process: nothing to set up
-  if (notSet) throw err(503, notSet);
+  if (notSet) throw notSetErr(notSet);
   // One slot for both readers and MA-4e's measure: the office PC's CPU is the scarce thing.
-  if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);
+  if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this installation (one at a time) — try again when it ends; nothing was saved`);
   const root = projectDir(d.root, key);
   mkdirSync(root, { recursive: true });
   const id = nextId("job", readdirSync(root).filter((n) => JOB_ID.test(n)).map((n) => ({ id: n })));
   try { mkdirSync(join(root, id)); } // not recursive: a second bridge on this PC cannot take the same id
-  catch (e) { if (e.code === "EEXIST") throw err(409, `${id} was just taken by another bridge on this PC — try again; nothing was saved`); throw e; }
+  catch (e) { if (e.code === "EEXIST") throw err(409, `${id} was just taken by another Sentinel process on this PC — try again; nothing was saved`); throw e; }
   const job = {
     id, project: key, pack_id: body.pack, pack_version: version, reader: { name: body.reader, version: null }, status: "queued", stage: "queued", pct: 0,
     items: take.map((t) => ({ id: t.id, path: t.rel, sha256: t.sha256, ...(t.provider ? { provider: t.provider, licence: t.licence } : {}) })), refused, params: body.params, seed: SEED,
@@ -327,7 +333,7 @@ function readRecord(dir, key, id) {
   try { job = JSON.parse(readFileSync(join(dir, "job.json"), "utf8")); } catch { return null; }
   const mine = running?.key === key && running?.id === id;
   return ["queued", "running"].includes(job.status) && !mine
-    ? { ...job, status: "failed", error: "the bridge stopped while it ran — nothing it found was kept; run it again" }
+    ? { ...job, status: "failed", error: "Sentinel stopped while it ran — nothing it found was kept; run it again" }
     : job;
 }
 
@@ -354,7 +360,7 @@ export async function readJob(key, id, deps = {}) {
   if (job.status !== "done") return { job };
   let bytes;
   try { bytes = readFileSync(join(dir, "result.json")); } catch { return { job, result_error: "its result.json is missing — its candidates cannot be shown" }; }
-  if (sha(bytes) !== job.result_sha256) return { job, result_error: "its result.json does not match the sha256 on its record — it changed after the job; its candidates are not shown" };
+  if (sha(bytes) !== job.result_sha256) return { job, result_error: "its result file does not match its record — it changed after the job; its candidates are not shown" };
   const { candidates, derived, receipt } = JSON.parse(bytes);
   return { job, candidates, derived, receipt };
 }
@@ -375,22 +381,22 @@ export async function trustedJob(key, id, deps = {}) {
   const job = readRecord(dir, key, id);
   if (!job) throw err(404, `no survey job ${id} on ${key} — nothing was saved`);
   if (job.status !== "done") throw err(409, `${id} is ${job.status} — only a done survey job is proposed; nothing was saved`);
-  const untrusted = (why) => err(409, `${id}'s result is not trusted: ${why} — run the survey again; nothing was saved`);
+  const untrusted = (why, detail) => err(409, `${id}'s result is not trusted: ${why} — run the survey again; nothing was saved`, detail);
   const rowId = job.ledger?.id;
-  if (!Number.isInteger(rowId)) throw untrusted("its build:run row was never written (the ledger write failed when it ran)");
+  if (!Number.isInteger(rowId)) throw untrusted("its build:run row was never written (the History write failed when it ran)");
   const row = await d.getAuditEntry(key, rowId);
   const v = row?.new_value ?? {};
   const reader = READERS.find((n) => String(row?.action).startsWith(`build:run ${id} · ${n} `));
   if (!row || !reader || row.entity_type !== "build" || !String(row.action).endsWith(" · done") || (v.reader ?? READER) !== reader
     || v.status !== "done" || v.claimed !== false || typeof v.result_sha256 !== "string")
-    throw untrusted(`ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER}, ${DRAWING} or ${IFC} … · done, claimed false)`);
+    throw untrusted(`History #${rowId} is not ${id}'s own run record`, `ledger #${rowId} is not ${id}'s own build:run row (the bridge's: build:run ${id} · ${READER}, ${DRAWING} or ${IFC} … · done, claimed false)`);
   let bytes;
   try { bytes = readFileSync(join(dir, "result.json")); } catch { throw untrusted("its result.json is missing"); }
-  if (sha(bytes) !== v.result_sha256) throw untrusted(`its result.json does not hash to the sha256 on ledger #${rowId} — it changed after the job`);
+  if (sha(bytes) !== v.result_sha256) throw untrusted(`its result file does not match History #${rowId} — it changed after the job`, `its result.json does not hash to the sha256 on ledger #${rowId}`);
   const result = JSON.parse(bytes);
   const items = Array.isArray(v.items) ? v.items : [], read = Array.isArray(v.read) ? v.read : [];
   const bad = resultRefusal(result, read, reader);
-  if (bad) throw untrusted(`its result is not the contract's shape over what ledger #${rowId} says was read (${bad})`);
+  if (bad) throw untrusted(`its result is not in the survey result format expected over what History #${rowId} says was read`, bad);
   // Each element's trust record is bound to it by cid (survey-plan byCid): one cid twice would carry a measurement onto other geometry.
   const cids = result.candidates.map((c) => c.cid);
   if (new Set(cids).size !== cids.length) throw untrusted("its result names one cid twice");
@@ -410,8 +416,8 @@ export async function trustedJob(key, id, deps = {}) {
 export async function measureJob(key, jobId, payload, deps = {}, { path = "/measure", what = "a measure" } = {}) {
   const d = await wire(deps);
   const notSet = d.notSetUp();
-  if (notSet) throw err(503, notSet);
-  if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this bridge (one at a time) — try again when it ends; nothing was saved`);
+  if (notSet) throw notSetErr(notSet);
+  if (running) throw err(409, `${running.what ?? "a survey job"} is already running on this installation (one at a time) — try again when it ends; nothing was saved`);
   let release;
   running = { key, id: null, what, done: new Promise((r) => { release = r; }) }; // checked and taken with no await between
   try { return await d.runSurvey(payload, { cwd: join(projectDir(d.root, key), jobId), path }); }

@@ -282,7 +282,7 @@ const send = (res, code, body, extra) => {
     // happened cannot be traced from the log.
     const where = res.req ? `${res.req.method} ${String(res.req.url || "").split("?")[0]}` : "";
     console.error(`[bridge] 500${where ? " " + where : ""}: ${body.message}`);
-    body = { ...body, message: "Internal error — see the bridge log." };
+    body = { ...body, message: "Sentinel could not answer. The cause is in Sentinel's log on the office PC.", detail: "Internal error (HTTP 500)" };
   }
   const headers = {
     "Content-Type": "application/json",
@@ -527,7 +527,7 @@ const server = createServer((req, res) => {
     const bad = e?.code === "ERR_INVALID_URL";
     // A refusal thrown outside a route's own try (a body over its cap, a full upload slot) keeps its status.
     const status = bad ? 400 : e?.status >= 400 && e?.status < 600 ? e.status : 500;
-    try { if (res.headersSent) res.end(); else send(res, status, { message: bad ? "Bad request" : String(e?.message || e) }); }
+    try { if (res.headersSent) res.end(); else send(res, status, { message: bad ? "Bad request" : String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
     catch { /* the socket is already gone */ }
   };
   try {
@@ -622,7 +622,7 @@ async function publicReceiptVerify(req, res, url) {
   publicReads++;
   publicReadsBy.set(who, (publicReadsBy.get(who) || 0) + 1);
   try { text = await readCapped(req); }
-  catch (e) { return done(e.status, { message: e.message }, String(e.status)); } // not whole within 3 s (408), or cut off (400)
+  catch (e) { return done(e.status, { message: e.message, ...(e.detail ? { detail: e.detail } : {}) }, String(e.status)); } // not whole within 3 s (408), or cut off (400)
   finally {
     publicReads--;
     const left = publicReadsBy.get(who) - 1;
@@ -675,7 +675,7 @@ async function assertSealedUnderCurrentKey(cde, proj, file_ref) {
 async function requireSpendFor(key, param) {
   if (!key) throw Object.assign(new Error(`name the project: ?${param}=<project key> — nothing was uploaded`), { status: 400 });
   if (!(await import("./cde-store.mjs")).cdeConfigured())
-    throw Object.assign(new Error("CDE not configured — an upload is checked against its project's office, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env."), { status: 503 });
+    throw Object.assign(new Error("Sentinel's storage is not set up on this installation, so this upload cannot be checked."), { status: 503, detail: "CDE not configured: an upload is checked against its project's office, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env." });
   return (await import("./members-store.mjs")).requireSpend(key);
 }
 
@@ -749,14 +749,14 @@ async function handleRequest(req, res) {
   // would read and write every project in them. They stay the single desktop's (the machine credential); a signed-in
   // caller gets a 503 in words (D9).
   if (TOKEN && currentUserToken() && LOCAL_STORE_ROUTE.test(url.pathname) && !(await import("./cde-store.mjs")).cdeConfigured())
-    return send(res, 503, { message: "the team store is not configured on this bridge (SUPABASE_URL + SUPABASE_SERVICE_KEY) — a signed-in user cannot use the single-desktop files; nothing was read or saved" });
+    return send(res, 503, { message: "Sentinel's team storage is not set up on this installation — a signed-in user cannot use the single-desktop files; nothing was read or saved", detail: "SUPABASE_URL + SUPABASE_SERVICE_KEY are not configured" });
   // Gate armed, CDE configured, but no anon key: sb() would serve a "forwarded" call on the service key and
   // ensureProject would skip its visibility check, so a verified JWT would become every project's member. An empty
   // config value is never access: a signed-in caller gets a 503 in words (the machine credential is unaffected).
   if (TOKEN && currentUserToken()) {
     const cdeMod = await import("./cde-store.mjs");
     if (cdeMod.cdeConfigured() && !cdeMod.forwardingConfigured())
-      return send(res, 503, { message: "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved" });
+      return send(res, 503, { message: "this installation cannot accept sign-ins yet — a signed-in user cannot be served; nothing was read or saved", detail: "SUPABASE_ANON_KEY is not set, so the bridge does not forward sign-ins" });
   }
 
   // The no-toll data feed (spec 2026-10-19-work-alongside-connectors §2): reads with a feed key, the keys with a sign-in.
@@ -788,7 +788,7 @@ async function handleRequest(req, res) {
     if (signedIn && !url.searchParams.get("project")) return send(res, 400, { message: "Name the project: /events?project=<key>" });
     const project = url.searchParams.get("project") || "default";
     try { await (await import("./members-store.mjs")).requireMinRole(project, "viewer"); }
-    catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
     if (req.socket.destroyed) return; // the caller left while membership was checked: nothing to hold open
     const sub = signedIn ? currentSub() || "" : null;
     if (!isToken(bearer) && sseCount() >= MAX_SSE) return send(res, 503, { message: "Too many live connections" });
@@ -854,7 +854,7 @@ async function handleRequest(req, res) {
     const terms = url.searchParams.get("terms") === "1";
     if (terms && currentUserToken()) return send(res, 403, { message: "The redaction list is read only with this PC's machine credential (Sentinel's MCP server) — ask without terms=1 for the policy itself." });
     try { return send(res, 200, await (await import("./ai-policy.mjs")).policies(keys, { terms })); }
-    catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
   // What the AI is allowed to do, and which of those need a human tick. The UI renders the gate from
   // this, so a tool added to the registry shows up in both the agent and the MCP server with no
@@ -874,7 +874,7 @@ async function handleRequest(req, res) {
       const { name, args, approved } = await readBody(req, { max: SMALL_JSON });
       return send(res, 200, { name, result: await t.runTool(name, args || {}, { allowWrites: approved === true }) });
     } catch (e) {
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
   if (url.pathname === "/ai/models" && req.method === "GET") {
@@ -882,7 +882,7 @@ async function handleRequest(req, res) {
     try {
       return send(res, 200, { models: await ai.listModels(url.searchParams.get("provider") || "local") });
     } catch (e) {
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
   if (url.pathname === "/ai/chat" && req.method === "POST") {
@@ -892,7 +892,7 @@ async function handleRequest(req, res) {
     } catch (e) {
       // A blocked provider, a refused caller (403), the budget (429), an over-size body (413) or an unreachable local
       // model is the caller's problem to fix and the message says how — pass it through rather than a generic 500.
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -1048,7 +1048,7 @@ async function handleRequest(req, res) {
         persistProj(); return send(res, 200, p);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
 
   // ── RFIs: /rfis/:pid[/:guid] ──
@@ -1098,7 +1098,7 @@ async function handleRequest(req, res) {
         return send(res, 200, rfi);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
 
   // ── Standards-pack marketplace: /packs[/:id[/install|fork]] ──
@@ -1107,7 +1107,7 @@ async function handleRequest(req, res) {
     const [, kid, ksub] = km;
     // SEC-5 (F-a): the registry is global, and since 0038 only the machine credential writes it — a signed-in publish, fork
     // or install count is refused in words here, before the database refuses it.
-    if (req.method === "POST" && currentUserToken()) return send(res, 403, { message: "the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published" });
+    if (req.method === "POST" && currentUserToken()) return send(res, 403, { message: "the standards-pack registry is written by Sentinel's own account — a signed-in publish, fork or install count is not open yet; nothing was published", detail: "written by the bridge's machine credential" });
     try {
       const cde = await import("./cde-store.mjs");
       const { packRefusal } = await import("./artefact-store.mjs");
@@ -1155,7 +1155,7 @@ async function handleRequest(req, res) {
         return send(res, 201, fork);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
 
   // ── Tenders: /tenders/:pid[/:guid[/bids]] ──
@@ -1217,7 +1217,7 @@ async function handleRequest(req, res) {
         t.modified_date = now; await saveTender(); return send(res, 200, t);
       }
       return send(res, 405, { message: "Method not allowed" });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
 
   // ── IFC upload → That Open Platform (Phase C: browser bakes → bridge uploads; token stays server-side) ──
@@ -1244,12 +1244,12 @@ async function handleRequest(req, res) {
         // A revoked/rotated platform token 401s "Token not found" here — turn that into an actionable message. Only the
         // upload's errors: a refused caller above keeps its own 401/403 words.
         if (e?.status === 401 || /token not found|unauthor/i.test(msg))
-          return send(res, 401, { message: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` });
+          return send(res, 401, { message: "Sentinel's connection to That Open was not accepted or has expired — ask your administrator to renew it.", detail: `Platform API token invalid or expired — regenerate THATOPEN_API_KEY (dashboard → Data → API Tokens) in config/.env and restart the bridge. [${msg.slice(0, 40)}]` });
         throw e;
       }
       return send(res, 200, out);
     } catch (e) {
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -1271,7 +1271,7 @@ async function handleRequest(req, res) {
       return send(res, 201, { id, size: bytes.length });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
   const fm = url.pathname.match(/^\/cde\/files\/([A-Za-z0-9-]+)$/);
@@ -1282,7 +1282,7 @@ async function handleRequest(req, res) {
       let file = null;
       if (key) {
         const cde = await import("./cde-store.mjs");
-        if (!cde.cdeConfigured()) return send(res, 503, { message: "CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
+        if (!cde.cdeConfigured()) return send(res, 503, { message: "Sentinel's storage is not set up on this installation — encrypted files are stored per project.", detail: "CDE not configured: the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
         file = join(CDE_FILES_ROOT, (await cde.ensureProject(key)).id, name); // a non-member is refused here
       }
       // Blobs stored before H0 sit unbound in the root folder: only the machine credential still reads those.
@@ -1294,7 +1294,7 @@ async function handleRequest(req, res) {
       // aborts mid-download must close the file handle too, or aborted downloads leak fds towards EMFILE.
       return pipeline(createReadStream(file), res, () => {});
     } catch (e) {
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
   // SEC-8 (S38): PUT /cde/files/:id?project=<key>&sha256=<hex> — a key rotation re-seals an encrypted file in place. A file's
@@ -1307,7 +1307,7 @@ async function handleRequest(req, res) {
       const key = url.searchParams.get("project");
       if (!key) return send(res, 400, { message: "name the project: PUT /cde/files/<id>?project=<project key>&sha256=<hex>&replaces=<hex>" });
       const cde = await import("./cde-store.mjs");
-      if (!cde.cdeConfigured()) return send(res, 503, { message: "CDE not configured — encrypted files are stored per project, so the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
+      if (!cde.cdeConfigured()) return send(res, 503, { message: "Sentinel's storage is not set up on this installation — encrypted files are stored per project.", detail: "CDE not configured: the bridge needs SUPABASE_URL + SUPABASE_SERVICE_KEY." });
       await (await import("./members-store.mjs")).requireMinRole(key, "lead");
       const file = join(CDE_FILES_ROOT, (await cde.ensureProject(key)).id, `${basename(fm[1])}.bin`);
       if (!existsSync(file)) return send(res, 404, { message: "Blob not found in this project's folder — nothing was replaced" });
@@ -1330,7 +1330,7 @@ async function handleRequest(req, res) {
       return send(res, 200, { id: fm[1], size: bytes.length });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -1340,7 +1340,7 @@ async function handleRequest(req, res) {
   if (url.pathname.startsWith("/cde/")) {
     const cde = await import("./cde-store.mjs");
     if (!cde.cdeConfigured()) {
-      return send(res, 503, { message: "CDE not configured — set SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env, then restart the service." });
+      return send(res, 503, { message: "Sentinel's storage is not set up on this installation. Ask your administrator to finish the set-up.", detail: "CDE not configured — set SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env, then restart the service." });
     }
     try {
       const seg = url.pathname.split("/").filter(Boolean); // ['cde', p1, p2, p3]
@@ -1994,7 +1994,7 @@ async function handleRequest(req, res) {
       // Log server-side so a 500 on a real-model propose (a character Postgres rejects in element data) is
       // diagnosable instead of vanishing into a generic dialog on the Revit side. Auth failures stay quiet.
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[cde] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2037,7 +2037,7 @@ async function handleRequest(req, res) {
         const pm = await import("./proposal-model.mjs");
         const cs = pm.storeyModel(parts);
         const r = await pm.proposalFrag(cs, pm.levelsOf(cs));
-        if (!r.bytes) return send(res, 409, { message: `storey "${cs.name}" has no create with a shape to show — ${r.creates} create(s) in ${parts.length} changeset(s), ${r.skipped.length} skipped${r.skipped.length ? ": " + r.skipped.slice(0, 3).join("; ") : ""}` });
+        if (!r.bytes) return send(res, 409, { message: `storey "${cs.name}" has no new element with a shape to show — ${r.creates} new element(s) in ${parts.length} set(s) of proposed changes, ${r.skipped.length} skipped`, ...(r.skipped.length ? { detail: r.skipped.slice(0, 3).join("; ") } : {}) });
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "X-Sentinel-Proposal": JSON.stringify({ creates: r.creates, drawn: r.drawn, skipped: r.skipped.slice(0, 10), skipped_total: r.skipped.length, changesets: parts.length }).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")), "Access-Control-Expose-Headers": "X-Sentinel-Proposal", ...corsHeaders(res) });
         return res.end(Buffer.from(r.bytes));
       }
@@ -2045,7 +2045,7 @@ async function handleRequest(req, res) {
         const cs = await ch.getChangeset(key, p2);
         const pm = await import("./proposal-model.mjs");
         const r = await pm.proposalFrag(cs, pm.levelsOf(cs));
-        if (!r.bytes) return send(res, 409, { message: `changeset ${p2} has no create with a shape to show — ${r.creates} create(s), ${r.skipped.length} skipped${r.skipped.length ? ": " + r.skipped.slice(0, 3).join("; ") : ""}` });
+        if (!r.bytes) return send(res, 409, { message: `proposed changes ${p2} have no new element with a shape to show — ${r.creates} new element(s), ${r.skipped.length} skipped`, ...(r.skipped.length ? { detail: r.skipped.slice(0, 3).join("; ") } : {}) });
         res.writeHead(200, { "Content-Type": "application/octet-stream", "Cache-Control": "no-cache", "X-Sentinel-Proposal": JSON.stringify({ creates: r.creates, drawn: r.drawn, skipped: r.skipped.slice(0, 10), skipped_total: r.skipped.length }).replace(/[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0")), "Access-Control-Expose-Headers": "X-Sentinel-Proposal", ...corsHeaders(res) });
         return res.end(Buffer.from(r.bytes));
       }
@@ -2075,7 +2075,7 @@ async function handleRequest(req, res) {
       return send(res, 404, { message: "changesets route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[changesets] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2103,7 +2103,7 @@ async function handleRequest(req, res) {
       return send(res, 404, { message: "receipt route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[receipt] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2126,7 +2126,7 @@ async function handleRequest(req, res) {
       return send(res, 404, { message: "annex route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403 || e?.status === 409)) console.error(`[annex] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2149,7 +2149,7 @@ async function handleRequest(req, res) {
       return send(res, 404, { message: "teams route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[teams] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2187,7 +2187,7 @@ async function handleRequest(req, res) {
       return send(res, 404, { message: "deliverables route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[deliverables] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2384,7 +2384,7 @@ async function handleRequest(req, res) {
       return send(res, 404, { message: "bimdocs route not found" });
     } catch (e) {
       if (!(e?.status === 401 || e?.status === 403)) console.error(`[bimdocs] ${req.method} ${url.pathname} → ${e?.status || 500}:`, e?.message || e);
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
 
@@ -2463,7 +2463,7 @@ async function handleRequest(req, res) {
         return send(res, 200, { ok: !!moved });
       }
       return send(res, 405, { message: "method not allowed" });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
 
   // BCF files (work alongside ACC and BIMcollab, files only — spec 2026-10-19-work-alongside-connectors):
@@ -2506,7 +2506,7 @@ async function handleRequest(req, res) {
         const now = new Date().toISOString();
         // A model embedded in the file for its issues is not kept with them (models live in the CDE): said, once per file.
         const notes = [...new Map(bx.embeddedModels(pkg).map((m) => [m.filename, m])).values()]
-          .map((m) => `the model file "${m.filename}" (${Math.max(1, Math.round(m.bytes / 1024))} KB) inside this BCF file is not kept — Sentinel keeps models in its CDE; the issues still name it`);
+          .map((m) => `the model file "${m.filename}" (${Math.max(1, Math.round(m.bytes / 1024))} KB) inside this BCF file is not kept — Sentinel keeps models in the project's files; the issues still name it`);
         const out = { version: pkg.version, created: 0, updated: 0, unchanged: 0, topics: [], skipped: [], notes };
         for (const inc of pkg.topics) {
           try {
@@ -2529,7 +2529,7 @@ async function handleRequest(req, res) {
           } catch (e) {
             const m = String(e?.message || e);
             const why = !e?.status && /duplicate|23505|409/i.test(m) ? "its GUID is a topic of another project (topic GUIDs are global)"
-              : e?.status && e.status < 500 ? m : "not saved — see the bridge log";
+              : e?.status && e.status < 500 ? m : "not saved — the cause is in Sentinel's log on the office PC";
             if (why.startsWith("not saved")) console.warn(`[bcf] import ${pid} topic ${inc.guid}: ${m}`);
             out.skipped.push({ guid: inc.guid, title: String(inc.title ?? "").slice(0, 120), why });
           }
@@ -2540,7 +2540,7 @@ async function handleRequest(req, res) {
       }
       return send(res, 405, { message: "Method not allowed" });
     } catch (e) {
-      return send(res, e?.status || 500, { message: String(e?.message || e) });
+      return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
     }
   }
   // openCDE slice 1: the BCF-API 3.0 reads a stock client expects (bcf-open.mjs) — asked before the topic block, GET only.
@@ -2551,7 +2551,7 @@ async function handleRequest(req, res) {
       const members = await import("./members-store.mjs");
       return await open.answerOpen(openRoute, { req, url, res, send, db, corsHeaders, currentActor, currentUserToken, readBody, readRaw, SMALL_JSON, resolveActor, persist, broadcast, governedEditNeedsLead, isClosed,
         requireMinRole: members.requireMinRole, newGuid: randomUUID, env: process.env, cde: await import("./cde-store.mjs"), members });
-    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e) }); }
+    } catch (e) { return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) }); }
   }
   // /bcf/3.0/projects/:pid/topics[/:guid[/comments|/viewpoints]]
   const m = url.pathname.match(/^\/bcf\/3\.0\/projects\/([^/]+)\/topics(?:\/([^/]+))?(?:\/(comments|viewpoints))?$/);
@@ -2689,6 +2689,6 @@ async function handleRequest(req, res) {
     }
     return send(res, 405, { message: "Method not allowed" });
   } catch (e) {
-    return send(res, e?.status || 500, { message: String(e?.message || e) });
+    return send(res, e?.status || 500, { message: String(e?.message || e), ...(e?.detail ? { detail: e.detail } : {}) });
   }
 }

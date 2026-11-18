@@ -41,7 +41,7 @@ describe("readReviews — GET /cde/:key/reviews", () => {
     bfetch.mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(readReviews("http://b", "k")).rejects.toThrow(/^not read — Failed to fetch$/);
     bfetch.mockResolvedValue(res(200, { rows: [] }));
-    await expect(readReviews("http://b", "k")).rejects.toThrow(/^not read — the bridge answered without a list$/);
+    await expect(readReviews("http://b", "k")).rejects.toThrow(/^not read — Sentinel could not answer$/);
   });
 });
 
@@ -62,7 +62,7 @@ describe("decideReview — POST /cde/:key/versions/:vid/review", () => {
   });
 
   it("a rejection with a blank note is never sent", async () => {
-    await expect(decideReview("http://b", "k", V, "reject", "   ")).rejects.toThrow("a rejection says why — the ledger records it");
+    await expect(decideReview("http://b", "k", V, "reject", "   ")).rejects.toThrow("a rejection says why — History records it");
     expect(bfetch).not.toHaveBeenCalled();
   });
 
@@ -80,32 +80,32 @@ describe("decideFailedLine — a decision that threw", () => {
   it("'Not recorded' only when nothing was sent or the answer says nothing was written; else not confirmed", async () => {
     for (const status of [400, 401, 403, 404, 409, 503]) expect(decideFailedLine(Object.assign(new Error("refused"), { status }))).toBe("Not recorded — refused");
     const blank = await decideReview("http://b", "k", V, "reject", " ").catch((e: unknown) => e);
-    expect(decideFailedLine(blank)).toBe("Not recorded — a rejection says why — the ledger records it");
-    expect(decideFailedLine(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe("Not confirmed — HTTP 500 (the decision may be on the ledger; ↻ to check)");
-    expect(decideFailedLine(new TypeError("Failed to fetch"))).toBe("Not confirmed — Failed to fetch (the decision may be on the ledger; ↻ to check)");
+    expect(decideFailedLine(blank)).toBe("Not recorded — a rejection says why — History records it");
+    expect(decideFailedLine(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe("Not confirmed — HTTP 500 (the decision may be in History; ↻ to check)");
+    expect(decideFailedLine(new TypeError("Failed to fetch"))).toBe("Not confirmed — Failed to fetch (the decision may be in History; ↻ to check)");
   });
 });
 
 describe("the lines on the card and in the status", () => {
   it("the review line, and each approval with its ledger line — or why it is not confirmed", () => {
     expect(reviewLine(item())).toBe("Review: step 2 of 2 — Lead sign-off (lead)");
-    expect(approvalLine(item().approvals[0])).toBe("✓ step 1 · checker@example.com · ledger #941 · receipt 9a8b7c6d5e4f3021…");
-    expect(approvalLine({ step: 1, actor: null, at: "2026-09-28T09:00:00Z", ledger: { id: 941, hash: null } })).toBe("✓ step 1 · — · not confirmed — the bridge returned no chain hash");
+    expect(approvalLine(item().approvals[0])).toBe("✓ step 1 · checker@example.com · History #941 · receipt 9a8b7c6d5e4f3021…");
+    expect(approvalLine({ step: 1, actor: null, at: "2026-09-28T09:00:00Z", ledger: { id: 941, hash: null } })).toBe("✓ step 1 · — · not confirmed — Sentinel returned no receipt");
   });
 
   it("an approval: the step, and 'published' only when the reply says the version was published", () => {
-    expect(decisionLine("B13-B.ifc", decided())).toBe("Approved step 2 of 2 — Lead sign-off · B13-B.ifc published · ledger #950 · receipt 9a8b7c6d5e4f3021…");
+    expect(decisionLine("B13-B.ifc", decided())).toBe("Approved step 2 of 2 — Lead sign-off · B13-B.ifc published · History #950 · receipt 9a8b7c6d5e4f3021…");
     expect(decisionLine("B13-B.ifc", decided({ step: 1, name: "Design check", role: "contributor", published: false, state: "shared" })))
-      .toBe("Approved step 1 of 2 — Design check · ledger #950 · receipt 9a8b7c6d5e4f3021…");
-    expect(decisionLine("B13-B.ifc", decided({ hash: null }))).toBe("Approved step 2 of 2 — Lead sign-off · B13-B.ifc published · not confirmed — the bridge returned no chain hash");
+      .toBe("Approved step 1 of 2 — Design check · History #950 · receipt 9a8b7c6d5e4f3021…");
+    expect(decisionLine("B13-B.ifc", decided({ hash: null }))).toBe("Approved step 2 of 2 — Lead sign-off · B13-B.ifc published · not confirmed — Sentinel returned no receipt");
   });
 
   it("a rejection: back to WIP, and the BCF topic the bridge raised or why not", () => {
     const r = decided({ decision: "reject", step: 1, name: "Design check", role: "contributor", published: false, state: "wip" });
     expect(decisionLine("B13-D.ifc", { ...r, bcf: { guid: "4f2a9c1e-0000-4000-8000-000000000003" } }))
-      .toBe("Rejected at step 1 of 2 — Design check · B13-D.ifc back to WIP · ledger #950 · receipt 9a8b7c6d5e4f3021… · BCF topic 4f2a9c1e-0000-4000-8000-000000000003");
+      .toBe("Rejected at step 1 of 2 — Design check · B13-D.ifc back to Work in progress · History #950 · receipt 9a8b7c6d5e4f3021… · Issue 4f2a9c1e-0000-4000-8000-000000000003");
     expect(decisionLine("B13-D.ifc", { ...r, bcf: { error: "BCF store not configured" } }))
-      .toBe("Rejected at step 1 of 2 — Design check · B13-D.ifc back to WIP · ledger #950 · receipt 9a8b7c6d5e4f3021… · BCF topic not raised — BCF store not configured");
+      .toBe("Rejected at step 1 of 2 — Design check · B13-D.ifc back to Work in progress · History #950 · receipt 9a8b7c6d5e4f3021… · Issue not raised — BCF store not configured");
   });
 });
 

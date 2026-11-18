@@ -51,7 +51,7 @@ describe("runBlur (MA-7-7)", () => {
     await expect(runBlur("a", "b", [], undefined, { ...here, execFileFn: stub("", Object.assign(new Error("t"), { killed: true })) })).rejects.toMatchObject({ status: 500, message: expect.stringContaining("took too long") });
     let ran = false;
     await expect(runBlur("a", "b", [], undefined, { python: "relative.exe", execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503 });
-    await expect(runBlur("a", "b", [], undefined, { python: join(tmpdir(), "no-python.exe"), execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("no Python where SENTINEL_PYTHON") });
+    await expect(runBlur("a", "b", [], undefined, { python: join(tmpdir(), "no-python.exe"), execFileFn: () => { ran = true; } })).rejects.toMatchObject({ status: 503, message: expect.stringContaining("the blur tool is not set up on this PC"), detail: expect.stringContaining("no Python where SENTINEL_PYTHON") });
     expect(ran).toBe(false);
     expect(blurNotSetUp({ python: process.execPath, script: join(tmpdir(), "none.py") })).toContain("survey/blur.py is missing");
   });

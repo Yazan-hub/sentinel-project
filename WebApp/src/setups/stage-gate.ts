@@ -21,7 +21,7 @@ export async function runStageGate(baseUrl: string, key: string, stage: string):
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stage }),
   });
   const j = (await r.json().catch(() => null)) as (GateReply & { message?: string }) | null;
-  if (!r.ok || !j) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok || !j) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
   return j;
 }
 
@@ -31,18 +31,31 @@ const HASH64 = /^[0-9a-f]{64}$/;
 export function ledgerLine(ledger: GateReply["ledger"]): string {
   const id = ledger?.id, hash = ledger?.hash;
   if (typeof id === "number" && Number.isInteger(id) && typeof hash === "string" && HASH64.test(hash)) {
-    return `ledger #${id} · receipt ${hash.slice(0, 16)}…`;
+    return `History #${id} · receipt ${hash.slice(0, 16)}…`;
   }
-  return "not confirmed — the bridge returned no chain hash";
+  return "not confirmed — Sentinel returned no receipt";
 }
 
 /** The status line after a run: PASS names the stage the project advanced to, HOLD points at the checks below, not
  *  checkable names every check nothing measured; each ends with the row's ledger line. `stageName` turns a stage id
  *  into its display name. */
+/** Screen split of ledgerLine: plain words on screen, the exact entry number + receipt in a closed Details. */
+export function ledgerParts(ledger: GateReply["ledger"]): { text: string; detail?: string } {
+  const full = ledgerLine(ledger);
+  if (!full.startsWith("History #")) return { text: full };
+  return { text: "Recorded in History", detail: full.replace("History #", "History entry ") };
+}
+
+/** Screen split of gateLine: same sentence with "Recorded in History", the row in `detail`. */
+export function gateParts(reply: GateReply, stageName: (id: string) => string): { text: string; detail?: string } {
+  const full = gateLine(reply, stageName), row = ledgerLine(reply.ledger), p = ledgerParts(reply.ledger);
+  return { text: full.slice(0, full.length - row.length) + p.text, detail: p.detail };
+}
+
 export function gateLine(reply: GateReply, stageName: (id: string) => string): string {
   const row = ledgerLine(reply.ledger);
-  if (reply.status === "pass") return `Gate PASS — advanced to ${stageName(reply.next_stage ?? reply.stage)} · ${row}`;
-  if (reply.status === "hold") return `Gate HOLD — clear the failing checks below · ${row}`;
+  if (reply.status === "pass") return `Stage check: Ready — moved to ${stageName(reply.next_stage ?? reply.stage)} · ${row}`;
+  if (reply.status === "hold") return `Stage check: Not ready — clear the failing checks below · ${row}`;
   const na = reply.checks.filter((c) => c.na).map((c) => c.label).join(", ");
-  return `Gate not checkable — ${na} · ${row}`;
+  return `Stage check: Cannot be checked — ${na} · ${row}`;
 }

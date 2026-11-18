@@ -63,13 +63,13 @@ describe("readView", () => {
 
 describe("startPrint", () => {
   beforeEach(() => { asks.answer = ""; asks.enforce = "reject"; asks.failRead = false; asks.asked = 0; });
-  it("an empty container ID prints; Cancel stops; a failing ID is refused with its reasons", async () => {
+  it("an empty file ID prints; Cancel stops; a failing ID is refused with its reasons", async () => {
     const { win, popup } = fakeWindow(); vi.stubGlobal("window", win);
     const { ctx } = ctxOf({ ...emptyState("k"), doc: doc() }), said: string[] = [];
-    await startPrint(ctx, (t) => said.push(t)); expect(popup!.printed).toBe(true); expect(textOf(popup!.document.body)).toContain("Container ID: not assigned");
+    await startPrint(ctx, (t) => said.push(t)); expect(popup!.printed).toBe(true); expect(textOf(popup!.document.body)).toContain("File ID: not assigned");
     popup!.printed = false; asks.answer = null; await startPrint(ctx, (t) => said.push(t)); expect(popup!.printed).toBe(false);
     asks.answer = "BAD"; await startPrint(ctx, (t) => said.push(t)); expect(popup!.printed).toBe(false); expect(said[said.length - 1]).toMatch(/does not follow the naming rule in force.*Nothing was printed\.$/);
-    asks.answer = "SNW_0001"; await startPrint(ctx, (t) => said.push(t)); expect(popup!.printed).toBe(true); expect(textOf(popup!.document.body)).toContain("Container ID: SNW_0001");
+    asks.answer = "SNW_0001"; await startPrint(ctx, (t) => said.push(t)); expect(popup!.printed).toBe(true); expect(textOf(popup!.document.body)).toContain("File ID: SNW_0001");
   });
   it("a blocked popup is said in words", async () => {
     vi.stubGlobal("window", fakeWindow({ blocked: true }).win);
@@ -195,7 +195,7 @@ describe("startPrint: the naming rule in force", () => {
   it("a rule that cannot be read refuses in words, before the question", async () => {
     asks.failRead = true; const { popup, said } = await run();
     expect(popup.printed).toBe(false); expect(asks.asked).toBe(0);
-    expect(said[said.length - 1]).toBe("The naming rule could not be read, so the container ID was not checked. Nothing was printed.");
+    expect(said[said.length - 1]).toBe("The naming rule could not be read, so the file ID was not checked. Nothing was printed.");
   });
   it("reject refuses with the reasons", async () => {
     const { popup, said } = await run();
@@ -206,7 +206,7 @@ describe("startPrint: the naming rule in force", () => {
   });
   it("off prints without a check", async () => {
     asks.enforce = "off"; const { popup } = await run();
-    expect(popup.printed).toBe(true); expect(textOf(popup.document.body)).toContain("Container ID: BAD");
+    expect(popup.printed).toBe(true); expect(textOf(popup.document.body)).toContain("File ID: BAD");
   });
   it("warn prints and shows the problems as a note", async () => {
     asks.enforce = "warn"; const { popup, said } = await run();

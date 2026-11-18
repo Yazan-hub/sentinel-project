@@ -268,12 +268,12 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
   // The lock (3D spec Decision 4): the register takes new clashes only after a passing Federation Gate on the live set.
   const gatePassed = () => db.bridge_docs.push({ store: "federation", project_id: PID, doc_id: "latest", data: { result: { verdict: "pass", checks: [] }, set: [], scope: "all", at: "2026-09-28T10:00:00Z" } });
 
-  it("the register is locked until the Federation Gate passed: not run, or failed, is a 409 in words and nothing is written", async () => {
+  it("the register is locked until the coordination check passed: not run, or failed, is a 409 in words and nothing is written", async () => {
     expect(await call("POST", "/clash/demo", "contributor", { items: [item] }))
-      .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate) — nothing was saved" } });
+      .toEqual({ status: 409, body: { message: "not recorded — the coordination check has not been run on this project — run it first (Models ▸ Clash ▸ Run check) — nothing was saved" } });
     db.bridge_docs.push({ store: "federation", project_id: PID, doc_id: "latest", data: { result: { verdict: "fail", checks: [{ id: "FG-01", status: "fail" }] }, set: [], scope: "all" } });
     expect(await call("POST", "/clash/demo", "contributor", { items: [item] }))
-      .toEqual({ status: 409, body: { message: "not recorded — the Federation Gate failed (FG-01) — fix those and run it again — nothing was saved" } });
+      .toEqual({ status: 409, body: { message: "not recorded — the coordination check failed (FG-01) — fix those and run it again — nothing was saved" } });
     expect(writes("bridge_docs")).toEqual([]);
     expect(writes("audit_log")).toEqual([]);
   });
@@ -328,7 +328,7 @@ describe("Clash register (clash-1): recording and moving a clash is a contributo
   it("a Clash Issue is refused while the gate has not passed (the register's lock, asked per Issue); other Issues are not", async () => {
     const topics = "/bcf/3.0/projects/demo/topics";
     expect(await call("POST", topics, "contributor", { title: "Clash: Wall ↔ Beam", topic_type: "Clash" }))
-      .toEqual({ status: 409, body: { message: "not raised — the Federation Gate has not been run on this project — run it first (Models ▸ Clash ▸ Run gate) — nothing was saved" } });
+      .toEqual({ status: 409, body: { message: "not raised — the coordination check has not been run on this project — run it first (Models ▸ Clash ▸ Run check) — nothing was saved" } });
     expect(writes("bcf_topics")).toEqual([]);
     expect((await call("POST", topics, "contributor", { title: "A question", topic_type: "Issue" })).status).toBe(201);
     gatePassed();
@@ -866,7 +866,7 @@ describe("POST /cde/:key/audit (cde-6, D11): a signed-in caller writes a lead's 
 
   it("a contributor's note is a 403 and nothing reaches the ledger", async () => {
     expect(await call("POST", A, "contributor", { action: "Kick-off held" }))
-      .toEqual({ status: 403, body: { message: "a note on the ledger is a lead's (you are contributor) — nothing was saved" } });
+      .toEqual({ status: 403, body: { message: "a note in History is a lead's (you are contributor) — nothing was saved" } });
     expect(writes("audit_log")).toEqual([]);
   });
 
@@ -1242,7 +1242,7 @@ describe("audit pack (paperwork slice 5; renamed in MA-4a)", () => {
     expect(r.body).toMatchObject({ pack: "sentinel-audit-pack", project: { key: "demo", name: "Demo" }, generated_by: "lead@example.test" });
     expect(r.body.bundle_sha256).toMatch(/^[0-9a-f]{64}$/);
     expect(r.body.standards).toHaveProperty("ids");
-    expect(r.body.standards).not.toHaveProperty("recipe"); // MA-8-13: a recipe is not a standard in force - it reaches the pack through its ledger rows
+    expect(r.body.standards).not.toHaveProperty("recipe"); // MA-8-13: a recipe is not a standard in force - it reaches the pack through its History rows
     if (Array.isArray(r.body.ledger?.rows)) expect(r.body.ledger.rows.map((x) => x.id)).toEqual([1]); else { console.log("ledger part:", JSON.stringify(r.body.ledger)); expect(typeof r.body.ledger?.not_read).toBe("string"); }
     for (const k of ["documents", "reviews", "containers"]) expect(Array.isArray(r.body[k]) || typeof r.body[k]?.not_read === "string", k).toBe(true);   // the fake serves what it serves; nothing is dropped in silence
   }, 20_000); // the pack reads every part (~1 s idle): timed out at 5 s under a full suite's load
@@ -1297,7 +1297,7 @@ describe("changesets (MA-3d2): the proposal model", () => {
     db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([{ op: "retype", kind: "wall", proposal_guid: "g2" }]) });
     const r = await get("viewer");
     expect(r.status).toBe(409);
-    expect(JSON.parse(r.bytes.toString()).message).toContain(`changeset ${ID} has no create with a shape to show`);
+    expect(JSON.parse(r.bytes.toString()).message).toContain(`proposed changes ${ID} have no new element with a shape to show`);
   });
   it("a stranger is refused", async () => {
     db.bridge_docs.push({ store: "changeset", project_id: PID, doc_id: ID, data: csOf([wallEl]) });
@@ -1530,11 +1530,11 @@ describe("survey jobs (MA-4c): who starts and reads; every refusal before anythi
     const rows = db.audit_log.length;
     expect(await call("POST", J, "machine", { pack: "evp-0001" })).toEqual({ status: 403, body: { message: "a survey job needs a person — its build:run row names who started it: sign in. Nothing was saved." } });
     expect(await call("POST", J, "viewer", { pack: "evp-0001" })).toEqual(refused("contributor", "viewer"));
-    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 503, body: { message: "sentinel-survey is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved" } });
+    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 503, body: { message: "sentinel-survey is not set up on this PC — nothing was saved", detail: "no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default)" } });
     expect(db.audit_log.length).toBe(rows);
     await admit("tiny.las");
     const rows2 = db.audit_log.length;
-    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 503, body: { message: "sentinel-survey is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved" } });
+    expect(await call("POST", J, "contributor", { pack: "evp-0001" })).toEqual({ status: 503, body: { message: "sentinel-survey is not set up on this PC — nothing was saved", detail: "no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default)" } });
     expect((await call("POST", J, "contributor", { pack: "evp-0002" })).status).toBe(404);
     expect(await call("POST", J, "contributor", { pack: "evp-0001", params: { snap_mm: 5 } })).toEqual({ status: 400, body: { message: "snap_mm is not a survey parameter: snapping to a catalogue size is the bridge's typing policy (D16, type_snap_mm), MA-4d — nothing was saved" } });
     expect(await call("POST", J, "contributor", { pack: "evp-0001", items: [{ id: "ev-0001" }] })).toEqual({ status: 400, body: { message: "items is not a survey job field — the bridge picks the items, the seed and who started it; send {pack, readers?, params?} — nothing was saved" } });
@@ -1587,7 +1587,7 @@ describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verif
   const V = "/cde/demo/verify";
   it("the machine credential and a viewer may not; a contributor meets the body's own refusal — no row", async () => {
     const rows = db.audit_log.length;
-    expect(await call("POST", V, "machine", { changeset: "x" })).toEqual({ status: 403, body: { message: "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved." } });
+    expect(await call("POST", V, "machine", { changeset: "x" })).toEqual({ status: 403, body: { message: "measuring proposed changes against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved." } });
     expect((await call("POST", V, "viewer", { changeset: "x" })).status).toBe(403);
     expect(await call("POST", V, "contributor", { changeset: "x", results: [] })).toEqual({ status: 400, body: { message: "results is not a measure field — the bridge measures what Revit placed, by Revit's re-read where it sent one, else as filed, against its job's own scan; send {changeset} — nothing was saved" } });
     expect(db.audit_log.length).toBe(rows);
@@ -1604,7 +1604,7 @@ describe("measuring a placed changeset (MA-4e): a signed-in contributor; a verif
 describe("showing a changeset's scan (MA-4f): a signed-in contributor; a view, no row", () => {
   it("the machine credential may not: sign in — its scan is not shown", async () => {
     const rows = db.audit_log.length;
-    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown" } });
+    expect(await call("GET", "/changesets/demo/x/scan", "machine")).toEqual({ status: 403, body: { message: "showing the scan behind proposed changes needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown" } });
     expect(db.audit_log.length).toBe(rows);
   });
 });
@@ -1653,7 +1653,7 @@ describe("recipes (MA-8-13, D13): two approvals by two different people of diffe
     expect(await call("POST", R, "viewer", body)).toEqual({ status: 403, body: { message: "drafting a recipe requires the lead role on demo (you are viewer) — nothing was saved" } });
     expect(await call("POST", R, "contributor", body)).toEqual({ status: 403, body: { message: "drafting a recipe requires the lead role on demo (you are contributor) — nothing was saved" } });
     expect(await call("POST", R, "lead", { run: "cs-0001", name: "x" })).toMatchObject({ status: 400 });
-    expect(await call("POST", R, "lead", body)).toEqual({ status: 404, body: { message: "ledger #900 on demo is not a job's build:run row — a recipe repeats a job's run; nothing was saved" } });
+    expect(await call("POST", R, "lead", body)).toEqual({ status: 404, body: { message: "History #900 on demo is not a job's run record — a recipe repeats a job's run; nothing was saved" } });
     expect(approvals()).toEqual([]);
     expect(writes("bridge_docs")).toEqual([]);
   }, 60_000);
@@ -1678,7 +1678,7 @@ describe("recipes (MA-8-13, D13): two approvals by two different people of diffe
     const first = await call("POST", `${R}/1/approve`, "owner", ok);
     expect(first).toMatchObject({ status: 201, body: { ref: REF, role: "owner", approved: false } });
     expect(approvals().map((r) => [r.action, r.new_value.user_id, r.new_value.role, r.new_value.sha256, r.actor])).toEqual([[`recipe:approved ${REF} · owner`, USERS.owner, "owner", sha256, "owner@example.test"]]);
-    expect(await call("POST", `${R}/1/approve`, "owner", ok)).toEqual({ status: 409, body: { message: `you approved recipe@1 already (ledger #${first.body.ledger.id}) — the second approval is another person's; nothing was saved` } });
+    expect(await call("POST", `${R}/1/approve`, "owner", ok)).toEqual({ status: 409, body: { message: `you approved recipe@1 already (History #${first.body.ledger.id}) — the second approval is another person's; nothing was saved` } });
     expect((await call("POST", JOBS, "contributor", asked)).body.message)
       .toBe(`recipe@1 has 1 approval (#${first.body.ledger.id}, an owner's) — it runs once a lead and an owner, two different people, have approved it; nothing was saved`);
 
@@ -1693,15 +1693,15 @@ describe("recipes (MA-8-13, D13): two approvals by two different people of diffe
     expect(approvals().map((r) => r.new_value.role)).toEqual(["owner", "lead", "lead"]); // the ghost's row sits in the ledger, counted by nobody
 
     // D13: the runner approved neither. Both approvers are refused (before the count); the machine credential is too
-    expect(await call("POST", JOBS, "owner", asked)).toEqual({ status: 403, body: { message: `you approved recipe@1 (ledger #${first.body.ledger.id}) — a recipe is run by someone who approved neither (D13); nothing was saved` } });
+    expect(await call("POST", JOBS, "owner", asked)).toEqual({ status: 403, body: { message: `you approved recipe@1 (History #${first.body.ledger.id}) — a recipe is run by someone who approved neither (D13); nothing was saved` } });
     const asLead = await call("POST", JOBS, "lead", asked);
     expect(asLead.status).toBe(403);
     expect(asLead.body.message).toContain("you approved recipe@1");
-    expect(await call("POST", JOBS, "machine", asked)).toEqual({ status: 403, body: { message: "a recipe run is a person's — its build:run row names who ran it: sign in. Nothing was saved." } });
+    expect(await call("POST", JOBS, "machine", asked)).toEqual({ status: 403, body: { message: "a recipe run is a person's — its run record names who ran it: sign in. Nothing was saved." } });
     // the contributor is a third person: the recipe's checks pass (planner, guideline, catalogue), the run stops at the pack - there is no evidence pack in this fake
     const third = await call("POST", JOBS, "contributor", asked);
     expect(third.status).toBe(404);
-    expect(third.body.message).toBe("demo has no evidence pack yet — a lead makes it (POST /cde/demo/evidence) — nothing was saved");
+    expect(third.body.message).toBe("demo has no evidence pack yet — ask a project lead to make it — nothing was saved");
     expect(db.audit_log.filter((r) => r.entity_type === "build")).toEqual([]);
     // a recipe cannot be mixed with a reader or params, and a recipe key is {version, scope}
     expect((await call("POST", JOBS, "contributor", { ...asked, readers: ["sentinel-survey"] })).body.message).toContain("a recipe names its reader and params");
@@ -1732,7 +1732,7 @@ describe("recipes (MA-8-13, D13): two approvals by two different people of diffe
     expect((await call("POST", `${R}/1/withdraw`, "contributor", { sha256 })).status).toBe(403);
     expect((await call("POST", `${R}/1/withdraw`, "lead", { sha256 })).status).toBe(201);
     expect(approvals().at(-1).action).toBe("recipe:withdrawn recipe@1");
-    expect((await call("POST", `${R}/1/approve`, "lead", { sha256 })).body.message).toMatch(/^recipe@1 was withdrawn \(ledger #\d+\)/);
+    expect((await call("POST", `${R}/1/approve`, "lead", { sha256 })).body.message).toMatch(/^recipe@1 was withdrawn \(History #\d+\)/);
     expect((await call("GET", R, "viewer")).body.project[0].state).toBe("withdrawn");
   }, 60_000);
 });

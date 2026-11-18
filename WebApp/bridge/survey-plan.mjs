@@ -282,7 +282,7 @@ export function groupGaps(gaps) {
     for (const e of g.evidence) if (x.evidence.length < 50 && !x.evidence.includes(e)) x.evidence.push(e);
     by.set(id, x);
   }
-  if (by.size > 200) throw err(413, `the job leaves ${by.size} type-gap groups — over the 200 one Holding Area row holds; survey a part of the building, or type more of its sizes — nothing was saved`);
+  if (by.size > 200) throw err(413, `the job leaves ${by.size} type-gap groups — over the 200 that can wait for approval at once; survey a part of the building, or type more of its sizes — nothing was saved`);
   return [...by.values()];
 }
 
@@ -432,7 +432,7 @@ export function planSurvey({ job, candidates, frame, levels: named = {}, manifes
     // ponytail: one changeset (one Undo) per storey; a storey over 200 needs StoreyBatch to accept the survey source (C#) — MA-4h's dry
     // plan: Kladno's 425-candidate storey types none on the BDS standards (131 gap groups); build the split when a storey types over 200.
     if (elements.length > MAX_CHANGESET_ELEMENTS)
-      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved`);
+      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one set of proposed changes (one Undo) holds; a storey is not split into several sets yet — survey a part of the building — nothing was saved`);
     return { storey: s, byCid, exceptions, once, body: { name: `Survey ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });
   return { storeys, groups: groupGaps(gaps), already_filed: already, ...(used.length ? { materials: used } : {}),

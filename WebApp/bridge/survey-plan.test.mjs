@@ -314,7 +314,7 @@ describe("MA-5a — a scan door or window: after its storey's walls, on its host
     expect([l01.storey.level, l01.body.elements.find((e) => e.cid === up.cid).place.Location]).toEqual(["01-FFL", [43450, 150, 3010]]);
     const many = Array.from({ length: 198 }, (_, i) => ({ ...DOOR, cid: `scan-L00-wall-1-door-${i + 1}` }));
     expect(() => plan(many)).toThrow(expect.objectContaining({ status: 413,
-      message: "scan-L00-level would file 201 elements on GR-FFL — over the 200 one changeset (one Undo) holds; a storey is not split into changesets yet — survey a part of the building — nothing was saved" }));
+      message: "scan-L00-level would file 201 elements on GR-FFL — over the 200 one set of proposed changes (one Undo) holds; a storey is not split into several sets yet — survey a part of the building — nothing was saved" }));
   });
   it("an opening's point is range-checked with the rest; the plan is deterministic", () => {
     expect(placeRefusal([{ kind: "door", geometry: { Location: [40_000_000, 0, 0] } }], ZERO)).toBe("the frame puts the scan 40 km from the model's internal origin — Revit draws a model within 32 km of it; state where the scan sits in the model (with no turn, dx_mm -40000000 and dy_mm 0 bring its middle to the origin)");

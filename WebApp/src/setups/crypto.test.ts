@@ -136,15 +136,15 @@ describe("unlockAndVerify — a read or a write that did not happen never unlock
     bfetch.mockReset();
     bfetch.mockResolvedValueOnce(reply(200, null)).mockRejectedValueOnce(new TypeError("Failed to fetch"));
     const r = await unlockAndVerify("http://bridge", "s39-post", PASS);
-    expect(r).toEqual({ ok: false, firstUse: true, reason: "Could not reach the bridge — the passphrase may not have been stored; unlock again with the same passphrase" });
+    expect(r).toEqual({ ok: false, firstUse: true, reason: "Sentinel is not connected — the passphrase may not have been stored; unlock again with the same passphrase" });
     expect(isUnlocked("s39-post")).toBe(false);
   });
 
   it("a keystore read the bridge refused (401, 403, 404), or one with no wrapped key: not ok, the bridge's words, no 'try again' (review C6)", async () => {
     const cases: Array<[Response, string]> = [
-      [reply(403, { message: "a member of this project reads its keystore" }), "Could not read the project keystore (the bridge answered HTTP 403: a member of this project reads its keystore) — nothing was unlocked"],
-      [reply(401, {}), "Could not read the project keystore (the bridge answered HTTP 401) — nothing was unlocked"],
-      [reply(404, { message: "Project not found" }), "Could not read the project keystore (the bridge answered HTTP 404: Project not found) — nothing was unlocked"],
+      [reply(403, { message: "a member of this project reads its keystore" }), "Could not read the project keystore (Sentinel could not answer — HTTP 403: a member of this project reads its keystore) — nothing was unlocked"],
+      [reply(401, {}), "Could not read the project keystore (Sentinel could not answer — HTTP 401) — nothing was unlocked"],
+      [reply(404, { message: "Project not found" }), "Could not read the project keystore (Sentinel could not answer — HTTP 404: Project not found) — nothing was unlocked"],
       [reply(200, { v: 1, salt: "c2FsdA==" }), "Could not read the project keystore (the stored keystore holds no wrapped key) — nothing was unlocked"],
     ];
     for (const [i, [res, reason]] of cases.entries()) {

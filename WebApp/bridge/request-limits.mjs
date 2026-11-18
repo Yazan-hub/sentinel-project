@@ -64,7 +64,7 @@ function readBytes(req, max, lease, sub) {
       if (grace && ms > grace && total / 1024 / (ms / 1000) < floor)
         return fail(err(408, `the upload arrived slower than ${floor} KB/s on average after its first ${grace / 1000} s — nothing was saved; try again on a faster connection`));
       if (lease) {
-        if (json.used + c.length > 4 * jsonCap()) return fail(err(503, "the bridge is reading too many large requests at once — nothing was saved; try again in a moment"));
+        if (json.used + c.length > 4 * jsonCap()) return fail(err(503, "Sentinel is reading too many large requests at once — nothing was saved; try again in a moment"));
         if (sub) {
           const mine = jsonBySub.get(sub) || 0;
           if (mine + c.length > jsonCap())
@@ -137,9 +137,9 @@ const uploading = new Set();
  *  its own, beside the two — signed-in uploads never lock Revit or the outbox out. */
 export function uploadSlot(sub) {
   const who = sub || "service";
-  if (uploading.has(who)) throw err(429, "you already have an upload running on the bridge — wait for it to finish, then send this one; nothing was saved");
+  if (uploading.has(who)) throw err(429, "you already have an upload running — wait for it to finish, then send this one; nothing was saved");
   if (who !== "service" && [...uploading].filter((w) => w !== "service").length >= MAX_UPLOADS)
-    throw err(429, `the bridge is already taking ${MAX_UPLOADS} uploads — try again in a minute; nothing was saved`);
+    throw err(429, `Sentinel is already taking ${MAX_UPLOADS} uploads — try again in a minute; nothing was saved`);
   uploading.add(who);
   let held = true;
   return () => { if (held) { held = false; uploading.delete(who); } };

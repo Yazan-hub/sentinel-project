@@ -91,7 +91,7 @@ export function itemLine(i: EvidenceItem): string {
     (i.state === "expired" ? ` · EXPIRED ${(i.expired_at ?? "").slice(0, 10)} — ` + // review: the office-file clause follows the role, not whether a copy went
       (i.removed?.length ? "Sentinel's copies removed; " : i.role === "context" ? "" : "not read by any job; ") +
       (i.not_removed?.length ? `${i.not_removed.length} could not be deleted yet — the next sweep tries again; ` : "") +
-      "its record and sha stay" + (i.role === "context" ? "" : "; the office's file is not touched (delete it by hand if the owner asked)") : "") +
+      "its record and fingerprint stay" + (i.role === "context" ? "" : "; the office's file is not touched (delete it by hand if the owner asked)") : "") +
     (i.state === "changed" ? " · CHANGED since admitted — on hold; restore the file and Admit it again, or put the new file in under a new name" : "");
 }
 /** MA-7-7: a photo's blurred copy in a few words — or that it has none yet (until it has, only a contributor on the office PC can see the original). Pure. */
@@ -120,7 +120,7 @@ export function recheckLine(r: RecheckReply): string {
     ? `Re-checked ${r.checked} item(s): ${r.changed.length} changed — ${r.changed.map((c) => `${c.path} (${c.reason})`).join("; ")}. On hold until the file is restored and admitted again.`
     : r.still_changed > 0
       ? `Re-checked ${r.checked} item(s): none newly changed; ${r.still_changed} still changed — on hold until admitted again under Evidence.`
-      : `Re-checked ${r.checked} item(s): every file matches its admitted sha.`;
+      : `Re-checked ${r.checked} item(s): every file matches its admitted fingerprint.`;
 }
 /** MA-4b: one request in one line. Pure. */
 export function requestLine(r: EvidenceRequest): string {
@@ -434,14 +434,14 @@ export function alignPreview(d: AlignDraft): string {
   const dp = [B[0] - A[0], B[1] - A[1]], dm = [Bm[0] - Am[0], Bm[1] - Am[1]], lp = Math.hypot(dp[0], dp[1]);
   if (!lp) return "the two paper points are one point";
   const s = Math.hypot(dm[0], dm[1]) / lp;
-  if (!(s >= 1 && s <= 2000)) return `1:${+s.toFixed(4)} — no plan is drawn at that scale (the bridge takes 1:1 to 1:2000): check paper against model, and that both name the same marks`;
+  if (!(s >= 1 && s <= 2000)) return `1:${+s.toFixed(4)} — no plan is drawn at that scale (Sentinel takes 1:1 to 1:2000): check paper against model, and that both name the same marks`;
   let deg = (((Math.atan2(dm[1], dm[0]) - Math.atan2(dp[1], dp[0])) * 180) / Math.PI) % 360;
   if (deg < 0) deg += 360;
   const a = (deg * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
   const at = (p: number[]) => [Am[0] + s * (c * (p[0] - A[0]) - sn * (p[1] - A[1])), Am[1] + s * (sn * (p[0] - A[0]) + c * (p[1] - A[1]))];
   const o = at([0, 0]), C = xy(d.pc), Cm = xy(d.mc);
   const check = C.every(Number.isFinite) && Cm.every(Number.isFinite)
-    ? ` · the check point lands ${Math.round(Math.hypot(at(C)[0] - Cm[0], at(C)[1] - Cm[1]))} mm from where you said (the bridge refuses over 100)`
+    ? ` · the check point lands ${Math.round(Math.hypot(at(C)[0] - Cm[0], at(C)[1] - Cm[1]))} mm from where you said (Sentinel refuses over 100)`
     : " · no check point (two points fix it exactly; a third catches a misread one)";
   return `1:${+s.toFixed(3)} · turned ${+deg.toFixed(2)}° · the paper's corner at ${Math.round(o[0])}, ${Math.round(o[1])} mm in the model${check}`;
 }
@@ -502,13 +502,13 @@ export function proposeLine(r: ProposeReply): string {
   const seenOnce = once ? ` · ${once} door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed)` : "";
   const byPhoto = r.materials?.length ? ` · ${r.materials.length} wall(s) typed by a material a person chose from a photo (${r.materials.map((m) => `${m.cid}: ${m.material} from ${m.item}, chosen by ${m.chosen_by}`).join("; ")}) — not pre-ticked` : "";
   const unusedMats = r.materials_unused?.length ? ` · ${r.materials_unused.length} choice(s) by photo placed nothing (${r.materials_unused.join(", ")}): the wall is still a type gap or off a placed storey` : "";
-  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in the Holding Area${held}${seenOnce}${byPhoto}${unusedMats} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
+  const tail = `${r.gaps.groups} type-gap group(s), ${r.gaps.elements} element(s) in Waiting for approval${held}${seenOnce}${byPhoto}${unusedMats} · ${levels}${again}${placed} · ${ledgerLine(r.ledger)} — Review ▸ ↻`;
   // MA-5a-4: a drawing's ghosts are inferred — none is pre-ticked, the level it creates included
   const a = r.alignment, v = r.differences;
   // MA-5a-5: said only when the storey had a scan to compare with (or its topics could not be raised)
   const seen = v && (v.agree + v.differ + v.drawn_only + v.scanned_only + v.doors_agree + v.doors_from_drawing > 0 || v.topics.error);
   const vsScan = !seen ? "" : ` · against the scan: ${v.agree} wall(s) agree (not proposed again), ${v.differ} differ, ${v.drawn_only} drawn only, ${v.scanned_only} scanned only, ` +
-    `${v.doors_from_drawing} door(s) from the drawing in the scan's walls${v.doors_agree ? `, ${v.doors_agree} the scan has` : ""} — ${v.topics.raised.length} BCF topic(s) raised` +
+    `${v.doors_from_drawing} door(s) from the drawing in the scan's walls${v.doors_agree ? `, ${v.doors_agree} the scan has` : ""} — ${v.topics.raised.length} issue(s) raised` +
     `${v.topics.skipped ? `, ${v.topics.skipped} raised before` : ""}${v.topics.error ? ` (${v.topics.error})` : ""}`;
   // MA-5b-3: against the earlier drawing it revises — never a deletion: what it no longer draws is a person's row
   const rv = r.revision;
@@ -516,11 +516,11 @@ export function proposeLine(r: ProposeReply): string {
     `${rv.reshaped ? `${rv.reshaped} reshaped to ${a?.item ?? "this drawing"}'s line (Revit keeps one edited by hand since), ` : ""}${rv.changed} changed, ${rv.removed} no longer drawn` +
     `${rv.doors_unchanged + rv.doors_removed ? `; doors ${rv.doors_unchanged} the same, ${rv.doors_removed} no longer drawn` : ""}` +
     `${rv.rooms_unchanged + rv.rooms_removed ? `; rooms ${rv.rooms_unchanged} the same, ${rv.rooms_removed} no longer drawn` : ""}` +
-    `${rv.changed + rv.removed + rv.doors_removed + rv.rooms_removed ? " — each a person's row on the changeset (Sentinel never deletes)" : ""}`;
+    `${rv.changed + rv.removed + rv.doors_removed + rv.rooms_removed ? " — each a person's row in the proposed changes (Sentinel never deletes)" : ""}`;
   if (a) return `✓ Proposed ${r.job} — ${a.item} at 1:${a.scale}, turned ${a.rotation_deg}°${a.check_mm != null ? `, checked to ${a.check_mm} mm` : ", no check point"} · ` +
-    `${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit)${vsPrior}${vsScan} · ${tail}`;
+    `${r.changesets.length} set(s) of proposed changes, ${ghosts} ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit)${vsPrior}${vsScan} · ${tail}`;
   // MA-6-8: an IFC concept is what a concept says — nothing is pre-ticked, the level it creates included
-  if (r.ifc_row) return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), none pre-ticked (an IFC is what a model says, not what was built or measured — a person ticks each in Revit) · ${tail}`;
+  if (r.ifc_row) return `✓ Proposed ${r.job} — ${r.changesets.length} set(s) of proposed changes, ${ghosts} ghost(s), none pre-ticked (an IFC is what a model says, not what was built or measured — a person ticks each in Revit) · ${tail}`;
   // MA-5a-2: a scan's walls are never pre-ticked — only a level the scan created is
-  return `✓ Proposed ${r.job} — ${r.changesets.length} changeset(s), ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · ${tail}`;
+  return `✓ Proposed ${r.job} — ${r.changesets.length} set(s) of proposed changes, ${ghosts} ghost(s), ${pre} pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office data requirements reject) · ${tail}`;
 }

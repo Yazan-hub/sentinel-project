@@ -90,7 +90,7 @@ describe("backfillManifest — only the version's own file", () => {
   it("bytes that are not the version's file are a 409 and nothing is captured", async () => {
     const d = withVersion("ff".repeat(32));
     await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, d))
-      .rejects.toMatchObject({ status: 409, message: `these bytes are not version v-1's file (sha256 ${sha.slice(0, 12)}… ≠ ffffffffffff…) — nothing was saved` });
+      .rejects.toMatchObject({ status: 409, message: "These bytes are not the file recorded for this version — nothing was saved.", detail: `version v-1 · sha256 ${sha.slice(0, 12)}… ≠ ffffffffffff…` });
     expect(d.calls).toHaveLength(0);
     expect(d.docs.size).toBe(0);
   });
@@ -108,7 +108,7 @@ describe("backfillManifest — only the version's own file", () => {
     const d = withVersion(null);
     d.size = bytes.length + 1;
     await expect(backfillManifest("p", "v-1", bytes, { actor: "cli", source: "backfill" }, d))
-      .rejects.toMatchObject({ status: 409, message: `these bytes are not version v-1's file (${bytes.length} bytes ≠ ${bytes.length + 1} recorded; it has no sha256 to compare) — nothing was saved` });
+      .rejects.toMatchObject({ status: 409, message: "These bytes are not the file recorded for this version — nothing was saved.", detail: `version v-1 · ${bytes.length} bytes ≠ ${bytes.length + 1} recorded; it has no sha256 to compare` });
     expect(d.docs.size).toBe(0);
     const ok = withVersion(null);
     ok.size = bytes.length;

@@ -103,7 +103,7 @@ export function projectSwitcher(
     } catch (e) {
       // The pill still shows the active key; the menu says the list was not read.
       projects = [];
-      readErr = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
+      readErr = reached ? (e as Error).message : `Sentinel is not connected (${base})`;
     }
     render();
   };

@@ -1,0 +1,133 @@
+file,class,candidates,note
+WebApp/bridge/agent-provenance.mjs,none,3,receipt-verification replies read by agents and outside verifiers
+WebApp/bridge/ai-gateway.mjs,screen,1,"line 122 is shown in the AI panel: plain sentence, the env name and config path go to the error detail"
+WebApp/bridge/ai-policy.mjs,none,1,refusal for MCP/agent callers holding a project token
+WebApp/bridge/ai-tools.mjs,none,7,"AI tool descriptions, read by a model"
+WebApp/bridge/artefact-import.mjs,none,4,command-line tool
+WebApp/bridge/artefact-store.mjs,mixed,14,"screen: 109 (TIDP is never published), 667 (nothing installed: replace the PUT hint with Settings > Standards library), 715, 759. keep: unknown artefact kind / body must be a JSON object / ids.enforce (API validation), 425 (ledger kind names), 675 (sha short helper). 321 'sheet token' is a naming placeholder, not a sign-in token: keep the word"
+WebApp/bridge/ask-sentinel.mjs,none,1,command-line usage
+WebApp/bridge/audit-pack.mjs,none,2,"text inside the audit pack, which is sealed by sha256 and read by the verifier"
+WebApp/bridge/bcf-conformance.mjs,none,1,command-line usage
+WebApp/bridge/bcf-open.mjs,none,13,BCF/openCDE API for other tools; 303-308 are stored topic history lines
+WebApp/bridge/bcf-service.mjs,mixed,55,"screen: 285 and 2532 (see the bridge log), 678/1285/1310/1343 (CDE not configured), 752, 759, 1110, 1247 (platform token expired), 2040, 2048 (proposal model), 2445 and 2601 (not recorded/raised: gate.why), 2509 (model inside the BCF file is not kept: keep the word BCF, change CDE). keep: every console line ([bridge] [cde] [bcf] [clash] [projects]); topic titles and descriptions 386-388 ('IDS: key (n failing)' is parsed by regex at 2609 and for de-duplication); actor labels 'Governed Publish' 368 and 'Federation Gate' 458 (stored as author); recordAudit action texts 431, 451, 2619; 'BCF file import' 2523 and 'BCF-API delete' (stored via); takeWriteBudget names 'BCF imports', 'IDS raises' (they are the budget key); route-not-found and 'name the project: GET/PUT' lines, 1320-1324, 1555, 2034 (API); 102; 1532 (verifier path)"
+WebApp/bridge/bcf-xml.mjs,none,16,reads and writes the BCF file format: messages about a BCF file keep the word (glossary: BCF on import/export)
+WebApp/bridge/bimdocs-ai-logic.mjs,none,3,AI prompt text sent to a model
+WebApp/bridge/bimdocs-store.mjs,screen,2,"215 (TIDP: team delivery plan), 565"
+WebApp/bridge/binding-suggest.mjs,none,2,keyword lists matched against document headings
+WebApp/bridge/build-jobs.mjs,mixed,14,"screen: 246, 251, 330, 414 (a job is running / the bridge stopped), 193, 357, 380-393 (trust reasons computed at read time: say History, keep the row number as 'History #n'). keep: 33, 227 (comments), 90, 94 (thrown messages that name a JSON field, a body shape or a route are for API clients: keep)"
+WebApp/bridge/cde-store.mjs,mixed,32,"screen: 57 (CDE not configured), 321, 322 (stage check), 1167, 1451, 1597, 1692, 1671, 1711 (sign-in not forwarded), 1939 and 2087 (nothing installed: replace PUT hints with Settings > Standards library), 2066, 2424, 1867/1871 only if the label is not saved on a revision row (check; if saved keep). keep: audit() action texts 325 'gate:status stage', 1569 'IFC delivery gate WORD: file' and GATE_WORDS; holdFailure requirement 'delivery gate' 1468 (stored in the hold row; the web maps it for display); source === 'Governed Publish' 2185 (compared); takeWriteBudget name 'gate rows' 1563; 294, 953-963, 1047-1058, 1406, 1538, 2018-2025, 2400 (thrown messages that name a JSON field, a body shape or a route are for API clients: keep)"
+WebApp/bridge/changesets-logic.mjs,mixed,38,"screen: 1115 (needs a reason), 1123 (status), 1132, 1055 and 1383 (labels computed for the Review desk). keep: every '${at}: ...' message and 455-457, 545-561, 653-681, 759-771, 807-985, 1231 (body validation for the client that files the changes: Revit add-in and agents); 'ignored: ...' notes 90-94, 718, 723 (returned to the API client); 405"
+WebApp/bridge/changesets-store.mjs,mixed,58,"screen: 52, 911, 1226, 1277 (not found), 60, 87, 88, 213, 220, 287, 405, 511 (could not be read / nothing was saved), 561, 563, 600, 602, 663-699, 723-732, 877-900, 1055-1083, 1208, 1238, 1279, 1282, 1328, 1356 (status and refusal sentences; Revit shows them too). keep: audit action and budget names 235 'changeset: name', 1285 'changeset reverts', 1307 'changeset persisted', 1329, 1376, 1406 'changeset reviews'; 974 and 1049 (ids label saved on the apply report); 93, 281, 604-607, 1304 (thrown messages that name a JSON field, a body shape or a route are for API clients: keep); 822, 846 (name rule checked by code)"
+WebApp/bridge/changesets-typing.mjs,none,2,"both strings are written into the stored changeset (typing note, clause label)"
+WebApp/bridge/check-registry.mjs,mixed,34,"screen: check label, description, summary and reason texts (58, 59, 90, 108-123, 142-169, 176, 271, 369-427, 465-613): Stage gate > Stage check, Governed adjudication verdicts > Publish check results, (MIDP) > (delivery plan), (MIDP/TIDP) > (delivery plans), container name > file name. keep: every check id (gate.stage ...), 131 route hint becomes Settings > Standards library, 402 quotes ledger action codes (state:wip->shared): keep the codes, change 'on the ledger' to 'in History'"
+WebApp/bridge/deliverables-logic.mjs,screen,4,"exported delivery-plan report (computed at read time, nothing stored): 370 heading, 387, 388, 398 (CDE > the project files)"
+WebApp/bridge/doc-checks.mjs,screen,2,"131, 132 (mapped to IDS > mapped to a data requirement)"
+WebApp/bridge/doc-templates.mjs,none,1,false positive: 'template ids' is the plural of id
+WebApp/bridge/doc-text.mjs,screen,2,"37, 68"
+WebApp/bridge/drawing-plan.mjs,mixed,16,"screen: thrown refusals 530, 533 and 41 is API (keep). keep: every note, flag and topic text written into the changeset or the job result (265, 276, 375-505: Holding Area, BCF topic, changeset names inside notes)"
+WebApp/bridge/drawing-service.mjs,screen,2,"25, 74 (not set up on this PC / see the bridge log: plain sentence, build command to the error detail)"
+WebApp/bridge/evidence-logic.mjs,mixed,16,"screen: 478 (read inside the bridge, size limit). keep: 551 (drafted letter text, pinned by sha256), 262, 349, 627-725 (pack item shape rules, stored record integrity)"
+WebApp/bridge/evidence-store.mjs,mixed,6,"screen: 121 (replace the POST hint with the button name), 204, 602. keep: console lines 639-711"
+WebApp/bridge/federation-store.mjs,mixed,7,"screen: 111-126 (lock reasons shown in Clash: Federation Gate > coordination check), 32 only if it is not written into the run row (check; if written keep). keep: 86 audit action 'Federation gate WORD: n model(s)'"
+WebApp/bridge/federation.mjs,none,2,command-line tool
+WebApp/bridge/ids-compile.mjs,mixed,20,"screen: unmatched reasons 288-358 (shown under 'Not in the IDS'), but first confirm they are not part of the installed body or of the up-to-date comparison; if they are, keep. keep: 229 note, 368 title 'Sentinel standards IDS' and 543 XML (content of the installed artefact and the .ids file)"
+WebApp/bridge/ids-conformance.mjs,none,1,IDS file-format error (the file is the thing)
+WebApp/bridge/ids-supersede.mjs,none,2,API validation
+WebApp/bridge/ifc-compare.mjs,none,1,command-line usage
+WebApp/bridge/ifc-geometry.mjs,mixed,2,screen: 774. keep: 852 command-line usage
+WebApp/bridge/ifc-plan.mjs,mixed,6,"screen: thrown refusal 321. keep: notes and flags written into the changeset or job result (90, 106, 196, 200, 275)"
+WebApp/bridge/intake-logic.mjs,none,13,50 and 159 are ledger action texts (GATE_WORD); 98-104 are the verdict notes saved in the proposal row; 149-157 are API refusals to the uploader
+WebApp/bridge/intake.mjs,none,8,command-line tool
+WebApp/bridge/journey-logic.mjs,screen,10,"step labels and hints printed in the Next strip, the Guide and the Revit pane (27 TIDP drafted > Team delivery plans drafted, 29 First governed verdict > First publish checked, 32 and 99-108 Federation Gate / Run gate > coordination check / Run check, 77). keep: step ids, evidence ref 'federation@...'. The nav-coverage test reads the hints: update it with them, and rebuild the Revit help if a ribbon path is named"
+WebApp/bridge/journey-store.mjs,screen,4,"38-41, 68 (computed at read time: ledger > History; keep the number as 'History #n')"
+WebApp/bridge/ledger-anchor.mjs,screen,3,"70, 74, 87 (ledger > History, 'for this bridge' > 'on this installation')"
+WebApp/bridge/ledger-verify.mjs,none,23,offline verifier and command-line tool for an auditor
+WebApp/bridge/manifest-store.mjs,screen,3,"78, 106, 110 (plain sentence; the two sha values move to the error detail)"
+WebApp/bridge/manifest.mjs,none,2,command-line tool
+WebApp/bridge/mcp-server.mjs,none,41,"MCP tool names and descriptions, read by AI agents"
+WebApp/bridge/office-checks.mjs,screen,10,"readiness check summaries (ruleset > rules, governed types > types the standard covers). They are copied into a new READINESS document; documents already made keep their words"
+WebApp/bridge/photo-store.mjs,screen,1,19 (not set up on this PC)
+WebApp/bridge/platform-gate-ledger.mjs,mixed,13,"screen: 128, 129, 151, 192. keep: 21, 27, 79, 91 (ledger action texts and labels), console and command-line lines 224-256"
+WebApp/bridge/platform-state.mjs,screen,5,"52-80 reasons shown beside a platform delivery (ledger > History, the gate labels > the check labels)"
+WebApp/bridge/proposal-model.mjs,screen,1,83
+WebApp/bridge/public-client/sentinel-verify.mjs,none,4,published verifier client for outside tools
+WebApp/bridge/public-verify.mjs,none,2,public verification API replies
+WebApp/bridge/readiness-logic.mjs,mixed,4,"screen: 76, 77. keep: 13 and 111 (text of the READINESS evidence block and the AI prompt)"
+WebApp/bridge/recipe-logic.mjs,mixed,8,"screen: 104. keep: 35-59 (thrown messages that name a JSON field, a body shape or a route are for API clients: keep)"
+WebApp/bridge/recipe-store.mjs,mixed,17,"screen: 70, 87, 111, 127, 157-184, 221-284 (refusal sentences: ledger > History, 'this bridge' > 'this installation', keep row numbers as 'History #n'). keep: 202 (thrown messages that name a JSON field, a body shape or a route are for API clients: keep)"
+WebApp/bridge/request-limits.mjs,screen,3,"67, 140, 142"
+WebApp/bridge/review-logic.mjs,none,2,title and description of the stored rejection issue
+WebApp/bridge/revision-delta.mjs,none,2,basis labels saved with the revision figures
+WebApp/bridge/rounds-store.mjs,mixed,2,screen: 17. keep: 89 (stored rejection text)
+WebApp/bridge/sentinel-core.mjs,none,8,generated bundle of src/sentinel-core: never edit; run npm run build:bridge-core after changing the source
+WebApp/bridge/stage-gate.mjs,none,7,check sources and detail lines are saved in the stage_gate ledger row
+WebApp/bridge/survey-plan.mjs,mixed,10,"screen: thrown refusals 285, 435, 43 is API (keep). keep: notes, flags and measure lines written into the changeset or job result (301, 397, 463-597)"
+WebApp/bridge/survey-service.mjs,screen,4,"33, 111, 112 (not set up / stopped). 71 is a header: keep"
+WebApp/bridge/topic-ledger.mjs,mixed,3,"screen: 57. keep: 11 (reason text of a ledger row), 62 (console)"
+WebApp/bridge/watch-outbox.mjs,none,2,console lines
+WebApp/bridge/web-sources.mjs,none,1,start-up configuration error for the operator
+WebApp/src/sentinel-core/clash-triage.ts,screen,1,132 (shown in Clash groups)
+WebApp/src/sentinel-core/federation.ts,none,2,check messages are saved in the federation run row
+WebApp/src/sentinel-core/ids-parse.ts,none,2,IDS file-format errors (the file is the thing)
+WebApp/src/sentinel-core/ids.ts,none,3,"230 and 454 are failure reasons saved with verdicts and holds; 512 is the demo set title, parsed from issue descriptions"
+WebApp/src/sentinel-core/schedule.ts,screen,1,117 (not in the MIDP > not in the delivery plan); rebuild the bridge bundle
+WebApp/src/sentinel-core/self-check.ts,none,1,developer self-check
+WebApp/src/setups/account-line.ts,screen,1,
+WebApp/src/setups/active-ruleset.ts,screen,6,"14, 113, 114 (ruleset > project standards / rules); 25 short sha goes to Details"
+WebApp/src/setups/ai-picker.ts,screen,1,
+WebApp/src/setups/ask-sentinel.ts,mixed,5,screen: 74. keep: 102-108 (MCP tool descriptions and reply shapes read by AI)
+WebApp/src/setups/audit-pack.ts,screen,2,auditor screen (see open point 3): ledger > History; hash words stay
+WebApp/src/setups/auth.ts,screen,1,152
+WebApp/src/setups/bcf-files.ts,none,5,export/import result lines name the BCF file version: allowed
+WebApp/src/setups/bridge-fetch.ts,mixed,4,"screen: 71 fallback refusal. keep: console lines 61, 108, 115. Add the detail field to bwrite/refusalText here"
+WebApp/src/setups/carbon-panel.ts,screen,2,
+WebApp/src/setups/cde-panel.ts,screen,38,"all visible labels, placeholders and status lines; element ids (cde-...) stay"
+WebApp/src/setups/cde-transition.ts,none,2,URLs only. It matches a bridge message (NEEDS_REASON): do not reword that bridge sentence without this file
+WebApp/src/setups/clash-panel.ts,mixed,32,"screen: all labels, tooltips and status lines (Federation Gate > Coordination check, Run gate > Run check, BCF issues > Issues, on the ledger > in History). keep: NAC_REASON (417) and any provenance string posted to the bridge (stored in the register and the ledger)"
+WebApp/src/setups/copilot-panel.ts,mixed,4,"screen: 51, and the source label 'BCF service' > 'Issues' (it is compared at 254: change it together with copilot/engine.ts). keep: console 118"
+WebApp/src/setups/copilot/engine.ts,screen,6,"85, 192 (ruleset ref goes to Details), 'no ruleset', 201; 'BCF service' > 'Issues' together with copilot-panel.ts"
+WebApp/src/setups/crypto.ts,screen,5,"203, 207, 282, 305"
+WebApp/src/setups/deleted-items.ts,screen,2,
+WebApp/src/setups/deliverables-panel.ts,screen,11,
+WebApp/src/setups/evidence.ts,screen,20,sha fragments and ledgerLine go to Details; changeset > proposed changes; Holding Area > Waiting for approval; BCF topic > issue
+WebApp/src/setups/files-panel.ts,screen,23,
+WebApp/src/setups/geometry-check.ts,screen,5,
+WebApp/src/setups/guide-panel.ts,screen,7,
+WebApp/src/setups/holding.ts,screen,14,"STAGE_WORDS and SOURCE_WORDS are display maps: change the values, never the keys (the keys are stored codes)"
+WebApp/src/setups/ids-from-standards.ts,screen,12,'Download .ids' stays
+WebApp/src/setups/issue-panel.ts,screen,11,"Import/Export BCF buttons, the version picker and the .bcf file input keep BCF; 271 'recorded in the ledger #n' > 'Saved' + Details"
+WebApp/src/setups/my-role.ts,screen,1,
+WebApp/src/setups/next-strip.ts,screen,2,43 (versions go to Details)
+WebApp/src/setups/owner-panel.ts,screen,2,
+WebApp/src/setups/packs-panel.ts,screen,8,
+WebApp/src/setups/platform-contract.ts,none,1,43 is the version tag written to the platform
+WebApp/src/setups/platform-deliveries-panel.ts,screen,4,
+WebApp/src/setups/platform-deliveries.ts,screen,12,the second ledgerLine lives here (170)
+WebApp/src/setups/project-settings-panel.ts,screen,17,"install lines 536, 574, 624: 'kind@n ... (sha ...)' goes to Details. Audit pack and timestamp rows: open point 3"
+WebApp/src/setups/project-shell.ts,screen,15,Stage gate > Stage check
+WebApp/src/setups/project-switcher.ts,screen,1,
+WebApp/src/setups/projects-filter.ts,screen,1,
+WebApp/src/setups/projects-hub-panel.ts,screen,10,388-389 set-up instructions go to Details
+WebApp/src/setups/qa-panel.ts,screen,2,
+WebApp/src/setups/reality-capture-viewer.ts,none,1,false positive: 'ids' is a variable
+WebApp/src/setups/review-chain.ts,screen,8,
+WebApp/src/setups/review-desk.ts,screen,44,typed reasons are the person's own words. 331 shows a ledger action code (changeset_reverted): say 'an undo is recorded after the report'
+WebApp/src/setups/rfi-panel.ts,screen,3,"144, 149. 174 is a false positive (variable)"
+WebApp/src/setups/secure-store.ts,none,3,URLs only
+WebApp/src/setups/sheet-midp.ts,screen,3,
+WebApp/src/setups/sheets-panel.ts,screen,5,
+WebApp/src/setups/snapshot-store.ts,screen,3,
+WebApp/src/setups/stage-gate.ts,screen,6,ledgerLine (31) is the shared 'ledger #n - receipt' line used by many panels: change it here once
+WebApp/src/setups/standard-forms.ts,screen,5,labels and help text only; field keys and saved body keys stay
+WebApp/src/setups/template-form.ts,screen,1,
+WebApp/src/setups/tender-panel.ts,screen,1,
+WebApp/src/setups/timeline-panel.ts,screen,2,177. 71 is a false positive
+WebApp/src/setups/views-panel.ts,screen,4,
+WebApp/src/setups/visibility-panel.ts,mixed,24,"screen: buttons, tooltips, status and result lines. keep: 276 and 278 (issue title 'IDS: req (n failing)' and description: parsed for de-duplication here, in the bridge and in sentinel-core), the .ids file input"
+WebApp/src/workspace/eir-compile.ts,mixed,14,"screen: all labels and messages. keep: 67 (title saved inside the installed data requirements), 79 (.ids file name), 'Download .ids'"
+WebApp/src/workspace/live-editors.ts,screen,2,
+WebApp/src/workspace/loin-compile.ts,screen,8,
+WebApp/src/workspace/outline.ts,none,1,false positive: 'ids' is a variable
+WebApp/src/workspace/review-tab.ts,screen,3,ledger #n goes to Details
+WebApp/src/workspace/summary-view.ts,none,1,false positive: 'ids' is a variable
+WebApp/src/workspace/workspace-state.ts,screen,6,"55, 67, 101, 157-178. Line 59 matches a bridge message by regex: do not reword that bridge sentence"

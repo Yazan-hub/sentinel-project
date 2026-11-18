@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
-import { bfetch, bridgeImage, refusalText } from "./bridge-fetch";
+import { bfetch, bridgeImage, refusalParts } from "./bridge-fetch";
+import { withDetails, detailOf } from "./details";
 import * as OBF from "@thatopen/components-front";
 import { isolateStoreyByName } from "../sentinel-core/adapter/storey-isolate";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -32,13 +33,13 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
     '<span style="font-weight:600">▤ Sheets</span><span style="color:#9ca3af;font-size:11px">from Revit</span>' +
     '<span style="flex:1"></span>' +
-    `<button id="sh-refresh" style="${btn}" title="Reload sheets from the Bridge">↻</button>` +
+    `<button id="sh-refresh" style="${btn}" title="Reload sheets">↻</button>` +
     "</div>" +
     '<div id="sh-sets" style="padding:.4rem .6rem;border-bottom:1px solid #2a2a30;display:none"></div>' +
     '<div id="sh-list" style="flex:1;overflow:auto;padding:.35rem"></div>' +
     '<div id="sh-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("sh-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("sh-status").replaceChildren(withDetails(t, detail));
 
   let sets: SheetSet[] = [];
   let active = 0;
@@ -49,7 +50,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
     const host = el("sh-list");
     const set = sets[active];
     if (!set || !set.sheets.length) {
-      host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.6">No sheets published yet.<br><br>In Revit: <b>Sentinel → Publish Sheets</b> (sheets aren\'t in the IFC, so they\'re rendered and pushed separately). Make sure the Bridge is running, then press ↻.</div>';
+      host.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.6">No sheets published yet.<br><br>In Revit: <b>Sentinel → Publish Sheets</b> (sheets aren\'t in the IFC, so they\'re rendered and pushed separately). Make sure Sentinel is connected, then press ↻.</div>';
       return;
     }
     host.innerHTML = set.sheets.map((s, i) => {
@@ -77,17 +78,17 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
   }
 
   async function refresh() {
-    status("Loading sheets from the Bridge…");
+    status("Loading sheets…");
     let reached = false; // a network failure is "can't reach"; anything after the bridge answered is its own words
     try {
       const r = await bfetch(`${base}/sheets`);
       reached = true;
       // A refused list is said in the bridge's words — shown empty it would read as "nothing published" (D7).
-      const refused = await refusalText(r);
+      const refusedP = await refusalParts(r); const refused = refusedP?.message;
       if (refused) {
         sets = []; renderSets();
         el("sh-list").innerHTML = `<div style="color:#fbbf24;font-size:12px;padding:.6rem;line-height:1.6">${esc(refused)}</div>`;
-        status(refused);
+        status(refused, refusedP?.detail);
         return;
       }
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
@@ -113,10 +114,11 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
     } catch (e) {
       // Not read is said as not read — renderList() here would show "No sheets published yet" (a failed read as empty).
       const m = (e as Error)?.message ?? String(e);
-      const why = reached ? m : `can't reach the bridge (${m})`;
+      const why = reached ? m : `Sentinel is not connected (${m})`;
       sets = []; renderSets();
       el("sh-list").innerHTML = `<div style="color:#fbbf24;font-size:12px;padding:.6rem;line-height:1.6">Sheets not read — ${esc(why)}</div>`;
-      status(reached ? `Sheets not read — ${m}` : `Couldn't reach the Bridge (${m}). Start it: node bridge/bcf-service.mjs`);
+      status(reached ? `Sheets not read — ${m}` : "Sentinel is not connected. Ask your administrator to start Sentinel on the office PC.");
+      if (!reached) el("sh-status").append(withDetails("", `${m}. Start it: node bridge/bcf-service.mjs`));
     }
   }
 
@@ -138,7 +140,7 @@ export function sheetsPanel(components: OBC.Components, opts: { baseUrl?: string
       await fragments.core.update(true);
       await highlighter.highlightByID("select", res.map, true, true); // zooms to the isolated level
       status(`Isolated level “${res.matched}” — ${res.count} element(s). Show all in Visibility to restore.`);
-    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   // ── Full-screen zoom/pan lightbox with clickable viewport hotspots ──

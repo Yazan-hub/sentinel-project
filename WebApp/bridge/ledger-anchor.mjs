@@ -67,11 +67,11 @@ const head = async (pid) => (await read(`audit_project_chain_v?project_id=eq.${p
  *  "current": nothing new to fix, nothing sent. deps: as stamp()'s, plus { url } to override the configured service. */
 export async function anchorProject(key, actor, deps = {}) {
   const url = deps.url ?? tsaUrl();
-  if (!url) throw err(409, "external timestamps are not switched on for this bridge (no timestamp service is set) — nothing was sent");
+  if (!url) throw Object.assign(err(409, "External timestamps are not switched on for this installation — nothing was sent."), { detail: "No timestamp service is set." });
   const cde = await store();
   const proj = await cde.ensureProject(key);
   const h = await head(proj.id);
-  if (!h) return { status: "empty", message: "this project's ledger has no rows yet — nothing to timestamp" };
+  if (!h) return { status: "empty", message: "This project's History has no entries yet — nothing to timestamp." };
   if (h.entity_type === "ledger_anchor") return { status: "current", project_seq: h.project_seq, message: "nothing new since the last external timestamp — nothing was sent" };
   const { token, check } = await stamp(h.project_hash, url, deps);
   const row = await cde.audit(proj.id, "ledger_anchor", null, "anchor:timestamped", actor, null, {
@@ -84,7 +84,7 @@ export async function anchorProject(key, actor, deps = {}) {
 /** Fixes the global head in time (a row with no project). → { status, … } as anchorProject's. */
 export async function anchorGlobal(actor, deps = {}) {
   const url = deps.url ?? tsaUrl();
-  if (!url) throw err(409, "external timestamps are not switched on for this bridge — nothing was sent");
+  if (!url) throw err(409, "External timestamps are not switched on for this installation — nothing was sent.");
   const cde = await store();
   // The chain's tip as the database keeps it (0047); before 0047, the highest id.
   const tip = await cde.sb(`audit_chain_tip?select=audit_id`, { service: true }).then((r) => r?.[0] ?? null, () => null);

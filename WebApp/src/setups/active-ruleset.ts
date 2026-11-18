@@ -11,7 +11,7 @@ import { canGovernRole } from "./my-role";
  */
 
 /** What every scan surface says when no ruleset is installed on the project or its office. */
-export const NO_RULESET = "No ruleset installed for this project — install one from Settings ▸ Standards library";
+export const NO_RULESET = "No project standards are installed for this project — install them from Settings ▸ Standards library";
 
 /** One artefact kind in force, as the bridge resolved it. */
 export interface InForce<T = unknown> {
@@ -24,6 +24,10 @@ export interface InForce<T = unknown> {
 export const refLabel = ({ ref, source, sha256: sha }: { ref: string | null; source: string; sha256?: string | null }): string =>
   [ref, source, sha && `${sha.slice(0, 12)}…`].filter(Boolean).join(" · ") || "none";
 
+/** Screen split of refLabel: plain "office standard" / "project standard", the exact reference for a closed Details. */
+export const refParts = (a: { ref: string | null; source: string; sha256?: string | null }): { text: string; detail: string } =>
+  ({ text: a.source === "office" ? "office standard" : "project standard", detail: refLabel(a) });
+
 /** GET /cde/:key/artefacts/:kind. A 404 with reason not_installed (or no reason, an older bridge) → null
  *  (nothing installed); a 404 no_project / unknown_kind and any other failure throw — a wrong key or an
  *  unreachable bridge is not "nothing installed". Accepts the resolved shape ({body, source, ref, sha256})
@@ -32,7 +36,7 @@ export async function artefactInForce<T = unknown>(baseUrl: string, key: string,
   const r = await bfetch(`${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/artefacts/${kind}`);
   const j = await r.json().catch(() => ({}));
   if (r.status === 404 && (j?.reason ?? "not_installed") === "not_installed") return null;
-  if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
   return {
     body: j.body as T,
     ref: j.ref ?? `${kind}@${j.version}`,
@@ -110,8 +114,8 @@ export function droppedRulesNote(active: { ruleset: Ruleset; removed: string[]; 
   if (!active.removed.length) return null;
   const which = `${active.ref} · ${active.source}`;
   return active.ruleset.rules.length === 0
-    ? `None of the rules in ${which} can run: all ${active.removed.length} need the office code {org}, and the ruleset sets none.`
-    : `${active.removed.length} rule(s) of ${which} skipped — they need the office code {org}, which the ruleset does not set: ${active.removed.join(", ")}.`;
+    ? `None of the rules in ${which} can run: all ${active.removed.length} need the office code {org}, and the project standards set none.`
+    : `${active.removed.length} rule(s) of ${which} skipped — they need the office code {org}, which the project standards do not set: ${active.removed.join(", ")}.`;
 }
 
 /** Parameter names a ruleset needs the adapter to flatten (for its parameter-target rules). */

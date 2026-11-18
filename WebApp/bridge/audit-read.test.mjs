@@ -200,14 +200,14 @@ describe("the checks read the ledger, not a 200-row window (the demo case)", () 
   it("a read that returns fewer rows than its total is not_checkable: read N of M", async () => {
     const r = await getCheck("ids.last_verdict").run("busy");
     expect(r.status).toBe("not_checkable");
-    expect(r.reason).toBe("Read 1000 of 1203 verdict rows on this project's ledger — a partial read cannot confirm each version's latest verdict.");
+    expect(r.reason).toBe("Read 1000 of 1203 check result rows in this project's History — a partial read cannot confirm each version's latest verdict.");
     const review = classifyReview([{ iso_name: "A", versions: [{ id: V1, state: "published", revision: "P01" }] }], [], 2);
     expect(review.status).toBe("not_checkable");
-    expect(review.reason).toBe("Read 0 of 2 state transitions of the published versions on this project's ledger — a partial read cannot judge review before issue.");
+    expect(review.reason).toBe("Read 0 of 2 state transitions of the published versions in this project's History — a partial read cannot judge review before issue.");
   });
 
-  it("'No governed verdict has been recorded' only when the total is 0", () => {
-    expect(classifyVerdicts([], 0).reason).toMatch(/^No governed verdict has been recorded/);
-    expect(classifyVerdicts([], 3).reason).toMatch(/^Read 0 of 3 verdict rows/);
+  it("'No publish check result has been recorded' only when the total is 0", () => {
+    expect(classifyVerdicts([], 0).reason).toMatch(/^No publish check result has been recorded/);
+    expect(classifyVerdicts([], 3).reason).toMatch(/^Read 0 of 3 check result rows/);
   });
 });

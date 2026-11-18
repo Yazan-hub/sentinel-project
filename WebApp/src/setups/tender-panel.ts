@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
 import { buildBoQ, defaultRates, snapshotFromQuantities, type RateTable } from "../sentinel-core";
@@ -50,7 +51,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     '<div id="tn-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, c = "#9ca3af") => { el("tn-msg").textContent = t; el("tn-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { el("tn-msg").replaceChildren(withDetails(t, detail)); el("tn-msg").style.color = c; };
   const val = (id: string) => (el(id) as HTMLInputElement).value;
 
   // ── list ──────────────────────────────────────────────────────────────────────
@@ -73,7 +74,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
       tenders = []; current = null; addingBid = false;
       el("tn-count").textContent = "";
       el("tn-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Tenders not read — ` +
-        (reached ? esc((e as Error).message) : `can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}`) + "</div>";
+        (reached ? esc((e as Error).message) : `Sentinel is not connected. Ask your administrator to start Sentinel on the office PC.<details style="display:inline-block"><summary>Details</summary><code>${esc((e as Error).message)}. Start it: npm run bcf:serve</code></details>`) + "</div>";
     }
   };
 
@@ -130,7 +131,7 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
       });
       msg(`Tender issued · estimate ${money(boq.total, boq.currency)} across ${scope.length} line(s) · at ${basis}${revisionId ? " · pinned to its take-off" : ` · not pinned to a take-off (${revErr})`}.`, revisionId ? "#22c55e" : "#eab308");
       await fetchAll();
-    } catch (e) { msg("Create failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("Create failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
 
@@ -223,15 +224,15 @@ export function tenderPanel(components: OBC.Components, opts: { baseUrl?: string
     try {
       await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}/bids`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ bidder, rates }) });
       addingBid = false;
-      try { await refreshCurrent(); } catch (e) { renderDetail(); return msg(`Bid recorded for ${bidder} — ${(e as Error).message}.`, "#eab308"); }
+      try { await refreshCurrent(); } catch (e) { renderDetail(); return msg(`Bid recorded for ${bidder} — ${(e as Error).message}.`, "#eab308", detailOf(e)); }
       renderDetail(); msg(`Bid recorded for ${bidder}.`, "#22c55e");
-    } catch (e) { msg("Bid failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("Bid failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
   };
 
   const award = async (bidder: string) => {
     if (!current) return;
-    try { await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); try { await refreshCurrent(); } catch (e) { renderDetail(); return msg(`Awarded to ${bidder} — ${(e as Error).message}.`, "#eab308"); } renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
-    catch (e) { msg("Award failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    try { await bwrite(`${base}/tenders/${encodeURIComponent(pid())}/${current.guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ awarded_to: bidder, author: "Web coordinator" }) }); try { await refreshCurrent(); } catch (e) { renderDetail(); return msg(`Awarded to ${bidder} — ${(e as Error).message}.`, "#eab308", detailOf(e)); } renderDetail(); msg(`Awarded to ${bidder}.`, "#22c55e"); }
+    catch (e) { msg("Award failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
   };
 
   // Re-read after a write. A failed re-read throws "the list was not re-read — <why>"; the write itself stands.

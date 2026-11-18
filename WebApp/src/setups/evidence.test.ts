@@ -61,10 +61,10 @@ describe("the lines", () => {
   it("itemLine (MA-7-5): a delete-by day, an expired scan the office keeps, a web item whose copies were removed", () => {
     expect(itemLine({ ...ITEM, delete_by: "2026-12-31" })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · delete by 2026-12-31");
     const gone: EvidenceItem = { ...ITEM, delete_by: "2026-10-13", state: "expired", expired_at: "2026-10-13T10:00:00.000Z", removed: [] };
-    expect(itemLine(gone)).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — not read by any job; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)");
-    expect(itemLine({ ...gone, removed: [".sentinel/view/ev-0001.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay; the office's file is not touched (delete it by hand if the owner asked)");
-    expect(itemLine({ ...gone, role: "context", removed: ["photos/web.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and sha stay");
-    expect(itemLine({ ...gone, not_removed: [{ path: ".sentinel/view/ev-0001.jpg", why: "x" }] })).toContain("1 could not be deleted yet — the next sweep tries again; its record and sha stay");
+    expect(itemLine(gone)).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — not read by any job; its record and fingerprint stay; the office's file is not touched (delete it by hand if the owner asked)");
+    expect(itemLine({ ...gone, removed: [".sentinel/view/ev-0001.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and fingerprint stay; the office's file is not touched (delete it by hand if the owner asked)");
+    expect(itemLine({ ...gone, role: "context", removed: ["photos/web.jpg"] })).toBe("ev-0001 · scans/tiny.las · las · 2 KB · sha 76c6b5e940d1… · EXPIRED 2026-10-13 — Sentinel's copies removed; its record and fingerprint stay");
+    expect(itemLine({ ...gone, not_removed: [{ path: ".sentinel/view/ev-0001.jpg", why: "x" }] })).toContain("1 could not be deleted yet — the next sweep tries again; its record and fingerprint stay");
   });
   it("itemLine (MA-7-12): a Commons photo is a web photo, context only, with its author, licence, page and the drill note", () => {
     const web: EvidenceItem = { ...ITEM, kind: "photo", format: "jpg", path: "web/commons-1.jpg", role: "context", provider: "wikimedia-commons", licence: "CC-BY-4.0", delete_by: "2026-10-09",
@@ -80,14 +80,14 @@ describe("the lines", () => {
   });
   it("admitLine: admitted and refused", () => {
     expect(admitLine({ verdict: "admitted", item: ITEM, ledger: { id: 1201, hash: HASH } }))
-      .toBe("✓ Admitted scans/tiny.las as ev-0001 · sha 76c6b5e940d1… · ledger #1201 · receipt abababababababab…");
+      .toBe("✓ Admitted scans/tiny.las as ev-0001 · sha 76c6b5e940d1… · History #1201 · receipt abababababababab…");
     expect(admitLine({ verdict: "refused", path: "photos/x.jpg", reasons: ["google is a RED source — use your own photos", "the file is not a JPEG"], ledger: { id: 1202, hash: HASH } }))
-      .toBe("Refused photos/x.jpg — google is a RED source — use your own photos; the file is not a JPEG · on hold · ledger #1202 · receipt abababababababab…");
+      .toBe("Refused photos/x.jpg — google is a RED source — use your own photos; the file is not a JPEG · on hold · History #1202 · receipt abababababababab…");
   });
   it("recheckLine: one change, and none", () => {
     expect(recheckLine({ checked: 2, changed: [{ item_id: "ev-0001", path: "scans/tiny.las", reason: "changed since admitted" }], still_changed: 0, pack_version: 4 }))
       .toBe("Re-checked 2 item(s): 1 changed — scans/tiny.las (changed since admitted). On hold until the file is restored and admitted again.");
-    expect(recheckLine({ checked: 2, changed: [], still_changed: 0, pack_version: 3 })).toBe("Re-checked 2 item(s): every file matches its admitted sha.");
+    expect(recheckLine({ checked: 2, changed: [], still_changed: 0, pack_version: 3 })).toBe("Re-checked 2 item(s): every file matches its admitted fingerprint.");
     expect(recheckLine({ checked: 2, changed: [], still_changed: 1, pack_version: 3 }))
       .toBe("Re-checked 2 item(s): none newly changed; 1 still changed — on hold until admitted again under Evidence.");
   });
@@ -157,7 +157,7 @@ describe("the survey (MA-4c)", () => {
     expect(surveyableScans(pack).map((i) => i.id)).toEqual(["ev-0001"]);
   });
   it("jobLine: the state, what was read (never a file the service refused) and refused, what was found, who, when and the ledger row", () => {
-    expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s), 0 door(s), 0 window(s) · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
+    expect(jobLine(JOB)).toBe("job-0001 · done · read ev-0001 · refused ev-0002 (a .laz is read from MA-4g — sentinel-survey 0.1 reads plain LAS) · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s), 0 door(s), 0 window(s) · by contributor@example.test · 2026-10-08 10:00 · History #2201 · receipt abababababababab…");
     // MA-5a: a 0.4.0 job never looked for doors or windows — its counts name none, and the line says none
     expect(jobLine({ ...JOB, counts: { level: 2, wall: 8, floor: 2, ceiling: 2 } })).toContain(" · 2 level(s), 8 wall(s), 2 floor(s), 2 ceiling(s) · by contributor@example.test");
     const lazBit = { id: "ev-0003", reason: "its points are compressed (LAZ) — sentinel-survey 0.1 reads plain LAS; LAZ is read from MA-4g" };
@@ -166,7 +166,7 @@ describe("the survey (MA-4c)", () => {
     expect(jobLine({ ...JOB, status: "running", stage: "walls", pct: 60, read: undefined, refused: [], counts: undefined, ledger: undefined }))
       .toBe("job-0001 · running · walls 60% · reading ev-0001 · by contributor@example.test · 2026-10-08 10:00");
     expect(jobLine({ ...JOB, status: "failed", read: [], refused: [], counts: undefined, error: "the bridge stopped while it ran — nothing it found was kept; run it again" }))
-      .toBe("job-0001 · failed · given ev-0001 · the bridge stopped while it ran — nothing it found was kept; run it again · by contributor@example.test · 2026-10-08 10:00 · ledger #2201 · receipt abababababababab…");
+      .toBe("job-0001 · failed · given ev-0001 · the bridge stopped while it ran — nothing it found was kept; run it again · by contributor@example.test · 2026-10-08 10:00 · History #2201 · receipt abababababababab…");
   });
   it("candidateLine is generic over what was measured, and says when one face was seen", () => {
     expect(candidateLine({ cid: "scan-L00-wall-1", kind: "wall", geometry: { faces: [[0, 0, 8000, 0], [250, 300, 7700, 300]] }, measured: { length_mm: 8003, height_mm: 2800, thickness_mm: 300 }, evidence: ["ev-0001#slice-L00"], fit: { inliers: 934, rmse_mm: 2.2, coverage: 1 } }))
@@ -184,7 +184,7 @@ describe("the survey (MA-4c)", () => {
   });
   it("files-panel's Survey line names what sentinel-survey reads and how the bridge types it (MA-5a)", () => {
     const src = readFileSync(new URL("./files-panel.ts", import.meta.url), "utf8");
-    expect(src).toContain(`line("Survey — sentinel-survey reads the admitted LAS, LAZ and E57 scans on this PC: levels, walls, floors, ceilings, doors and windows, LOD 200 as found (never survey grade). A lead proposes a done job: the bridge types walls, floors and ceilings exactly and doors and windows by size (within 100 mm) from the office's catalogue into one changeset per storey for review, and holds the rest as type gaps.", "#9ca3af")`);
+    expect(src).toContain(`line("Survey — sentinel-survey reads the admitted LAS, LAZ and E57 scans on this PC: levels, walls, floors, ceilings, doors and windows, LOD 200 as found (never survey grade). A lead proposes a done job: Sentinel types walls, floors and ceilings exactly and doors and windows by size (within 100 mm) from the office's catalogue into one set of proposed changes per storey for review, and holds the rest as type gaps.", "#9ca3af")`);
   });
   it("Run survey posts {pack: evp-0001} to …/build/jobs; the line names what it reads and refused", async () => {
     bwrite.mockResolvedValue({ job: { ...JOB, status: "queued" } });
@@ -238,15 +238,15 @@ describe("survey proposals (MA-4d)", () => {
     bwrite.mockResolvedValue(REPLY);
     const r = await proposeFromJob("http://b", "demo", "job-0002", { frame: FRAME });
     expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/build/jobs/job-0002/propose", expect.objectContaining({ method: "POST", body: JSON.stringify({ frame: FRAME }) }));
-    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 changeset(s), 7 ghost(s), 4 pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office IDS rejects) · " +
-      "3 type-gap group(s), 6 element(s) in the Holding Area · scan-L00-level → GR-FFL (named, its height not checked); scan-L01-level → Scan L01 job-0002 (created) · " +
-      "ledger #2210 · receipt abababababababab… — Review ▸ ↻");
+    expect(proposeLine(r)).toBe("✓ Proposed job-0002 — 2 set(s) of proposed changes, 7 ghost(s), 4 pre-ticked on the Review desk (a level the scan created — a person ticks every scan wall, door and window; Revit leaves unticked what the office data requirements reject) · " +
+      "3 type-gap group(s), 6 element(s) in Waiting for approval · scan-L00-level → GR-FFL (named, its height not checked); scan-L01-level → Scan L01 job-0002 (created) · " +
+      "History #2210 · receipt abababababababab… — Review ▸ ↻");
     expect(proposeLine({ ...REPLY, already_filed: 6, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] }))
-      .toContain(" · 6 already filed (not proposed again) · the same scan was placed before by Survey job-0001 · GR-FFL · ledger #2210");
+      .toContain(" · 6 already filed (not proposed again) · the same scan was placed before by Survey job-0001 · GR-FFL · History #2210");
     // drill MA5a K-3: a storey that files no changeset says its held doors and windows here (their reasons are on the planner's row)
     const held = [{ name: "door scan-L01-wall-3-door-1", reason: "its host wall scan-L01-wall-3 is a type gap — …" }, { name: "window scan-L01-wall-3-window-1", reason: "…" }];
     expect(proposeLine({ ...REPLY, storeys: [REPLY.storeys[0], { ...REPLY.storeys[1], changeset: null, held }] }))
-      .toContain(" in the Holding Area · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · scan-L00-level");
+      .toContain(" in Waiting for approval · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · scan-L00-level");
     // MA-5b-3 review: a revision's rows on a storey with nothing new are said as revision rows, never as held doors
     expect(proposeLine({ ...REPLY, storeys: [REPLY.storeys[0], { ...REPLY.storeys[1], changeset: null, held: [{ name: "wall drawing-ev-0007-p1-wall-1", reason: "on ev-0007, not on ev-0008 — …" }] }] }))
       .toContain(" · 1 revision row(s) — changed since, or no longer drawn — with nothing new to place: each on the planner's row (Sentinel never deletes) · ");
@@ -255,7 +255,7 @@ describe("survey proposals (MA-4d)", () => {
       .toContain(" · 2 door(s) or window(s) held on a storey with nothing to place — their level or host wall is not placed (each reason on the planner's row) · 1 room(s) held on a storey with nothing to place — a wall round each is not placed (each reason on the planner's row) · ");
     // MA-5a-2: the doors seen on one face only — not proposed, counted
     expect(proposeLine({ ...REPLY, storeys: [{ ...REPLY.storeys[0], doors_seen_once: ["a", "b", "c"] }, REPLY.storeys[1]] }))
-      .toContain(" in the Holding Area · 3 door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed) · scan-L00-level");
+      .toContain(" in Waiting for approval · 3 door hole(s) seen on one face only — not proposed (a closed door or furniture reads the same; a person draws a door the scan missed) · scan-L00-level");
   });
   it("evidenceControls: Propose is a lead's, never the machine session's", () => {
     expect(["viewer", "contributor", "lead", "owner", "service"].map((r) => evidenceControls(r).propose)).toEqual([false, false, true, true, false]);
@@ -279,7 +279,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
     expect(isDrawingJob(DJOB)).toBe(true);
     expect(isDrawingJob({ ...DJOB, reader: { name: "sentinel-survey", version: "0.6.0" } })).toBe(false);
     expect(isDrawingJob({ ...DJOB, reader: undefined })).toBe(false); // a job from before MA-5a-3 names no reader: a survey
-    expect(jobLine(DJOB)).toBe("job-0007 · sentinel-drawing · done · read ev-0010 · refused ev-0009 (a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF) · 5 wall(s), 2 door(s) · by contributor@example.test · 2026-10-11 10:00 · ledger #2400 · receipt abababababababab…");
+    expect(jobLine(DJOB)).toBe("job-0007 · sentinel-drawing · done · read ev-0010 · refused ev-0009 (a .dwg is read by Ghost Builder in Revit (Model from Drawings) — sentinel-drawing reads PDF) · 5 wall(s), 2 door(s) · by contributor@example.test · 2026-10-11 10:00 · History #2400 · receipt abababababababab…");
     expect(jobLine({ ...DJOB, reader: { name: "sentinel-survey", version: "0.6.0" } })).toMatch(/^job-0007 · done · /);
     expect(jobLine({ ...DJOB, counts: { ...DJOB.counts, room: 2 } })).toContain(" · 5 wall(s), 2 door(s), 2 room(s) · "); // MA-5b-1
     // review: a drawing read with nothing found says why, on the line itself (no Candidates button for a job of 0)
@@ -310,7 +310,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the admitted PDF plans"
     expect(src).toContain("readableDrawings(pack).length");
     expect(src).toContain(`j.status === "done" && j.candidates_total && can.propose ? `);
     expect(src).toContain(`(proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [], isIfcJob(j) ? "IFC" : "scan")) : "")`);
-    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
+    expect(src).toContain(`line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): Sentinel types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af")`);
     expect(src).toContain(`drawingStartLine((await startDrawing(base, pid())).job)`);
     // one press, one proposal; only a 201 closes the form; what was typed is kept across a refusal
     expect(src).toContain(`const body = alignBody((alignDraft = readAlign())), id = proposing!;`);
@@ -329,8 +329,8 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
   });
   it("alignPreview: the scale, the turn, where the paper's corner lands and the check point's miss — the bridge decides", () => {
     expect(alignPreview(D)).toBe("1:50 · turned 0° · the paper's corner at 37000, -2000 mm in the model · no check point (two points fix it exactly; a third catches a misread one)");
-    expect(alignPreview({ ...D, pc: "220, 40", mc: "48000, 150" })).toContain(" · the check point lands 150 mm from where you said (the bridge refuses over 100)");
-    expect(alignPreview({ ...D, pa: "40000, 0", ma: "60, 40", pb: "48000, 6000", mb: "220, 160" })).toBe("1:0.02 — no plan is drawn at that scale (the bridge takes 1:1 to 1:2000): check paper against model, and that both name the same marks");
+    expect(alignPreview({ ...D, pc: "220, 40", mc: "48000, 150" })).toContain(" · the check point lands 150 mm from where you said (Sentinel refuses over 100)");
+    expect(alignPreview({ ...D, pa: "40000, 0", ma: "60, 40", pb: "48000, 6000", mb: "220, 160" })).toBe("1:0.02 — no plan is drawn at that scale (Sentinel takes 1:1 to 1:2000): check paper against model, and that both name the same marks");
     expect(alignPreview({ ...D, mb: "" })).toBe("");
   });
   it("MA-5a-6: the drawing as read, to click its marks — the page, each wall's faces, the doors, the marks typed; a click snaps to a wall corner within 3 paper mm", () => {
@@ -359,21 +359,21 @@ describe("drawing proposals (MA-5a-4) — the lead's two points, level and heigh
       storeys: [{ cid: "drawing-ev-0007-p1-level", level: "Drawing ev-0007 job-0005", how: "created", elevation_mm: 0, delta_mm: 0, checked: true, from: null, changeset: "c1" }],
       changesets: [{ id: "c1", name: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", elements: 5, preticked: 0 }],
       gaps: { groups: 3, elements: 3, ledger: { id: 3103, hash: HASH } }, already_filed: 0, overlaps: [], ledger: { id: 3104, hash: HASH } };
-    expect(proposeLine(r)).toBe("✓ Proposed job-0005 — ev-0007 at 1:50, turned 0°, checked to 0 mm · 1 changeset(s), 5 ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · " +
-      "3 type-gap group(s), 3 element(s) in the Holding Area · drawing-ev-0007-p1-level → Drawing ev-0007 job-0005 (created) · ledger #3104 · receipt abababababababab… — Review ▸ ↻");
+    expect(proposeLine(r)).toBe("✓ Proposed job-0005 — ev-0007 at 1:50, turned 0°, checked to 0 mm · 1 set(s) of proposed changes, 5 ghost(s), none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · " +
+      "3 type-gap group(s), 3 element(s) in Waiting for approval · drawing-ev-0007-p1-level → Drawing ev-0007 job-0005 (created) · History #3104 · receipt abababababababab… — Review ▸ ↻");
     // MA-5a-5: against the scan — said only when there was one to compare with
     const none = { agree: 0, differ: 0, drawn_only: 0, scanned_only: 0, doors_agree: 0, doors_from_drawing: 0, topics: { raised: [], skipped: 0 } };
     expect(proposeLine({ ...r, differences: none })).toBe(proposeLine(r));
     expect(proposeLine({ ...r, differences: { ...none, agree: 3, drawn_only: 1, doors_from_drawing: 1, topics: { raised: [{ guid: "t1", title: "Drawing vs scan: …", key: "k" }], skipped: 1 } } }))
-      .toContain("none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · against the scan: 3 wall(s) agree (not proposed again), 0 differ, 1 drawn only, 0 scanned only, 1 door(s) from the drawing in the scan's walls — 1 BCF topic(s) raised, 1 raised before · 3 type-gap group(s)");
+      .toContain("none pre-ticked (a drawing is what someone drew, not what was built — a person ticks each in Revit) · against the scan: 3 wall(s) agree (not proposed again), 0 differ, 1 drawn only, 0 scanned only, 1 door(s) from the drawing in the scan's walls — 1 issue(s) raised, 1 raised before · 3 type-gap group(s)");
     // MA-5b-3: against the drawing it revises — the same left as placed, the rest a person's rows
     const rv = { revises: "ev-0007", unchanged: 3, changed: 0, removed: 1, doors_unchanged: 0, doors_removed: 0, rooms_unchanged: 1, rooms_removed: 0 };
-    expect(proposeLine({ ...r, revision: rv })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 1 no longer drawn; rooms 1 the same, 0 no longer drawn — each a person's row on the changeset (Sentinel never deletes) · ");
+    expect(proposeLine({ ...r, revision: rv })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 1 no longer drawn; rooms 1 the same, 0 no longer drawn — each a person's row in the proposed changes (Sentinel never deletes) · ");
     expect(proposeLine({ ...r, revision: { ...rv, removed: 0, rooms_unchanged: 0 } })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 0 changed, 0 no longer drawn · ");
     // MA-5b-4: a reshape is said with what Revit does to a wall edited by hand
     expect(proposeLine({ ...r, revision: { ...rv, reshaped: 2 } })).toContain(" · against ev-0007: 3 wall(s) the same (left as placed), 2 reshaped to ev-0007's line (Revit keeps one edited by hand since), 0 changed, 1 no longer drawn");
     expect(proposeLine({ ...r, differences: { ...none, topics: { raised: [], skipped: 0, error: "the project's topics could not be read (down) — none raised; propose the drawing again to raise them" } } }))
-      .toContain(" — 0 BCF topic(s) raised (the project's topics could not be read (down) — none raised; propose the drawing again to raise them) · ");
+      .toContain(" — 0 issue(s) raised (the project's topics could not be read (down) — none raised; propose the drawing again to raise them) · ");
   });
 });
 
@@ -410,7 +410,7 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     const r = { job: "job-0009", ifc_row: { id: 3301, hash: HASH }, frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 }, storeys: [{ cid: "L02", level: "IFC L02 job-0009", how: "created", elevation_mm: 0, delta_mm: 0, checked: true, from: null, changeset: "c1",
         held: [{ name: "IfcRoof G", reason: "an IfcRoof" }] }], changesets: [{ id: "c1", name: "IFC job-0009 · IFC L02 job-0009", elements: 7, preticked: 0 }], gaps: { groups: 0, elements: 0, ledger: null },
       ledger: { id: 3305, hash: HASH }, already_filed: 0, overlaps: [] } as unknown as ProposeReply;
-    expect(proposeLine(r)).toContain("✓ Proposed job-0009 — 1 changeset(s), 7 ghost(s), none pre-ticked (an IFC is what a model says, not what was built or measured");
+    expect(proposeLine(r)).toContain("✓ Proposed job-0009 — 1 set(s) of proposed changes, 7 ghost(s), none pre-ticked (an IFC is what a model says, not what was built or measured");
     expect(proposeLine({ ...r, storeys: [{ ...r.storeys[0], changeset: null }] })).toContain("1 IFC element(s) held or not read (each reason on the planner's row)");
     expect(proposeLine({ ...r, off_storey: [{ ifc_class: "IFCROOF", count: 2, name: "IfcRoof × 2", reason: "x" }] })).toContain("2 IFC element(s) on no storey that is placed — not read (IfcRoof × 2)");
   });
@@ -425,7 +425,7 @@ describe("a concept IFC (MA-6-8) — Read IFC, the third reader", () => {
     expect(src).toContain(`<button id="fv-ev-ifc"`);
     expect(src).toContain("readableIfc(pack).length");
     expect(src).toContain(`ifcStartLine((await startIfc(base, pid())).job)`);
-    expect(src).toContain("line(\"IFC — sentinel-ifc reads an admitted .ifc inside the bridge");
+    expect(src).toContain("line(\"IFC — sentinel-ifc reads an admitted .ifc inside Sentinel");
     // MA-8 nits (F-B3-5): since 8-9 a boxed IfcStair is a flag row, not a "does not read"
     expect(src).toContain("(roofs, curved walls, proxies, members, plates, railings) it lists by GlobalId; a stair is boxed and flagged for a person (Propose a stair… in Revit).");
     expect(src).not.toContain("curved walls, stairs,");
@@ -539,7 +539,7 @@ describe("blurred copy (MA-7-7)", () => {
     bwrite.mockResolvedValueOnce({ item: { ...PH, view_copy: VC }, copy: VC, pack_version: 8, ledger: { id: 10, hash: HASH } });
     await markViewCopy("http://b", "demo", "ev-0002", { none_seen: true, shown: { w: 400, h: 600 } }); // MA-7-7 review: the size the marker showed rides along
     expect(JSON.parse(bwrite.mock.calls[1][1].body)).toEqual({ none_seen: true, shown: { w: 400, h: 600 } });
-    expect(blurredLine(r)).toBe(`✓ Blurred copy of ev-0002 · blurred copy 2048×1365: 2 area(s) filled (1 face, 1 number plate) · marked by lead@example.test · sha ${"cd".repeat(6)}… · ledger #9 · receipt abababababababab…`);
+    expect(blurredLine(r)).toBe(`✓ Blurred copy of ev-0002 · blurred copy 2048×1365: 2 area(s) filled (1 face, 1 number plate) · marked by lead@example.test · sha ${"cd".repeat(6)}… · History #9 · receipt abababababababab…`);
   });
   it("photoUrl: the copy or the original as an object URL; the bridge's own words come through when it refuses", async () => {
     const make = vi.fn(() => "blob:copy");
@@ -645,7 +645,7 @@ describe("a Gaussian splat (MA-7-11)", () => {
     expect(String(bwrite.mock.calls[bwrite.mock.calls.length - 1][0])).toMatch(/\/cde\/demo\/evidence\/evp-0001\/items\/ev-0003\/placement$/);
     expect(bwrite.mock.calls[bwrite.mock.calls.length - 1][1].method).toBe("POST");
     expect(JSON.parse(bwrite.mock.calls[bwrite.mock.calls.length - 1][1].body)).toEqual({ matrix: M });
-    expect(placementLine(r)).toBe("✓ Saved the placement of ev-0003 (lead) · ledger #12 · receipt abababababababab… — the newest row is where the splat is put again");
+    expect(placementLine(r)).toBe("✓ Saved the placement of ev-0003 (lead) · History #12 · receipt abababababababab… — the newest row is where the splat is put again");
   });
   it("splatShownLine: for looking only, who placed it and when, or that it starts where the camera looks", () => {
     expect(splatShownLine(PL)).toBe("for looking only — dimensions come from scans. Placed by lead@example.test · 2026-10-14 09:30. Drag the gizmo (W move, E turn, R scale), then Save placement.");

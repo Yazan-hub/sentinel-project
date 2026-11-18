@@ -108,14 +108,14 @@ describe("proposalElements — MA-6-4 shell (review)", () => {
     expect(l0).toHaveLength(6); expect(l1).toHaveLength(6);
     l0.forEach((e) => { expect(e.size.y).toBeCloseTo(4, 9); expect(e.position[1]).toBeCloseTo(2, 9); }); // SH L0 → SH L1: 0 → 4000
     l1.forEach((e) => expect(e.size.y).toBeCloseTo(3, 9)); // SH L2 is told by no element here: sketched, as before
-    expect(r.skipped).toEqual(["Shell SH L2 roof: a roof on a level this changeset does not tell"]);
+    expect(r.skipped).toEqual(["Shell SH L2 roof: a roof on a level these proposed changes do not tell"]);
     expect(r.elements.some((e) => e.name === "Shell SH L2 roof")).toBe(false);
   });
   it("a roof whose level the changeset tells, or that sends its BaseElevation, is still drawn", () => {
     const roof = create("roof", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], LevelName: "L2" }, { facts: { thickness_mm: 300 } });
     const cs = { elements: [create("level", { BaseElevation: 8000 }, { validate: { identity: { Name: "L2" } } }), roof] };
     expect(proposalElements(cs, levelsOf(cs)).elements[0].position[1]).toBeCloseTo(7.85, 9);
-    expect(proposalElements({ elements: [create("ceiling", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], LevelName: "L9" })] }).skipped[0]).toContain("a ceiling on a level this changeset does not tell");
+    expect(proposalElements({ elements: [create("ceiling", { Boundary: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], LevelName: "L9" })] }).skipped[0]).toContain("a ceiling on a level these proposed changes do not tell");
   });
 });
 

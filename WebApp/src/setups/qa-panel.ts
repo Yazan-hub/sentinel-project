@@ -203,8 +203,8 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         AUTHORING_ONLY_TARGETS.has(r.target),
       );
       const rulesetLabel = state.ruleset
-        ? `${state.ruleset.standard_key} ${state.ruleset.semver} · ${state.rulesetRef}`
-        : "the ruleset installed for this project";
+        ? `${state.ruleset.standard_key} ${state.ruleset.semver}`
+        : "the project standards installed for this project";
       const authoringNote =
         state.status === "done" && authoringRules.length > 0
           ? BUI.html`
@@ -215,6 +215,8 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
             </div>`
           : BUI.html``;
 
+      // The exact ruleset reference (ruleset@n · source · sha) stays, in a closed Details.
+      const refNote = state.rulesetRef ? BUI.html`<details class="qa-note"><summary>Details</summary><code>${state.rulesetRef}</code></details>` : BUI.html``;
       const body = () => {
         if (state.status === "idle")
           return BUI.html`<div class="qa-empty">Load a model, then run a compliance scan against ${rulesetLabel}.</div>`;
@@ -223,12 +225,12 @@ export const qaPanel = (components: OBC.Components, opts: { baseUrl?: string } =
         if (state.status === "empty")
           return BUI.html`<div class="qa-empty">No model loaded. Add one from Documents ▸ Files ▸ Open 3D first.</div>`;
         if (state.status === "blocked")
-          return BUI.html`<div class="qa-empty">${state.notice}</div>`;
+          return BUI.html`<div class="qa-empty">${state.notice}</div>${refNote}`;
         // A done scan can still carry a note: rules {org} expansion skipped, so the score covers fewer rules.
         const note = state.notice ? BUI.html`<div class="qa-empty" style="color:#eab308">${state.notice}</div>` : BUI.html``;
         if (violations.length === 0)
-          return BUI.html`${note}<div class="qa-empty">No violations in this scope. ✓</div>`;
-        return BUI.html`${note}<div class="qa-list">${violations.map(row)}</div>`;
+          return BUI.html`${note}<div class="qa-empty">No violations in this scope. ✓</div>${refNote}`;
+        return BUI.html`${note}<div class="qa-list">${violations.map(row)}</div>${refNote}`;
       };
 
       return BUI.html`

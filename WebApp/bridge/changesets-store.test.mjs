@@ -239,7 +239,7 @@ describe("result + withdraw lifecycle", () => {
     await expect(proposeChangeset("demo", REPLACES, "agent", baseDeps({ myRole: async () => "service" }))).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/only a signed-in member files one/) });
   });
 
-  it("MA-3b: a result answers the changeset_applied row it wrote, so Revit says \"reported (ledger #n)\" — the stored doc does not keep it", async () => {
+  it("MA-3b: a result answers the changeset_applied row it wrote, so Revit says \"reported (History #n)\" — the stored doc does not keep it", async () => {
     const deps = baseDeps({ audit: vi.fn(async () => ({ id: 1731, hash: "cd".repeat(32) })) });
     const cs = await propose(deps);
     const out = await reportResult("demo", cs.id, { applied: [], rejected: cs.elements.map((e) => e.proposal_guid), note: "drill MA3b: wrong storey" }, "r", deps);
@@ -553,7 +553,7 @@ describe("reportReverted", () => {
     for (const status of ["proposed", "declined", "withdrawn"]) {
       deps.saved.set(cs.id, { ...cs, status });
       await expect(reportReverted("demo", cs.id, { op: "undo", guids: [g] }, "r", deps))
-        .rejects.toMatchObject({ status: 409, message: `changeset is ${status} — only an applied changeset can be undone` });
+        .rejects.toMatchObject({ status: 409, message: `the proposed changes are ${status} — only applied changes can be undone` });
     }
     expect(deps.audit.mock.calls.some((c) => c[3] === "changeset_reverted")).toBe(false);
   });
@@ -796,7 +796,7 @@ describe("MA-3a — every write swaps on review_rev", () => {
     deps.docReplaceIfField = vi.fn(async () => null);
     deps.audit.mockClear();
     await expect(withdrawChangeset("demo", cs.id, "agent", deps))
-      .rejects.toMatchObject({ status: 503, message: "the changeset changed three times while this was being written — nothing was saved; send it again" });
+      .rejects.toMatchObject({ status: 503, message: "the proposed changes changed three times while this was being written — nothing was saved; send it again" });
     expect(deps.docReplaceIfField).toHaveBeenCalledTimes(3);
     expect(deps.audit).not.toHaveBeenCalled();
   });
@@ -931,7 +931,7 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
     const ledgerDown = () => vi.fn().mockRejectedValueOnce(Object.assign(new Error("timeout"), { status: 502 })).mockResolvedValue({ id: 9, hash: "cd".repeat(32) });
     const deps = seeded(fx.before, { myRole: as("contributor", "contributor"), audit: ledgerDown() });
     await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps))
-      .rejects.toMatchObject({ status: 503, message: "the ledger did not take the decision — nothing was saved; send it again" });
+      .rejects.toMatchObject({ status: 503, message: "History did not take the decision — nothing was saved; send it again" });
     const back = deps.saved.get("cs-ma3a");
     expect(back.elements).toEqual(fx.before.elements); // no review on any ghost: Revit obeys nothing the ledger lacks
     expect(back.review_rev).toBe(2);                   // the rev moves on: a Revit that re-checked rev 1 saw a decline that is gone
@@ -941,7 +941,7 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
 
     const lead = seeded(fx.after, { myRole: as("lead"), audit: ledgerDown() });
     await expect(reopenGhost("demo", "cs-ma3a", { proposal_guid: "g-1", reason: fx.reopen.reason }, fx.reopen.who.by, lead))
-      .rejects.toMatchObject({ status: 503, message: "the ledger did not take the re-open — nothing was saved; send it again" });
+      .rejects.toMatchObject({ status: 503, message: "History did not take the re-open — nothing was saved; send it again" });
     expect(lead.saved.get("cs-ma3a").elements).toEqual(fx.after.elements); // still declined
   });
 
@@ -949,7 +949,7 @@ describe("MA-3a — reviewChangeset and reopenGhost: a signed-in person, contrib
     const deps = seeded(fx.before, { myRole: as("contributor"), audit: vi.fn(async () => { throw new Error("timeout"); }) });
     deps.docReplaceIfField.mockImplementationOnce(async (s, p, id, data) => { deps.saved.set(id, data); return data; }).mockResolvedValueOnce(null);
     await expect(reviewChangeset("demo", "cs-ma3a", { decisions: fx.decisions }, fx.who.by, deps))
-      .rejects.toMatchObject({ status: 502, message: expect.stringContaining("the decision is saved on the changeset but the ledger has no row for it") });
+      .rejects.toMatchObject({ status: 502, message: expect.stringContaining("the decision is saved on the proposed changes but History has no row for it") });
   });
 });
 
@@ -961,7 +961,7 @@ describe("MA-3a — Revit's result against the web's declines (Q2)", () => {
   it("applying a ghost Revit had seen declined is a 409 naming it; nothing is written and no row", async () => {
     const deps = seeded(fx.after);
     await expect(reportResult("demo", "cs-ma3a", { applied: [applied("g-1")], rejected: ["g-2", "g-3", "g-4"], review_rev: 1 }, "revit", deps))
-      .rejects.toMatchObject({ status: 409, message: 'retype wall "W 1" was declined on the web by reviewer@example.com (contributor): "wrong type: W 1 is a party wall" — review_rev 1, which this result says Revit re-checked; Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed' });
+      .rejects.toMatchObject({ status: 409, message: 'retype wall "W 1" was declined on the web by reviewer@example.com (contributor): "wrong type: W 1 is a party wall" — review_rev 1, which this result says Revit re-checked; Revit refuses that tick, so this result is refused. Nothing was recorded; the proposed changes stay proposed' });
     expect(deps.docReplaceIfField).not.toHaveBeenCalled();
     expect(deps.audit).not.toHaveBeenCalled();
   });
@@ -1088,9 +1088,9 @@ describe("MA-3b3 — a decline carried to the next filing (the bridge stamps it 
     const [g1, g2, g3] = B.elements.map((e) => e.proposal_guid);
     const by = B.elements[0].review.by;
     await expect(reportResult("demo", B.id, { applied: [{ proposal_guid: g1, revit_element_id: 7 }], rejected: [g2, g3], review_rev: 0 }, "modeller", deps))
-      .rejects.toMatchObject({ status: 409, message: `retype wall "W 1" was declined in Revit by ${by} (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge: "W 1 stays as modelled" — the changeset was filed with it declined (review_rev 0); Revit refuses that tick, so this result is refused. Nothing was recorded; the changeset stays proposed` });
+      .rejects.toMatchObject({ status: 409, message: `retype wall "W 1" was declined in Revit by ${by} (contributor) in "Promote (DD) · GR-FFL" and carried here by the bridge: "W 1 stays as modelled" — the proposed changes were filed with it declined (review_rev 0); Revit refuses that tick, so this result is refused. Nothing was recorded; the proposed changes stay proposed` });
     await expect(reportResult("demo", B.id, { applied: [{ proposal_guid: g1, revit_element_id: 7 }], rejected: [g2, g3] }, "a-script", deps))
-      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("the changeset was filed with it declined (review_rev 0)") });
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("the proposed changes were filed with it declined (review_rev 0)") });
     expect(deps.saved.get(B.id).status).toBe("proposed");
   });
 
@@ -1148,7 +1148,7 @@ describe("MA-3b3 — a decline carried to the next filing (the bridge stamps it 
   it("the earlier changesets not read: a 503 in words, and nothing is filed — no referee row, no changeset, no ledger row", async () => {
     const deps = baseDeps({ docList: vi.fn(async () => { throw new Error("timeout"); }) });
     await expect(proposeChangeset("demo", STOREY(), "modeller", deps)).rejects.toMatchObject({ status: 503,
-      message: "the project's earlier changesets could not be read (timeout) — nothing was filed: a decline made before could not be carried to this changeset; send it again" });
+      message: "the project's earlier proposed changes could not be read (timeout) — nothing was filed: a decline made before could not be carried to these proposed changes; send it again" });
     expect(deps.adjudicateProposal).not.toHaveBeenCalled();
     expect(deps.docInsert).not.toHaveBeenCalled();
     expect(deps.audit).not.toHaveBeenCalled();
@@ -1201,7 +1201,7 @@ describe("MA-3b6 — a preview of what a filing would carry (nothing stored)", (
     await expect(previewChangesets("demo", {}, baseDeps())).rejects.toMatchObject({ status: 400, message: msg });
     await expect(previewChangesets("demo", { bodies: [] }, baseDeps())).rejects.toMatchObject({ status: 400, message: msg });
     await expect(previewChangesets("demo", { bodies: [STOREY()] }, baseDeps({ docList: vi.fn(async () => { throw new Error("Supabase 500"); }) })))
-      .rejects.toMatchObject({ status: 503, message: "the project's earlier changesets could not be read (Supabase 500) — nothing was previewed" });
+      .rejects.toMatchObject({ status: 503, message: "the project's earlier proposed changes could not be read (Supabase 500) — nothing was previewed" });
     await expect(previewChangesets("demo", { bodies: [{ ...STOREY(), name: "" }] }, baseDeps())).rejects.toMatchObject({ status: 400 });
   });
 });
@@ -1258,7 +1258,7 @@ describe("proposeFromJob (MA-4d): a lead turns a trusted survey job into changes
     await quiet({}, "pretick is not a proposal field — the bridge builds every changeset from the job's own result; send {frame, levels?, materials?} — nothing was saved", 400, { frame: FRAME, pretick: true });
     const pack = (items) => ({ readPack: vi.fn(async (_k, id) => (id === "evp-0001" ? { pack: { items } } : null)) }); // the ROW's pack id
     await quiet(pack([{ id: "ev-0001", sha256: EV, state: "changed" }]), "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
-    await quiet(pack([{ id: "ev-0001", sha256: "f".repeat(64), state: "admitted" }]), "ev-0001 is not the bytes job-0002 read (its sha256 in the pack is not the one the job read) — survey the admitted scan again; nothing was saved");
+    await quiet(pack([{ id: "ev-0001", sha256: "f".repeat(64), state: "admitted" }]), "ev-0001 is not the bytes job-0002 read (its file in the pack is not the one the job read) — survey the admitted scan again; nothing was saved");
     await quiet(pack([]), "ev-0001 is not the bytes job-0002 read (it is no longer in the pack) — survey the admitted scan again; nothing was saved");
     await quiet({ readPack: vi.fn(async () => { throw Object.assign(new Error("ma4c-drill has no evidence pack — an office row holds none"), { status: 409 }); }) },
       "ma4c-drill has no evidence pack — an office row holds none — nothing was saved"); // a callee's words get the house ending
@@ -1702,34 +1702,34 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
       await expect(verify(deps, body)).rejects.toMatchObject({ status, message });
       expect([deps.measureJob.mock.calls.length, deps.audit.mock.calls.length]).toEqual([0, 0]);
     };
-    await quiet({ myRole: vi.fn(async () => "service") }, "measuring a changeset against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.", 403);
+    await quiet({ myRole: vi.fn(async () => "service") }, "measuring proposed changes against its scan needs a person — it reads the whole scan, and its row names who asked: sign in. Nothing was saved.", 403);
     await quiet({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) },
-      "this action requires the contributor role (you are viewer) — measuring a placed changeset against its scan is a contributor's; nothing was saved", 403);
+      "this action requires the contributor role (you are viewer) — measuring placed proposed changes against its scan is a contributor's; nothing was saved", 403);
     await quiet({}, "results is not a measure field — the bridge measures what Revit placed, by Revit's re-read where it sent one, else as filed, against its job's own scan; send {changeset} — nothing was saved", 400, { changeset: ID, results: [] });
     await quiet({}, "changeset must be a changeset's id (a uuid) — nothing was saved", 400, { changeset: "x" });
-    await quiet({}, "no changeset 00000000-0000-4000-8000-000000000000 on ma4c-drill — nothing was saved", 404, { changeset: "00000000-0000-4000-8000-000000000000" });
+    await quiet({}, "no proposed changes 00000000-0000-4000-8000-000000000000 on ma4c-drill — nothing was saved", 404, { changeset: "00000000-0000-4000-8000-000000000000" });
     await quiet({}, "Survey job-0002 · GR-FFL was not built from a survey job — there is no scan to measure it against — nothing was saved", 409, undefined, { ...CS, job: null, claimed: true });
     await quiet({}, "Survey job-0002 · GR-FFL is proposed — only what Revit placed is measured — nothing was saved", 409, undefined, { ...CS, status: "proposed" });
     await quiet({ trustedJob: vi.fn(async () => { throw Object.assign(new Error("job-0002's result is not trusted: … — run the survey again; nothing was saved"), { status: 409 }); }) },
       "job-0002's result is not trusted: … — run the survey again; nothing was saved");
     await quiet({ trustedJob: vi.fn(async () => ({ row: { ...ROW, ledger: { id: 2299, hash: "x" } } })) },
-      "job-0002 on this PC is ledger #2299, not the job Survey job-0002 · GR-FFL was built from (ledger #2201) — its scan cannot be read again here — nothing was saved");
+      "job-0002 on this PC is not the job Survey job-0002 · GR-FFL was built from — its scan cannot be read again here — nothing was saved");
     await quiet({ trustedJob: vi.fn(async () => ({ row: { ...ROW, seed: null } })) },
-      "ledger #2201 holds no params or seed — the cloud job-0002 measured cannot be read again; run the survey again — nothing was saved");
+      "The saved record of the cloud job-0002 measured holds no params or seed — it cannot be read again; run the survey again — nothing was saved");
     await quiet({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SCAN, state: "changed" }] }, folder: { path: DIR } })) },
       "ev-0001 is not the bytes job-0002 read (Re-check flagged it changed) — survey the admitted scan again; nothing was saved");
     await quiet({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SCAN, allowed_uses: { geometry_extraction: false } }] }, folder: { path: DIR } })) },
       "ev-0001 cannot be read again (its allowed uses exclude geometry extraction) — survey the admitted scan again — nothing was saved");
     await quiet({ listAudit: vi.fn(async () => { throw new Error("timeout"); }) },
-      "Survey job-0002 · GR-FFL's ledger rows could not be read (timeout) — an Undo in Revit or an earlier measure would be missed — nothing was saved", 503);
+      "Survey job-0002 · GR-FFL's History rows could not be read (timeout) — an Undo in Revit or an earlier measure would be missed — nothing was saved", 503);
     await quiet({ listAudit: vi.fn(async () => ({ rows: ROWS, total: 1500 })) }, // a cut read could miss the newest Undo
-      "Survey job-0002 · GR-FFL has more ledger rows (1500) than one read returns — an Undo in Revit could be missed — nothing was saved", 503);
+      "Survey job-0002 · GR-FFL has more History rows (1500) than one read returns — an Undo in Revit could be missed — nothing was saved", 503);
     await quiet({ listAudit: audits([{ id: 2213, action: "changeset_reverted", new_value: { op: "undo", guids: ["g1", "g2", "g3"] } }, ...ROWS]) },
       "nothing of Survey job-0002 · GR-FFL can be measured: undone in Revit (ledger #2213) — nothing placed to measure — nothing was saved");
     // A replay: the newest done row was measured on these same inputs — the numbers would repeat, so no second row.
     const done = await firstRow();
     await quiet({ listAudit: audits(ROWS, [done]) },
-      "Survey job-0002 · GR-FFL was measured on these same inputs as ledger #2300 — the same bytes, seed and geometry give the same numbers; nothing was saved");
+      "Survey job-0002 · GR-FFL was measured on these same inputs before — the same bytes, seed and geometry give the same numbers; nothing was saved");
     // Any changed input measures again: a Redo in Revit since (a new reverted_row), or a newest row that did not finish.
     for (const over of [{ listAudit: audits([{ id: 2216, action: "changeset_reverted", new_value: { op: "redo", guids: ["g1", "g2", "g3"] } }, ...ROWS], [done]) },
       { listAudit: audits(ROWS, [{ id: 2301, new_value: { ...done.new_value, status: "failed" } }]) }]) {
@@ -1750,24 +1750,24 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
       return deps.audit.mock.calls;
     };
     let rows = await run({ status: "refused", version: "0.1.0", refused: [{ id: "ev-0001", reason: "changed since admitted (its sha256 is not the pack's) — Re-check flags it" }] },
-      "Survey job-0002 · GR-FFL was not measured: the scan was not read again — ev-0001: changed since admitted (its sha256 is not the pack's) — Re-check flags it — ledger #2300 records the run; nothing else was saved", 409);
+      "Survey job-0002 · GR-FFL was not measured: the scan was not read again — ev-0001: changed since admitted (its sha256 is not the pack's) — Re-check flags it — the run is recorded in History; nothing else was saved", 409);
     expect([rows.length, rows[0][3], rows[0][6].status, rows[0][6].elements]).toEqual([1, "verify:measured job-0002 · sentinel-survey 0.1.0 · refused", "refused", []]);
     rows = await run({ status: "failed", version: "0.1.0", error: "the survey took longer than 10 min — it was stopped; nothing it found was kept" },
-      "the measure of Survey job-0002 · GR-FFL did not finish: the survey took longer than 10 min — it was stopped; nothing it found was kept — ledger #2300 records the run; nothing else was saved", 502);
+      "the measure of Survey job-0002 · GR-FFL did not finish: the survey took longer than 10 min — it was stopped; nothing it found was kept — the run is recorded in History; nothing else was saved", 502);
     expect(rows[0][3]).toBe("verify:measured job-0002 · sentinel-survey 0.1.0 · failed");
     await run({ status: "done", version: "0.1.0", result: { elements: [{ guid: "g9" }], receipt: { measure: KNOBS } } },
-      "the measure of Survey job-0002 · GR-FFL did not finish: sentinel-survey's measure is not the contract's shape (not one result per element sent) — nothing it measured was kept — ledger #2300 records the run; nothing else was saved", 502);
+      "the measure of Survey job-0002 · GR-FFL did not finish: sentinel-survey's measure is not the contract's shape (not one result per element sent) — nothing it measured was kept — the run is recorded in History; nothing else was saved", 502);
     // Rule 3: a verdict sent by the service is refused, never merged — p95 63 never reads within tolerance.
     const three = (o) => ["g1", "g2", "g3"].map((guid) => ({ guid, ...NUMS(), ...o }));
     rows = await run({ status: "done", version: "0.1.0", result: { elements: three({ p95_mm: 63, status: "within_tolerance" }), receipt: { measure: KNOBS } } },
-      "the measure of Survey job-0002 · GR-FFL did not finish: sentinel-survey's measure is not the contract's shape (elements[0] carries status (the verdict is the bridge's)) — nothing it measured was kept — ledger #2300 records the run; nothing else was saved", 502);
+      "the measure of Survey job-0002 · GR-FFL did not finish: sentinel-survey's measure is not the contract's shape (elements[0] carries status (the verdict is the bridge's)) — nothing it measured was kept — the run is recorded in History; nothing else was saved", 502);
     expect([rows[0][6].status, rows[0][6].elements]).toEqual(["failed", []]);
     // The job's own cloud only from the version that read it: another version may read, sample or voxel differently.
     rows = await run({ status: "done", version: "0.2.0", result: { elements: three(), receipt: { measure: KNOBS } } },
-      "the measure of Survey job-0002 · GR-FFL did not finish: the job was read by sentinel-survey 0.1.0 and this measure ran 0.2.0 — its cloud is not known to be the job's; run the survey again — nothing it measured was kept — ledger #2300 records the run; nothing else was saved", 502);
+      "the measure of Survey job-0002 · GR-FFL did not finish: the job was read by sentinel-survey 0.1.0 and this measure ran 0.2.0 — its cloud is not known to be the job's; run the survey again — nothing it measured was kept — the run is recorded in History; nothing else was saved", 502);
     expect([rows[0][3], rows[0][6].job.version, rows[0][6].elements]).toEqual(["verify:measured job-0002 · sentinel-survey 0.2.0 · failed", "0.1.0", []]);
     await expect(verify(vdeps({ audit: vi.fn(async () => { throw new Error("ledger down"); }) }))).rejects.toMatchObject({ status: 502,
-      message: "Survey job-0002 · GR-FFL was measured, but the ledger did not take its row (ledger down) — nothing was saved; measure it again" });
+      message: "Survey job-0002 · GR-FFL was measured, but History did not take its row (ledger down) — nothing was saved; measure it again" });
   });
   it("(final review) the receipt rides on the row typed, the knobs by name; shares only at the bridge's tolerances; a stray knob fails the run", async () => {
     const odd = vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [],
@@ -1781,7 +1781,7 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     expect(JSON.stringify(v)).not.toContain("kept nowhere");
     deps = vdeps({ measureJob: vi.fn(async (_k, _j, p) => ({ status: "done", version: "0.1.0", refused: [], tools: [],
       result: { elements: p.elements.map((e) => ({ guid: e.guid, ...NUMS() })), derived: [], receipt: { measure: { ...KNOBS, verdict: "fine" } } } })) });
-    await expect(verify(deps)).rejects.toThrow("(receipt.measure) — nothing it measured was kept — ledger #2300 records the run");
+    await expect(verify(deps)).rejects.toThrow("(receipt.measure) — nothing it measured was kept — the run is recorded in History");
     v = deps.audit.mock.calls[0][6];
     expect([v.status, v.elements, v.measure, v.error]).toEqual(["failed", [], null, "sentinel-survey's measure is not the contract's shape (receipt.measure) — nothing it measured was kept"]);
   });
@@ -1866,10 +1866,10 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
   it("(i) MA-4f: the overlay's refusals say what is not shown — the machine credential, a viewer, not a survey changeset, no wall, the job's chain, viewing not allowed (fails closed), the scan not read again, the slot busy, an answer not the contract's", async () => {
     const no = async (over, cs, status, message) => { const deps = sdeps(over, cs); await expect(scanOverlay("ma4c-drill", ID, deps)).rejects.toMatchObject({ status, message }); return deps; };
     const machine = await no({ myRole: vi.fn(async () => "service") }, CS, 403,
-      "showing a changeset's scan needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown");
+      "showing the scan behind proposed changes needs a person — it reads the whole scan on this PC's one survey slot: sign in (in Revit: More ▸ Sign in) — its scan is not shown");
     expect([machine.measureJob.mock.calls.length, machine.takeWriteBudget.mock.calls.length]).toEqual([0, 0]);
     await no({ requireMinRole: vi.fn(async () => { throw Object.assign(new Error("this action requires the contributor role (you are viewer)"), { status: 403 }); }) }, CS, 403,
-      "this action requires the contributor role (you are viewer) — showing a survey changeset's scan runs sentinel-survey: a contributor's — its scan is not shown");
+      "this action requires the contributor role (you are viewer) — showing the scan behind survey proposed changes runs sentinel-survey: a contributor's — its scan is not shown");
     await no({}, { ...CS, job: null, claimed: true }, 409, "Survey job-0002 · GR-FFL was not built from a survey job — it has no scan to show");
     await no({}, { ...CS, elements: [] }, 409, "Survey job-0002 · GR-FFL has no wall to show the scan against");
     await no({ readPack: vi.fn(async () => ({ pack: { items: [{ ...SEEN, state: "changed" }] }, folder: { path: DIR } })) }, CS, 409,
@@ -1908,7 +1908,7 @@ describe("verifyChangeset (MA-4e): a signed-in contributor measures a placed sur
     expect(without.measureJob.mock.calls[0][2].cloud).toEqual({ cell_mm: 100, z_mm: [300, 2500], max_points: 5000 });
     await expect(scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, exceptions: [flag] }), { flag: "stair:nope" })).rejects.toMatchObject({ status: 404, message: `${CS.name} has no stair flag "stair:nope" — its scan slice is not shown` });
     await expect(scanOverlay("ma4c-drill", ID, sdeps({}, { ...CS, exceptions: [flag], job: { ...CS.job, reader: "sentinel-ifc 0.2.0" } }), { flag: flag.unique_id }))
-      .rejects.toMatchObject({ status: 409, message: `${CS.name} was built from an IFC (${CS.job.id}) — it has no scan to show — a stair flag on it has no scan slice: flag the stair on a survey changeset of this storey` });
+      .rejects.toMatchObject({ status: 409, message: `${CS.name} was built from an IFC (${CS.job.id}) — it has no scan to show — a stair flag on it has no scan slice: flag the stair on survey proposed changes of this storey` });
   });
   it("(k) MA-8-14: the ground - the band under and over the lowest wall, the storey's oriented box as outside_mm in the scan's frame, 500 mm cells, 2000 points; the answer carries the level and the box; it fails closed on a service that does not read ground", async () => {
     const wall = (e, level) => ({ ...e, place: { ...e.place, LevelName: level } });
@@ -2419,7 +2419,7 @@ describe("flagChangeset (MA-8-9): a person's stair pick, appended to a changeset
     await expect(flagChangeset("demo", "no-such", PICK, "x", deps)).rejects.toMatchObject({ status: 404 });
     const w = await filed(deps);
     await withdrawChangeset("demo", w.id, "agent", deps);
-    await expect(flagChangeset("demo", w.id, PICK, "x", deps)).rejects.toMatchObject({ status: 409, message: `${w.name} is withdrawn — flag the stair on a changeset that is still live; nothing was saved` });
+    await expect(flagChangeset("demo", w.id, PICK, "x", deps)).rejects.toMatchObject({ status: 409, message: `${w.name} is withdrawn — flag the stair on proposed changes that are still live; nothing was saved` });
     deps.saved.set(cs.id, { ...deps.saved.get(cs.id), exceptions: Array.from({ length: 50 }, (_, i) => ({ unique_id: `stair:pick-${i}`, reason: "r", kind: "stair", source: "pick" })) });
     await expect(flagChangeset("demo", cs.id, PICK, "x", deps)).rejects.toMatchObject({ status: 409, message: `${cs.name} already holds 50 picked stair flags — nothing was saved` });
     deps.saved.set(cs.id, { ...deps.saved.get(cs.id), exceptions: Array.from({ length: 1000 }, (_, i) => ({ unique_id: `u${i}`, reason: "r" })) });
@@ -2495,7 +2495,7 @@ describe("proposeChangeset — a stair from a flag (MA-8-10)", () => {
   });
   it("a ledger that cannot be read refuses the filing (503) - an Undo of an earlier stair could be missed", async () => {
     const deps = withFlag(member({ auditAll: vi.fn(async () => { throw new Error("db down"); }) }));
-    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", deps)).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/the ledger could not be read \(db down\).*nothing was filed/) });
+    await expect(proposeChangeset("demo", structuredClone(cases.good), "y", deps)).rejects.toMatchObject({ status: 503, message: expect.stringMatching(/History could not be read \(db down\).*nothing was filed/) });
     expect(deps.docInsert).not.toHaveBeenCalled();
   });
 
@@ -2726,13 +2726,13 @@ describe("apply claim and retry-safe result (2026-10-20, spec 2026-10-20-apply-c
     for (const session of [undefined, "short", "x".repeat(65), "has space 123"])
       await expect(claimChangeset("demo", cs.id, { session }, "ben", deps)).rejects.toMatchObject({ status: 400 });
     await reportResult("demo", cs.id, { applied: [], rejected: g, note: "no", session: S2 }, "ben", deps);
-    await expect(claimChangeset("demo", cs.id, { session: S2 }, "ben", deps)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("is declined — only a proposed changeset is applied") });
+    await expect(claimChangeset("demo", cs.id, { session: S2 }, "ben", deps)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("is declined — only proposed changes still waiting are applied") });
   });
   it("a result or a withdraw under another session's live claim is refused; the holder's result lands and releases it", async () => {
     const { deps, cs, g } = await setup();
     await claimChangeset("demo", cs.id, { session: S1, pc: "DESK-01" }, "ana", deps);
     await expect(reportResult("demo", cs.id, { applied: [], rejected: g, note: "decline all", session: S2 }, "ben", deps))
-      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("this result was not recorded; the changeset stays proposed") });
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("this result was not recorded; the proposed changes stay proposed") });
     await expect(reportResult("demo", cs.id, { applied: [], rejected: g, note: "no session" }, "agent", deps)).rejects.toMatchObject({ status: 409 });
     await expect(withdrawChangeset("demo", cs.id, "agent", deps)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("it was not withdrawn") });
     expect(deps.audit.mock.calls.filter((c) => c[3] !== "changeset_proposed")).toHaveLength(0);

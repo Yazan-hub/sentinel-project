@@ -6,12 +6,12 @@ const proposed = (container_name: string) => ({ container_name, verdict: "record
 
 describe("sheetMidpLine", () => {
   it("matches a proposed sheet's container to its MIDP row (extension and case ignored) and says the status", () => {
-    expect(sheetMidpLine(proposed("astr26-ast-zz-00-dr-a-0100.PDF"), rows, null)).toEqual({ text: "MIDP: in WIP — not published · due 2027-01-31", color: "#eab308" });
-    expect(sheetMidpLine(proposed("X.pdf"), [{ container_name: "X", status: "delivered", due_date: null }], null).text).toBe("MIDP: delivered");
+    expect(sheetMidpLine(proposed("astr26-ast-zz-00-dr-a-0100.PDF"), rows, null)).toEqual({ text: "Delivery plan: in WIP — not published · due 2027-01-31", color: "#eab308" });
+    expect(sheetMidpLine(proposed("X.pdf"), [{ container_name: "X", status: "delivered", due_date: null }], null).text).toBe("Delivery plan: delivered");
   });
   it("a container no row plans, a failed read and a sheet never proposed are each said as such", () => {
-    expect(sheetMidpLine(proposed("OTHER.pdf"), rows, null).text).toBe("not in the MIDP");
-    expect(sheetMidpLine(proposed("OTHER.pdf"), null, "HTTP 500").text).toBe("MIDP not read — HTTP 500");
+    expect(sheetMidpLine(proposed("OTHER.pdf"), rows, null).text).toBe("not in the delivery plan");
+    expect(sheetMidpLine(proposed("OTHER.pdf"), null, "HTTP 500").text).toBe("Delivery plan not read — HTTP 500");
     expect(sheetMidpLine({}, rows, null).text).toBe("not proposed — exported before Publish Sheets proposed each sheet");
   });
   it("a refused name and an unreached bridge are said in their own words — never looked up in the MIDP", () => {

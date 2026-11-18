@@ -67,9 +67,14 @@ export async function bfetch(url: string, init: RequestInit = {}): Promise<Respo
 /** The bridge's words when it refuses a read (403), else null. A refused list must be shown as a refusal — rendered as
  *  an empty list it would read as "nothing published" (D7). Reads the body only on a 403. */
 export async function refusalText(res: Response): Promise<string | null> {
+  return (await refusalParts(res))?.message ?? null;
+}
+
+/** Same, with the bridge's `detail` (the technical cause) beside the words, for a collapsed Details. */
+export async function refusalParts(res: Response): Promise<{ message: string; detail?: string } | null> {
   if (res.status !== 403) return null;
-  const fallback = "The bridge refused this (HTTP 403).";
-  try { return String((await res.json())?.message || "") || fallback; } catch { return fallback; }
+  const fallback = "You do not have permission for this.";
+  try { const j = await res.json(); return { message: String(j?.message || "") || fallback, detail: j?.detail ? String(j.detail) : undefined }; } catch { return { message: fallback }; }
 }
 
 /** A write to the bridge that never reads a refusal as success: the parsed reply of a 2xx (null when it is empty), else
@@ -77,8 +82,9 @@ export async function refusalText(res: Response): Promise<string | null> {
  *  wrote with `bfetch` alone said "done" whatever came back. */
 export async function bwrite<T = unknown>(url: string, init: RequestInit = {}): Promise<T> {
   const r = await bfetch(url, init);
-  const j = (await r.json().catch(() => null)) as (T & { message?: string }) | null;
-  if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+  const j = (await r.json().catch(() => null)) as (T & { message?: string; detail?: string }) | null;
+  // `detail` (web-words.md §3): the technical cause, for a collapsed Details next to the message.
+  if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: j?.detail ?? `HTTP ${r.status}` });
   return j as T;
 }
 

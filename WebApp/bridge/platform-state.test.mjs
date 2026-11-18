@@ -112,7 +112,7 @@ describe("mirrorState — the state onto the .frag's only version", () => {
     version = { id: V, state: "wip", platform_item_id: ITEM };
     stateRow = null;
     d = deps();
-    expect(await mirrorState(V, d)).toEqual({ mirrored: false, reason: "the version has no state: row on the ledger" });
+    expect(await mirrorState(V, d)).toEqual({ mirrored: false, reason: "the version has no state entry in History" });
     expect(d.platform).not.toHaveBeenCalled();
   });
 
@@ -152,7 +152,7 @@ describe("mirrorState — the state onto the .frag's only version", () => {
   });
 
   it("two versions (or none) and no recorded tag: the tag is not known, nothing is written", async () => {
-    const re = (n) => new RegExp(`${n} versions, not one, and the ledger's link recorded no tag — the tag is not known$`);
+    const re = (n) => new RegExp(`${n} versions, not one, and History's link recorded no tag — the tag is not known$`);
     for (const [list, link, n] of [[[{ tag: "v2" }, { tag: "v1" }], null, "2"], [[{ tag: "v2" }, { tag: "v1" }], { new_value: {} }, "2"], [[], null, "0"], [null, null, "no list of"]]) {
       client.listVersions = vi.fn(async () => list);
       linkRow = link;
@@ -174,14 +174,14 @@ describe("mirrorState — the state onto the .frag's only version", () => {
 
   it("a label that already names this row or a newer one is left alone", async () => {
     client.getFileVersionMetadata = vi.fn(async () => ({ sentinel_state: "published", sentinel_state_row: "900" }));
-    expect(await mirrorState(V, deps())).toEqual({ mirrored: false, current: true, reason: "up to date — the label already names ledger #812 or a newer state: row" });
+    expect(await mirrorState(V, deps())).toEqual({ mirrored: false, current: true, reason: "up to date — the label already names History #812 or a newer state entry" });
     expect(client.updateFileVersionMetadata).not.toHaveBeenCalled();
   });
 
   it("a PUT the platform refuses resolves {mirrored: false, reason}, never rejects, and the log line names the version and item but never the token", async () => {
     client.updateFileVersionMetadata = vi.fn(async () => { throw new Error(`Cannot PUT /api/item/${ITEM}/version/v1/metadata?accessToken=${TOKEN}`); });
     const r = await mirrorState(V, deps());
-    expect(r).toEqual({ mirrored: false, reason: `the platform or the ledger answered: Cannot PUT /api/item/${ITEM}/version/v1/metadata?accessToken=…` });
+    expect(r).toEqual({ mirrored: false, reason: `the platform or History answered: Cannot PUT /api/item/${ITEM}/version/v1/metadata?accessToken=…` });
     expect(log).toHaveBeenCalledTimes(1);
     expect(log.mock.calls[0][0]).toMatch(new RegExp(`^\\[platform-state\\] version ${V} item ${ITEM}: not mirrored — `));
     expect(JSON.stringify([r, log.mock.calls])).not.toContain(TOKEN);
@@ -193,11 +193,11 @@ describe("mirrorState — the state onto the .frag's only version", () => {
     expect(await mirrorState(V, d)).toMatchObject({ mirrored: false, reason: expect.stringContaining("Missing config: THATOPEN_API_KEY") });
     sb = vi.fn(async () => { throw new Error("Supabase 500: {}"); });
     d = deps();
-    expect(await mirrorState(V, d)).toMatchObject({ mirrored: false, reason: "the platform or the ledger answered: Supabase 500: {}" });
+    expect(await mirrorState(V, d)).toMatchObject({ mirrored: false, reason: "the platform or History answered: Supabase 500: {}" });
     expect(d.platform).not.toHaveBeenCalled();
     sb = vi.fn(async (path) => (path.startsWith("container_versions") ? [version] : [stateRow]));
     client.listVersions = vi.fn(async () => { throw new Error("fetch failed"); });
-    expect(await mirrorState(V, deps())).toMatchObject({ mirrored: false, reason: "the platform or the ledger answered: fetch failed" });
+    expect(await mirrorState(V, deps())).toMatchObject({ mirrored: false, reason: "the platform or History answered: fetch failed" });
     expect(client.updateFileVersionMetadata).not.toHaveBeenCalled();
   });
 });

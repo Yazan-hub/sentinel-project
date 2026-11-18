@@ -10,7 +10,7 @@ import { hasStart, isComprehensive } from "./bep-start";
 import { readVersion } from "./read-view";
 import { linkEirButton } from "./start-strip";
 import { changedSince } from "./versions-view";
-import { moveId, type WorkspaceState } from "./workspace-state";
+import { showMessage, moveId, type WorkspaceState } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page";
 
 export { isComprehensive }; // the brief's test (and any reader of the outline) imports it from here; bep-start.ts is its home
@@ -147,7 +147,7 @@ export function outlinePane(ctx: PaneCtx): HTMLElement {
   // Every action: ask, send through the controller (it adds updated_at and the actor), then redraw everything.
   const done = async (sent: Promise<DocRow | null>): Promise<void> => {
     if (await sent) ctx.refresh("all");
-    else say(ctx.ws.state().message);
+    else showMessage(note, ctx.ws.state());
   };
   const picked = (): SectionRow | null => doc.sections.find((s) => s?.id === ctx.focused) ?? null;
   const onSection = (run: (s: SectionRow, seg: string) => Promise<void>) => (): void => {

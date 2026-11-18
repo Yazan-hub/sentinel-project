@@ -23,7 +23,7 @@ export function validateIntakeInput(input = {}) {
   const name = String(input.name || "").trim();
   const source = String(input.source || "").trim();
   if (!key) throw err(400, "project key required");
-  if (!/\.ifc$/i.test(name)) throw err(400, "name must be the container's ISO name ending in .ifc");
+  if (!/\.ifc$/i.test(name)) throw err(400, "name must be the file's ISO name ending in .ifc");
   if (!input.bytes || !input.bytes.length) throw err(400, "Empty body — POST the .ifc file as the request body.");
   if (!source) throw err(400, "source required (who produced the file: astra, pascal, navisworks, cli, an email)");
   return {

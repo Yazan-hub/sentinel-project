@@ -82,7 +82,7 @@ const needModel = (what = "the model"): Answer => ({
 const catIn = (q: string) => CATS.find((c) => q.includes(c.kw));
 const noRuleset: Answer = { text: `${NO_RULESET} — there is no scan or health score to report.`, sources: [] };
 /** What judged: the standard and its artefact ref, cited on every scan answer. */
-const std = (g: Grounding) => (g.ruleset ? `${g.ruleset.standard_key} · ${g.rulesetRef}` : "no ruleset");
+const std = (g: Grounding) => (g.ruleset ? `${g.ruleset.standard_key} · ${g.rulesetRef}` : "no project standards");
 
 // ── matchers (ordered; first hit wins) ───────────────────────────────────────
 type Matcher = (q: string, g: Grounding) => Answer | null;
@@ -154,7 +154,7 @@ const countM: Matcher = (q, g) => {
 const issuesM: Matcher = (q, g) => {
   if (!/\b(issue|coordination|clash|assign|who|bcf|open topic|responsib)\b/.test(q)) return null;
   const open = g.issues.filter((t) => t.topic_status !== "Closed" && t.topic_status !== "Resolved");
-  if (!open.length) return { text: "No open coordination issues in the project.", sources: ["BCF service"] };
+  if (!open.length) return { text: "No open coordination issues in the project.", sources: ["Issues"] };
   const clashes = open.filter((t) => /clash/i.test(t.topic_type));
   const idx = guidIndex(g.facts);
   const map: Record<string, number[]> = {};
@@ -167,7 +167,7 @@ const issuesM: Matcher = (q, g) => {
     + (assignees.length ? ` Assigned to: ${assignees.join(", ")}.` : "")
     + ` e.g. "${open[0].title}" [${open[0].topic_status}].`
     + (hasEls ? " Isolate to highlight the linked elements." : "");
-  return { text, sources: ["BCF service"], elements: hasEls ? map : undefined, count: open.length };
+  return { text, sources: ["Issues"], elements: hasEls ? map : undefined, count: open.length };
 };
 
 const ruleM: Matcher = (q, g) => {
