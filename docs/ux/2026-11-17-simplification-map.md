@@ -9,7 +9,7 @@ and `2026-11-17-inventory-revit.md`. Interface language: English only.
 |---|---|---|
 | Web top-level areas | 14 (33 screens) | 5 |
 | Web rows showing internal jargon | 149 of 294 | 0 outside Settings ▸ Advanced |
-| Revit ribbon buttons | 44 in 4 panels | 6 visible + "More" |
+| Revit ribbon buttons | 44 in 4 panels | 7 visible (incl. "More") |
 | Revit buttons showing jargon | 20 of 44 | 0 |
 | Revit windows | 27 + 1 pane | pane is the home; windows open from it |
 
@@ -43,7 +43,14 @@ once a project reaches that stage (shown only when the stage is reached).
 | **Fix** | Proposed changes to approve, with undo | Change Requests, Review AI Proposals, Applied AI Changes, MEP Openings, Heal Families |
 | **Issues** | Issues + clashes in one list | BCF Issues, Clash Manager, Clash Register |
 | **Publish** | One publish button, pre-publish check inside | Governed Publish, IFC Delivery Gate, Publish Sheets, Publish Views |
-| **More** | Setup and standards (BIM manager) | Project Setup, PC Settings, Build Office System, Apply Standard, Ingest Docs, Modelling Guideline, IFC Export Mapping, Review Flag |
+| **Build** | Model from drawings, scans and photos, as one guided flow | Datum from Drawings, Ghost Builder, Photo Massing, Shell a Mass, Annotate Views, Promote (DD), Provenance (→ "Where did this come from?" on an element) |
+| **More** | Setup and standards (BIM manager) | Project Setup, PC Settings, Build Office System, Apply Standard, Ingest Docs, Modelling Guideline, IFC Export Mapping, Review Flag, Protection, ROI Dashboard (→ web Home as "Time saved") |
+
+Coverage check (2026-11-17): all 44 ribbon buttons are assigned above. Build was missing from the first draft and is
+now the 7th button, because drawings/scans → Revit is the core of what Sentinel sells.
+
+Web gaps still to map (the web inventory did not walk them): reality-capture viewer and scan evidence (→ Models),
+evidence intake forms (→ Documents ▸ Files), the Workspace page (→ Home), viewer toolbar tools (→ Models).
 
 ## Glossary (on-screen words)
 
