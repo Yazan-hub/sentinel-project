@@ -80,14 +80,14 @@ public sealed class IssueResult
     {
         string Why(int status, string message) => status switch
         {
-            0 => $"the bridge did not answer at {serviceUrl}",
-            401 => "signed out — Sentinel ▸ Sign in",
+            0 => $"Sentinel did not answer at {serviceUrl}",
+            401 => "signed out — Sentinel ▸ More ▸ Sign in",
             _ => $"HTTP {status}" + (message.Length > 0 ? ": " + message : ""),
         };
         if (TopicStatus != 201 || string.IsNullOrEmpty(TopicGuid))
         {
             var why = Why(TopicStatus, TopicMessage);
-            return "Not created — " + why + (why.EndsWith("nothing was saved") ? "." : " — nothing was saved.");
+            return "Not created — " + why + (why.TrimEnd('.').EndsWith("nothing was saved", StringComparison.OrdinalIgnoreCase) ? "." : " — nothing was saved.");
         }
         var n = d.IfcGuids.Distinct(StringComparer.Ordinal).Count();
         if (ViewpointStatus != 201)

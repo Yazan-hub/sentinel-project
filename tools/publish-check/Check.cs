@@ -93,7 +93,7 @@ static class Check
            "without register the body is the one every other caller sends today");
         Is(JsonSerializer.Serialize(ProposalResult.RequestBody(new object[0], null, "Revit", Container, "Auto-Publish", null, true, null, reg, 812)),
            "{\"source\":\"Auto-Publish\",\"actor\":\"Revit\",\"elements\":[],\"container_name\":\"" + Container + "\",\"register\":{\"name\":\"" + Container + "\",\"size_bytes\":5120000,\"sha256\":\"" + FileSha + "\"},\"gate_row_id\":812}",
-           "the Publisher's /propose names its recorded gate row: gate_row_id after register (6a)");
+           "the Publisher's /propose names its recorded check in History: gate_row_id after register (6a)");
 
         var r = ProposalResult.Parse(Accepted);
         Ok(r.Reached && r.Verdict == "accepted" && r.Downgraded is null, "an accepted reply reads accepted, not downgraded");
@@ -128,7 +128,7 @@ static class Check
     // ── 8. MA-8-6: the IFC export mapping (ifc_export@n) ───────────────────────────────────────────────
     static void ExportMapping()
     {
-        Console.WriteLine("\nMA-8-6 — the IFC export mapping: the bridge's cases, the exporter's file, the refusal and the dialog line");
+        Console.WriteLine("\nMA-8-6 — the IFC export mapping: Sentinel's cases, the exporter's file, the refusal and the dialog line");
         var dir = AppContext.BaseDirectory;
         while (dir != null && !Directory.Exists(Path.Combine(dir, "WebApp", "bridge", "fixtures"))) dir = Path.GetDirectoryName(dir);
         using var cases = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir!, "WebApp", "bridge", "fixtures", "ifc-export", "cases.json")));
@@ -137,7 +137,7 @@ static class Check
             string? want = c.GetProperty("error").ValueKind == JsonValueKind.Null ? null : c.GetProperty("error").GetString();
             var m = IfcExportMapping.FromBody(c.GetProperty("body").GetRawText(), out var error);
             Ok(error == want && (m != null) == (want == null),
-               "parity with the bridge — " + c.GetProperty("name").GetString() + (want == null ? ": accepted" : ": refused") + (error == want ? "" : " (the add-in said: " + (error ?? "accepted") + ")"));
+               "parity with Sentinel — " + c.GetProperty("name").GetString() + (want == null ? ": accepted" : ": refused") + (error == want ? "" : " (the add-in said: " + (error ?? "accepted") + ")"));
         }
 
         const string Body = "{\"label\":\"Example Office export\",\"common_psets\":false,\"psets\":[" +
@@ -162,13 +162,13 @@ static class Check
 
         var notInstalled = ArtefactClient.None("ifc_export", "not installed for aster-tower or its office"); notInstalled.NotInstalled = true;
         var none = IfcExportMapping.FromResolved(notInstalled);
-        Ok(none.Mapping is null && none.Error is null, "none installed (the bridge said so) is no mapping and no error: the export is Revit's default");
-        var noProject = ArtefactClient.None("ifc_export", "no project p on the bridge"); noProject.NoProject = true;
-        Ok(IfcExportMapping.FromResolved(noProject) is (null, null), "no project on the bridge is the same: nothing to read");
-        var unreachable = IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "bridge unreachable (timed out after 4 s)"));
-        Is(unreachable.Error ?? "null", "ifc_export could not be read (bridge unreachable (timed out after 4 s)) — the bridge did not confirm whether an export mapping is installed",
-           "a none the bridge did not confirm (timeout, unreachable, signed out, 5xx, unknown kind) is NOT 'nothing installed': it is refused");
-        Ok(unreachable.Mapping is null && IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "the bridge does not know the kind 'ifc_export'")).Error is not null,
+        Ok(none.Mapping is null && none.Error is null, "none installed (Sentinel said so) is no mapping and no error: the export is Revit's default");
+        var noProject = ArtefactClient.None("ifc_export", "no project p on Sentinel"); noProject.NoProject = true;
+        Ok(IfcExportMapping.FromResolved(noProject) is (null, null), "no project on Sentinel is the same: nothing to read");
+        var unreachable = IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "Sentinel is not connected (timed out after 4 s)"));
+        Is(unreachable.Error ?? "null", "ifc_export could not be read (Sentinel is not connected (timed out after 4 s)) — Sentinel did not confirm whether an export mapping is installed",
+           "a none Sentinel did not confirm (timeout, unreachable, signed out, 5xx, unknown kind) is NOT 'nothing installed': it is refused");
+        Ok(unreachable.Mapping is null && IfcExportMapping.FromResolved(ArtefactClient.None("ifc_export", "Sentinel does not know the kind 'ifc_export'")).Error is not null,
            "…an unrestarted 4100 (unknown_kind) the same");
         Is(PublishLines.ExportMappingRefused("x", publishes: false), "x — nothing was exported.", "the IFC Gate command publishes nothing, so it does not say 'or published'");
         var bad = IfcExportMapping.FromResolved(new ResolvedArtefact { Kind = "ifc_export", Ref = "ifc_export@3", BodyJson = "{\"label\":\"x\",\"psets\":[]}", Origin = "bridge", Label = "ifc_export@3 · office · 0123456789ab…" });
@@ -186,7 +186,7 @@ static class Check
         Is(PublishLines.Export(plan), "IFC export: no export mapping — Revit's default property sets.", "the dialog's line with no mapping says so");
         plan.ExportMapping = mapping;
         Is(PublishLines.Export(plan), "IFC export: ifc_export@2 · 0123456789ab… (2 property sets) asked of Revit's exporter; not checked in the file.", "…and with a mapping names it, as a request, not a result");
-        Ok(PublishLines.Dialog(plan, Outcome(Accepted), Staged).Contains("Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nIFC export: ifc_export@2 · 0123456789ab… (2 property sets) asked of Revit's exporter; not checked in the file.\nSHA-256:"),
+        Ok(PublishLines.Dialog(plan, Outcome(Accepted), Staged).Contains("Pre-publish check: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nIFC export: ifc_export@2 · 0123456789ab… (2 property sets) asked of Revit's exporter; not checked in the file.\nSHA-256:"),
            "an accepted publish's dialog carries the export line between the gate line and the SHA");
         var cachedSrc = new ResolvedArtefact { Kind = "ifc_export", Ref = "ifc_export@1", Sha256 = CSha, BodyJson = Body, Origin = "cache", FetchedAt = DateTime.UtcNow, Label = "x" };
         Ok(IfcExportMapping.FromResolved(cachedSrc).Mapping!.Describe().Contains(" (cached "), "a mapping read from the machine cache keeps the 'cached HH:mm' marker in the dialog");
@@ -216,7 +216,7 @@ static class Check
         n.Psets.Add(new IfcExportMapping.Pset { Name = "Pset_ClientWall", Level = "instance", Classes = "IfcWall,IfcCurtainWall",
             Properties = { new IfcExportMapping.Prop { Name = "Fire Rating", Type = "Label", RevitParameter = "Fire Rating" }, new IfcExportMapping.Prop { Name = "Acoustic Rating", Type = "Text" } } });
         n.Psets.Add(new IfcExportMapping.Pset { Name = "Pset_ClientDoorType", Level = "type", Classes = "IfcDoor", Properties = { new IfcExportMapping.Prop { Name = "Manufacturer", Type = "Text", RevitParameter = "Manufacturer" } } });
-        Ok(n.Problem() == null && IfcExportMapping.FromBody(n.ToJson(), out var e) != null && e == null, "a new mapping filled in the window reads back by the add-in's twin of the bridge check");
+        Ok(n.Problem() == null && IfcExportMapping.FromBody(n.ToJson(), out var e) != null && e == null, "a new mapping filled in the window reads back by the add-in's twin of Sentinel check");
         var fixture = Path.Combine(root, "WebApp", "bridge", "fixtures", "standard-windows", "ifc-export-new.json");
         if (Environment.GetEnvironmentVariable("SENTINEL_WRITE_FIXTURES") == "1")
         {
@@ -224,7 +224,7 @@ static class Check
             File.WriteAllText(fixture, System.Text.Json.Nodes.JsonNode.Parse(n.ToJson())!.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n");
         }
         Ok(File.Exists(fixture) && System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(n.ToJson()), System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(fixture))),
-           "it is the body the bridge's validateArtefact passes (fixtures/standard-windows/ifc-export-new.json, read by vitest)");
+           "it is the body Sentinel's validateArtefact passes (fixtures/standard-windows/ifc-export-new.json, read by vitest)");
         Ok(new IfcExportMapping { Label = "x", Psets = n.Psets }.ToJson().IndexOf("common_psets", StringComparison.Ordinal) < 0, "the exporter's default writes no common_psets");
 
         string? Says(Action<IfcExportMapping> change)
@@ -280,7 +280,7 @@ static class Check
         var rej = Outcome(Reply("rejected", null, 40, 37, 3, version: false));
         Ok(rej.Rejected && !rej.Publishable && !rej.Accepted && rej.Version is null, "rejected → not publishable, no version");
         Ok(!Unreached.Reached && !Unreached.Publishable && !Unreached.Rejected && !Unreached.Accepted && Unreached.Version is null, "not reached → nothing publishable, no version");
-        Is(LedgerLine.For(Unreached.VerdictRow), "not confirmed — the bridge returned no chain hash", "not reached → no row confirmed");
+        Is(LedgerLine.For(Unreached.VerdictRow), "not confirmed — Sentinel returned no chain hash", "not reached → no row confirmed");
         Ok(Outcome(Reply("accepted", null, 40, 40, 0, version: false)).Version is null, "accepted with no version in the reply → no version (Stage stages nothing)");
     }
 
@@ -313,7 +313,7 @@ static class Check
             var s1 = Publisher.Stage(p1, acc, outbox);
             Ok(s1.Staged && s1.OutboxPath == dst && File.ReadAllText(dst) == "ISO-10303-21;" && s1.SidecarPath == sidecar, "accepted: the IFC is in the outbox");
             Is(File.ReadAllText(sidecar), "{\"project\":\"" + Key + "\",\"container\":\"" + Container + "\",\"version_id\":\"" + Vid + "\"}",
-               "the sidecar names the project, the container and the version the bridge registered — the watcher attaches by that id");
+               "the sidecar names the project, the container and the version Sentinel registered — the watcher attaches by that id");
             Ok(!File.Exists(p1.TempIfcPath) && !File.Exists(p1.Gate.CertificatePath) && !Directory.Exists(Path.GetDirectoryName(p1.TempIfcPath)),
                "the temp IFC, its certificate and their folder are gone");
 
@@ -350,9 +350,9 @@ static class Check
             foreach (var (name, o, reason) in new[]
             {
                 ("rejected", Outcome(Reply("rejected", null, 40, 37, 3, version: false)), "the verdict is rejected"),
-                ("not reached", Unreached, "the bridge returned no verdict"),
-                ("accepted but no version", Outcome(Reply("accepted", null, 40, 40, 0, version: false)), "the bridge registered no version"),
-                ("recorded but no version", Outcome(Reply("recorded", null, 0, 0, 0, version: false)), "the bridge registered no version"),
+                ("not reached", Unreached, "Sentinel returned no verdict"),
+                ("accepted but no version", Outcome(Reply("accepted", null, 40, 40, 0, version: false)), "Sentinel registered no version"),
+                ("recorded but no version", Outcome(Reply("recorded", null, 0, 0, 0, version: false)), "Sentinel registered no version"),
             })
             {
                 var p = Plan("p-" + name.Replace(' ', '-'));
@@ -385,12 +385,12 @@ static class Check
     };
 
     static readonly StageResult Staged = new StageResult { Staged = true, OutboxPath = @"C:\o\a.ifc", SidecarPath = @"C:\o\a.ifc.meta.json" };
-    static readonly StageResult NotStaged = new StageResult { Reason = "the bridge registered no version" };
+    static readonly StageResult NotStaged = new StageResult { Reason = "Sentinel registered no version" };
 
     static void Lines()
     {
-        const string GateLine = "Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4";
-        const string GateRowLine = "Gate row: ledger #812 · receipt 5c6d7e8f90112233…";
+        const string GateLine = "Pre-publish check: PASS · contract@1 · office · 0123456789ab… · Schema IFC4";
+        const string GateRowLine = "Check in History: ledger #812 · receipt 5c6d7e8f90112233…";
         const string VerdictRowLine = "Verdict row: ledger #813 · receipt 0a1b2c3d4e5f6071…";
         const string Judged = "IDS ids@4 · office · 23bb57937fb0…: 40/40 in-scope element checks passed.\nNaming naming@2 · office · 77e1d2c3b4a5…: passed.\n";
         const string ExportLine = "\nIFC export: no export mapping — Revit's default property sets.";
@@ -403,13 +403,13 @@ static class Check
         // refusals, before the referee: Dialog with no outcome
         Is(PublishLines.Dialog(plan), "", "a ready plan has no refusal");
         var unbound = new PublishPlan { Refusal = ProjectContext.NotBound + "\n\nNothing was exported or published." };
-        Is(PublishLines.Dialog(unbound), "This model is not bound to a web project — Sentinel ▸ Project Setup.\n\nNothing was exported or published.", "not bound: the one text, nothing exported");
+        Is(PublishLines.Dialog(unbound), "This model is not bound to a web project — Sentinel ▸ More ▸ Project Setup.\n\nNothing was exported or published.", "not bound: the one text, nothing exported");
         var noGeom = new PublishPlan { Key = Key, Refusal = "IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As)." };
         Is(PublishLines.Dialog(noGeom), noGeom.Refusal!, "an empty export: the refusal as the plan states it");
         var failed = Ready(Gate(GateOutcome.Fail, "IFC2X3"));
         Ok(failed.GateFailed && !failed.Ready, "a gate FAIL is not ready");
         Is(PublishLines.Dialog(failed),
-           "✕ REJECTED — delivery gate failed (not published)\n\nContract: contract@1 · office · 0123456789ab… · Schema: IFC2X3\n\nFAILURES:\n• IFCCOLUMN: 0 found, contract requires ≥ 1.\n\nFix the deliverable and run Governed Publish again.\n\n" + GateRowLine + ExportLine,
+           "✕ REJECTED — the pre-publish check failed (not published)\n\nContract: contract@1 · office · 0123456789ab… · Schema: IFC2X3\n\nFAILURES:\n• IFCCOLUMN: 0 found, contract requires ≥ 1.\n\nFix the deliverable and publish again.\n\n" + GateRowLine + ExportLine,
            "gate FAIL: GateLines.PublishRejected, the gate row and the export line");
         var notChecked = Ready(new GateResult { Outcome = GateOutcome.NotChecked, ContractLabel = "none — not installed for aster-tower or its office", NotCheckedReason = "none — not installed for aster-tower or its office", DetectedSchema = "IFC2X3", FileSizeBytes = 5120000, FileSha256 = FileSha });
         Ok(!notChecked.GateFailed && notChecked.Ready, "a NOT CHECKED gate is not a fail: the referee is still asked");
@@ -417,12 +417,12 @@ static class Check
         // the version line
         Is(PublishLines.Version(plan, acc), VersionLine, "the version from the reply: container, revision, state, the stamp row's ledger id and receipt (verdict_audit_id + verdict_hash)");
         Is(PublishLines.Version(plan, Outcome(Accepted.Replace("\"verdict_audit_id\":814", "\"verdict_audit_id\":null"))),
-           "Version: " + Container + " v1 · wip · not confirmed — the bridge returned no chain hash", "a version with no verdict_audit_id: the stamp is not confirmed");
+           "Version: " + Container + " v1 · wip · not confirmed — Sentinel returned no chain hash", "a version with no verdict_audit_id: the stamp is not confirmed");
         Is(PublishLines.Version(plan, Outcome(Accepted.Replace("\"verdict_hash\":\"" + StampHash + "\"", "\"verdict_hash\":null"))),
-           "Version: " + Container + " v1 · wip · not confirmed — the bridge returned no chain hash", "a bridge before Task 4 (no verdict_hash): the stamp is not confirmed — never a receipt without its hash");
-        Is(PublishLines.Version(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false))), "Version: not confirmed — the bridge registered no version", "no version in an accepted reply");
+           "Version: " + Container + " v1 · wip · not confirmed — Sentinel returned no chain hash", "a bridge before Task 4 (no verdict_hash): the stamp is not confirmed — never a receipt without its hash");
+        Is(PublishLines.Version(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false))), "Version: not confirmed — Sentinel registered no version", "no version in an accepted reply");
         Is(PublishLines.Version(plan, Outcome(Reply("rejected", null, 40, 37, 3, version: false))), "Version: not confirmed — rejected — nothing was registered", "no version on a reject");
-        Is(PublishLines.Version(plan, Unreached), "Version: not confirmed — the bridge returned no verdict (timed out after 120s (model may be very large))", "no version when the bridge was not reached");
+        Is(PublishLines.Version(plan, Unreached), "Version: not confirmed — Sentinel returned no verdict (timed out after 120s (model may be very large))", "no version when Sentinel was not reached");
 
         // accepted
         Is(PublishLines.Dialog(plan, acc, Staged),
@@ -431,16 +431,16 @@ static class Check
         var warned = Outcome(Accepted.Replace("\"failing\":0", "\"failing\":2").Replace("\"warned\":false,\"ids_enforce\":\"reject\"", "\"warned\":true,\"ids_enforce\":\"warn\""));
         Ok(PublishLines.Dialog(plan, warned, Staged).Contains("IDS ids@4 · office · 23bb57937fb0…: 40/40 in-scope element checks passed — 2 failure(s) kept as warnings (enforce: warn).\n"),
            "accepted with warnings names the IDS's enforce");
-        Ok(PublishLines.Dialog(notChecked, acc, Staged).Contains("Delivery gate: NOT CHECKED — contract: none — not installed for aster-tower or its office\nThe IDS judged alone — the delivery gate was not checked (contract: none — not installed for aster-tower or its office).\n"),
+        Ok(PublishLines.Dialog(notChecked, acc, Staged).Contains("Pre-publish check: NOT CHECKED — contract: none — not installed for aster-tower or its office\nThe data requirements were checked alone — the pre-publish check was not run (rules: none — not installed for aster-tower or its office).\n"),
            "accepted with no contract: NOT CHECKED and the IDS-judged-alone note (A3)");
         Is(PublishLines.Dialog(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (Access to the path is denied.)", SidecarPath = @"C:\o\a.ifc.meta.json", KeptIfcPath = @"C:\t\a.ifc" }),
            "✓ ACCEPTED — v1 · wip registered, NOT in the upload outbox\nProject: aster-tower\n\n" + Judged + GateLine + ExportLine + Rows + VersionLine + "\n\n" +
-           "NOT in the upload outbox — the IFC did not reach the upload outbox (Access to the path is denied.). The IFC is kept at C:\\t\\a.ifc — run Governed Publish again.",
+           "NOT in the upload outbox — the IFC did not reach the upload outbox (Access to the path is denied.). The IFC is kept at C:\\t\\a.ifc — publish again.",
            "accepted, registered, but the move failed: never 'published', the reason and where the IFC is");
         Is(PublishLines.Dialog(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged),
            "✓ ACCEPTED — no version registered\nProject: aster-tower\n\n" + Judged + GateLine + ExportLine + Rows +
-           "Version: not confirmed — the bridge registered no version\n\n" +
-           "Nothing was uploaded: there is no version to attach the geometry to — run Governed Publish again.",
+           "Version: not confirmed — Sentinel registered no version\n\n" +
+           "Nothing was uploaded: there is no version to attach the geometry to — publish again.",
            "accepted but the reply carries no version: no version claimed, nothing uploaded");
 
         // recorded: nothing in scope, and no IDS
@@ -453,8 +453,8 @@ static class Check
            "recorded, nothing in scope: never ACCEPTED, names the IDS, says what publishing needs");
         var none = Outcome(Reply("recorded", null, 0, 0, 0).Replace("\"ids_source\":\"office\",\"ids_ref\":\"ids@4\",\"ids_sha256\":\"" + ISha + "\"", "\"ids_source\":\"none\",\"ids_ref\":null,\"ids_sha256\":null"));
         Is(PublishLines.Dialog(plan, none, Staged),
-           "Published — not judged: no IDS installed for aster-tower or its office\nProject: aster-tower\n\n" +
-           "IDS: none — no IDS installed for aster-tower or its office. The model was NOT judged.\n" +
+           "Published — not judged: no data requirements installed for aster-tower or its office\nProject: aster-tower\n\n" +
+           "Data requirements: none — none installed for aster-tower or its office. The model was NOT judged.\n" +
            "Naming naming@2 · office · 77e1d2c3b4a5…: passed.\n" + GateLine + ExportLine + Rows + VersionLine + "\n\n" + Queued + "\n" +
            "No verdict badge: nothing was judged — the verdict is \"recorded\", and publishing this version on the web needs the lead's reason. Install an IDS on the project or its office to judge the next one.",
            "recorded, no IDS: the none reason, the install hint");
@@ -467,37 +467,37 @@ static class Check
            "✕ REJECTED — 3 of 40 in-scope element check(s) failed (not published)\n\n" +
            GateLine + "\n" + GateRowLine + "\n" + VerdictRowLine + "\nNo version was registered and nothing was uploaded.\n\n" +
            "FAILURES:\n• Walls need FireRating: FireRating missing\n\n" +
-           "1 BCF issue(s) opened on the failing elements — they're now in the web Issues panel and will live-sync into Revit. Fix them and run Governed Publish again.",
+           "1 issue(s) opened on the failing elements — they're now in the web Issues panel and will live-sync into Revit. Fix them and publish again.",
            "rejected: the failures, the rows, no version, no upload, the BCF note");
         var badName = Outcome(Reply("rejected", null, 40, 40, 0, version: false).Replace("\"naming\":{\"ok\":true,\"failures\":[],\"enforce\":\"reject\"}", "\"naming\":{\"ok\":false,\"failures\":[{\"reason\":\"field 2 must be the originator code\"}],\"enforce\":\"reject\"}"));
         Is(PublishLines.Dialog(plan, badName, NotStaged),
            "✕ REJECTED — model name does not follow the ISO 19650 convention (not published)\n\nName checked: " + Container + "\n\n" +
            GateLine + "\n" + GateRowLine + "\n" + VerdictRowLine + "\nNo version was registered and nothing was uploaded.\n\n" +
            "NAMING:\n• field 2 must be the originator code\n\n" +
-           "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again.",
+           "Rename the model to match the project's ISO 19650 naming convention and publish again.",
            "rejected by name: the name checked is the container's name");
 
         // not reached: no shell command, no manual upload
         var un = PublishLines.Dialog(plan, Unreached, NotStaged);
         Is(un, GateLine + "\n" + GateRowLine + "\n\n" +
-               "The Sentinel bridge did not return a verdict — nothing was registered or uploaded, and no verdict row is confirmed.\n\n" +
+               "Sentinel did not return a result — nothing was registered or uploaded, and no result is recorded in History.\n\n" +
                "Reason: timed out after 120s (model may be very large)\n\n" +
-               "Start the bridge (npm run bcf:serve) and run Governed Publish again.",
+               "Ask your administrator to start Sentinel on the office PC, then publish again.\n\n(For the administrator: npm run bcf:serve)",
            "bridge not reached: nothing registered or uploaded, the reason, run again");
         Ok(!un.Contains("upload-ifc") && !un.Contains("node "), "no shell command is printed any more");
 
         // Auto-Publish's one Doctor line
         Is(PublishLines.Doctor(plan, acc, Staged), "Auto-published " + Container + " v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5…", "auto, accepted: Auto-published <container> <revision> · wip · the stamp row");
         Is(PublishLines.Doctor(plan, down, Staged), "Auto-published " + Container + " v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5… — not judged: nothing in the IDS's scope (ids@4 · office · 23bb57937fb0…)", "auto, recorded: says nothing was judged");
-        Is(PublishLines.Doctor(plan, none, Staged), "Auto-published " + Container + " v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5… — not judged: no IDS installed for aster-tower or its office", "auto, recorded with no IDS");
+        Is(PublishLines.Doctor(plan, none, Staged), "Auto-published " + Container + " v1 · wip · ledger #814 · receipt 6e7f8091a2b3c4d5… — not judged: no data requirements installed for aster-tower or its office", "auto, recorded with no IDS");
         Is(PublishLines.Doctor(plan, rej, NotStaged), "Auto-publish rejected — nothing uploaded — 3 of 40 element check(s) failed · ids@4 · office · 23bb57937fb0… · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, rejected: nothing uploaded, the failures, what judged, the proposal row");
         Is(PublishLines.Doctor(plan, badName, NotStaged), "Auto-publish rejected — nothing uploaded — the model name " + Container + " failed naming naming@2 · office · 77e1d2c3b4a5… · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, rejected by name");
-        Is(PublishLines.Doctor(failed), "Auto-publish rejected — nothing uploaded — delivery gate FAIL · contract@1 · office · 0123456789ab… · Schema IFC2X3 · 1 failure(s) · gate row: ledger #812 · receipt 5c6d7e8f90112233… · IFC export: no export mapping — Revit's default property sets.", "auto, gate FAIL: nothing uploaded, the contract, the gate row");
+        Is(PublishLines.Doctor(failed), "Auto-publish rejected — nothing uploaded — pre-publish check FAIL · contract@1 · office · 0123456789ab… · Schema IFC2X3 · 1 failure(s) · check in History: ledger #812 · receipt 5c6d7e8f90112233… · IFC export: no export mapping — Revit's default property sets.", "auto, gate FAIL: nothing uploaded, the contract, the gate row");
         Is(PublishLines.Doctor(plan, Unreached, NotStaged), "Auto-publish: no verdict — nothing uploaded — timed out after 120s (model may be very large)", "auto, bridge not reached");
         Is(PublishLines.Doctor(noGeom), "Auto-publish failed — nothing uploaded — IFC export contained no geometry — nothing to publish. Check the model's IFC mappings (Export to IFC As).", "auto, empty export");
-        Is(PublishLines.Doctor(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged), "Auto-publish: verdict accepted but the bridge registered no version — nothing uploaded · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, no version in the reply");
+        Is(PublishLines.Doctor(plan, Outcome(Reply("accepted", null, 40, 40, 0, version: false)), NotStaged), "Auto-publish: verdict accepted but Sentinel registered no version — nothing uploaded · ledger #813 · receipt 0a1b2c3d4e5f6071…", "auto, no version in the reply");
         Is(PublishLines.Doctor(plan, acc, new StageResult { Reason = "the IFC did not reach the upload outbox (x)", KeptIfcPath = @"C:\t\a.ifc" }), "Auto-publish: " + Container + " v1 · wip registered but NOT in the upload outbox — the IFC did not reach the upload outbox (x) — the IFC is kept at C:\\t\\a.ifc", "auto, the move failed: names the kept IFC");
-        Is(PublishLines.Doctor(plan), "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded", "auto, a Judge task that never answered");
+        Is(PublishLines.Doctor(plan), "Auto-publish: no verdict — the publish stopped before Sentinel answered — nothing uploaded", "auto, a Judge task that never answered");
 
         // held on the web (6a): only when the bridge returned the hold row it wrote; its words are LedgerLine's
         const string HeldLine = "Held on the web: Project Files ▸ On hold · ledger #815 · receipt 7a8b9c0d1e2f3041…";
@@ -509,10 +509,10 @@ static class Check
            "✕ REJECTED — model name does not follow the ISO 19650 convention (not published)\n\nName checked: " + Container + "\n\n" +
            GateLine + "\n" + GateRowLine + "\n" + VerdictRowLine + "\nNo version was registered and nothing was uploaded.\n" + HeldLine + "\n\n" +
            "NAMING:\n• field 2 must be the originator code\n\n" +
-           "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again.",
+           "Rename the model to match the project's ISO 19650 naming convention and publish again.",
            "rejected and held: the hold row's line under 'nothing was uploaded'");
         var heldUnconfirmed = Outcome(Reply("rejected", null, 40, 37, 3, version: false).Replace("\"agent\":null", "\"agent\":null,\"hold\":{\"id\":null,\"hash\":null}"));
-        Ok(PublishLines.Dialog(plan, heldUnconfirmed, NotStaged).Contains("\nNo version was registered and nothing was uploaded.\nHeld on the web: Project Files ▸ On hold · not confirmed — the bridge returned no chain hash\n\n"),
+        Ok(PublishLines.Dialog(plan, heldUnconfirmed, NotStaged).Contains("\nNo version was registered and nothing was uploaded.\nHeld on the web: Project Files ▸ On hold · not confirmed — Sentinel returned no chain hash\n\n"),
            "a hold returned without its id and hash reads not confirmed — never a receipt without its hash");
         Is(PublishLines.Doctor(plan, heldName, NotStaged),
            "Auto-publish rejected — nothing uploaded — the model name " + Container + " failed naming naming@2 · office · 77e1d2c3b4a5… · ledger #813 · receipt 0a1b2c3d4e5f6071… · " + HeldLine,
@@ -533,7 +533,7 @@ static class Check
     static void Policy()
     {
         var on = Publish("{\"auto\":true}", "bridge");
-        Ok(Publisher.AutoEnabled(on), "publish@1 {auto: true} from the bridge → on");
+        Ok(Publisher.AutoEnabled(on), "publish@1 {auto: true} from Sentinel → on");
         Is(PublishLines.Policy(on), "Auto-publish: on · publish@1 · office · 3f07a1b2c3d4…", "the pane's line names publish@n · source · sha");
         var off = Publish("{\"auto\":false}", "bridge");
         Ok(!Publisher.AutoEnabled(off), "{auto: false} → off");
@@ -542,7 +542,7 @@ static class Check
         Ok(!Publisher.AutoEnabled(none), "none installed → off");
         Is(PublishLines.Policy(none), "Auto-publish: off — publish: none — not installed for aster-tower or its office", "…with the none reason (the pane's line)");
         var cached = Publish("{\"auto\":true}", "cache");
-        Ok(Publisher.AutoEnabled(cached), "a cached {auto: true} (the bridge unreachable now) → on, as every other cached artefact judges");
+        Ok(Publisher.AutoEnabled(cached), "a cached {auto: true} (the Sentinel is not connected now) → on, as every other cached artefact judges");
         Is(PublishLines.Policy(cached), "Auto-publish: on · publish@1 · office · 3f07a1b2c3d4… (cached 14:03)", "…and the line says it is the cached copy");
         foreach (var body in new[] { "{}", "{\"auto\":\"true\"}", "{\"auto\":1}", "[]", "null", "", "not json" })
         {
@@ -550,8 +550,8 @@ static class Check
             Ok(!Publisher.AutoEnabled(bad) && PublishLines.Policy(bad) == "Auto-publish: off — publish@1 · office · 3f07a1b2c3d4… did not parse: the body is not {auto: true} or {auto: false}",
                "a body that is not {auto: boolean} (" + (body.Length == 0 ? "empty" : body) + ") → off, did not parse");
         }
-        var unreachable = ArtefactClient.None("publish", "bridge unreachable (No connection could be made)");
-        Ok(!Publisher.AutoEnabled(unreachable) && PublishLines.Policy(unreachable) == "Auto-publish: off — publish: none — bridge unreachable (No connection could be made)",
+        var unreachable = ArtefactClient.None("publish", "Sentinel is not connected (No connection could be made)");
+        Ok(!Publisher.AutoEnabled(unreachable) && PublishLines.Policy(unreachable) == "Auto-publish: off — publish: none — Sentinel is not connected (No connection could be made)",
            "no bridge and no cache → off, the reason");
     }
 
@@ -561,9 +561,9 @@ static class Check
         Ok(PublishLines.CancelNote(1, 0).Contains("no progress so far, so Cancel may not reach it"), "Cancel in the export with no Revit progress yet says Cancel may not reach the exporter");
         Ok(PublishLines.CancelNote(1, 12).Contains("passed to Revit's IFC exporter at its next progress update") && PublishLines.CancelNote(1, 12).Contains("If the exporter ignores it"),
            "…with progress seen, it is passed on — and what happens if ignored is said");
-        Ok(PublishLines.CancelNote(3, 12).Contains("stops waiting for the referee"), "Cancel in the referee step stops the wait");
+        Ok(PublishLines.CancelNote(3, 12).Contains("stops waiting for the result"), "Cancel in the referee step stops the wait");
         Ok(PublishLines.CancelNote(4, 12).StartsWith("Too late to cancel"), "after the referee answered, Cancel is too late — said");
-        const string Head = "Governed Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: ";
+        const string Head = "Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: ";
         Is(PublishLines.CancelledExport(true, 0, false, 0), Head + "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped.",
            "no progress updates: Cancel could not reach the exporter");
         Is(PublishLines.CancelledExport(true, 7, false, 0), Head + "Revit reported 7 progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped.",
@@ -574,12 +574,12 @@ static class Check
            "passed on and the export still finished: the exporter ignores Cancel — said");
         Is(PublishLines.CancelledExport(false, 7, true, 0), Head + "Revit's IFC exporter stopped when asked (7 progress update(s)).", "passed on and the export stopped: honoured");
         var p = Ready();
-        Is(PublishLines.CancelledBeforeReferee(p), "Governed Publish cancelled before the referee — nothing was registered or uploaded.\n\n" +
-           "Delivery gate: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nGate row: ledger #812 · receipt 5c6d7e8f90112233…",
-           "Cancel after the gate names the gate row already on the ledger");
+        Is(PublishLines.CancelledBeforeReferee(p), "Publish cancelled before Sentinel checked it — nothing was registered or uploaded.\n\n" +
+           "Pre-publish check: PASS · contract@1 · office · 0123456789ab… · Schema IFC4\nCheck in History: ledger #812 · receipt 5c6d7e8f90112233…",
+           "Cancel after the gate names the gate row already in History");
         var r = PublishLines.CancelledAtReferee(p);
-        Ok(r.Contains("stopped waiting and staged nothing for upload") && r.Contains("The bridge may still finish") && r.Contains("aster-tower's ledger") && r.EndsWith("Gate row: ledger #812 · receipt 5c6d7e8f90112233…"),
-           "Cancel at the referee: nothing staged, and what the bridge may still write is said, not denied");
+        Ok(r.Contains("stopped waiting and staged nothing for upload") && r.Contains("Sentinel may still finish") && r.Contains("aster-tower's History") && r.EndsWith("Check in History: ledger #812 · receipt 5c6d7e8f90112233…"),
+           "Cancel at the referee: nothing staged, and what Sentinel may still write is said, not denied");
         var d = new PublishPlan { Key = Key, Refusal = PublishLines.CancelledBeforeExport };
         Ok(!d.Ready && PublishLines.Dialog(d) == PublishLines.CancelledBeforeExport, "a cancelled plan is not Ready and its dialog is the cancel line");
     }

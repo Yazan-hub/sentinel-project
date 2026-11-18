@@ -10,7 +10,7 @@ static partial class Check
     //        place a row shows, and the bridge's failures in plain words (pure) ───────────────────────────────────────────────────
     static void Ma3b2ReasonChecks()
     {
-        Console.WriteLine("\nMA-3b2 — a reason per declined ghost, the place a row shows, the bridge's failures in plain words");
+        Console.WriteLine("\nMA-3b2 — a reason per declined ghost, the place a row shows, Sentinel's failures in plain words");
         using var fx = JsonDocument.Parse(File.ReadAllText(Repo("WebApp", "bridge", "fixtures", "changeset-ops", "ma3a-review.json")));
         var rr = fx.RootElement.GetProperty("revit_reasons");
         var after = JsonSerializer.Deserialize<ChangesetDto>(fx.RootElement.GetProperty("after").GetRawText());
@@ -28,7 +28,7 @@ static partial class Check
            && ChangesetTrust.DeclineReason(long500, out var p500) == long500 && p500 == null
            && ChangesetTrust.DeclineReason(long500 + "x", out var p501) == null && p501 == ChangesetTrust.ReasonRule
            && ChangesetTrust.DeclineReason(null, out var pNull) == null && pNull == null,
-           "a decline reason is cleaned as the bridge cleans it (the shared fixture's rule): trimmed; blank is none; two lines, a control character or more than 500 characters is refused before anything is sent");
+           "a decline reason is cleaned as Sentinel cleans it (the shared fixture's rule): trimmed; blank is none; two lines, a control character or more than 500 characters is refused before anything is sent");
 
         // A storey's reasons, split back to the changeset each ghost is reported on (StoreyBatch.Own's rule).
         var part1 = new ChangesetDto { Id = "p1", Elements = after.Elements.Take(2).ToList() }; // g-1, g-2
@@ -38,7 +38,7 @@ static partial class Check
         var own2 = StoreyBatch.Own(part2, typed);
         Ok(own1 != null && own1.Count == 1 && own1["g-1"] == "a party wall" && own2 != null && own2.Count == 1 && own2["g-3"] == "W 2 is demolished in the next package"
            && StoreyBatch.Own(part1, new Dictionary<string, string> { ["g-3"] = "x" }) == null && StoreyBatch.Own(part1, (Dictionary<string, string>)null) == null,
-           "a storey's reasons are split back to the changeset each ghost is reported on; none for a changeset is null (its report sends none)");
+           "a storey's reasons are split back to the set of proposed changes each ghost is reported on; none for a set of proposed changes is null (its report sends none)");
 
         // The body Revit posts, and the record that is sent again later.
         var applied = new List<AppliedEntry> { new AppliedEntry { ProposalGuid = "g-2", RevitElementId = 312312, RevitUniqueId = "u-2" } };
@@ -52,7 +52,7 @@ static partial class Check
            && body.RootElement.GetProperty("review_rev").GetInt32() == 1 && body.RootElement.GetProperty("applied")[0].GetProperty("proposal_guid").GetString() == "g-2"
            && body.RootElement.GetProperty("rejected").GetArrayLength() == 3 && body.RootElement.TryGetProperty("actor", out _)
            && bareReasons && bare.RootElement.GetProperty("review_rev").ValueKind == JsonValueKind.Null,
-           "the result's body carries reasons {proposal_guid: text} beside applied, rejected, note, actor and review_rev; with none it is null, which the bridge reads as none");
+           "the result's body carries reasons {proposal_guid: text} beside applied, rejected, note, actor and review_rev; with none it is null, which Sentinel reads as none");
 
         var root = Path.Combine(Path.GetTempPath(), "ma3b2-check-" + Guid.NewGuid().ToString("N"));
         var was = UnreportedResults.Root;
@@ -75,20 +75,20 @@ static partial class Check
 
         // Claimed vs verified: the words count the reasons the bridge's reply holds, never the ones sent.
         string reply = "{\"id\":\"c\",\"status\":\"partially_applied\",\"result\":{\"note\":null,\"reasons\":" + rr.GetProperty("stored").GetRawText() + "},\"ledger\":{\"id\":1801}}";
-        const string notKept = " — a bridge before MA-3b2 keeps none, and a blank one is never kept; what it did not keep is not on the ledger.";
+        const string notKept = " — a version of Sentinel before MA-3b2 keeps none, and a blank one is never kept; what it did not keep is not in History.";
         Ok(ChangesetTrust.ReasonsLine(reply, 2) == "\n2 decline reason(s) recorded with it." && ChangesetTrust.ReasonsLine(reply, 0) == "" && ChangesetTrust.ReasonsLine(null, 0) == ""
-           && ChangesetTrust.ReasonsLine(reply, 3) == "\n⚠ 3 decline reason(s) were sent and the bridge kept 2" + notKept
-           && ChangesetTrust.ReasonsLine("{\"id\":\"c\",\"result\":{\"note\":null}}", 2) == "\n⚠ 2 decline reason(s) were sent and the bridge kept 0" + notKept
-           && ChangesetTrust.ReasonsLine("not json", 1) == "\n⚠ 1 decline reason(s) were sent and the bridge kept 0" + notKept,
-           "a reported result says how many decline reasons the bridge kept — read from its reply (claimed vs verified); a bridge that kept fewer than were sent is said");
+           && ChangesetTrust.ReasonsLine(reply, 3) == "\n⚠ 3 decline reason(s) were sent and Sentinel kept 2" + notKept
+           && ChangesetTrust.ReasonsLine("{\"id\":\"c\",\"result\":{\"note\":null}}", 2) == "\n⚠ 2 decline reason(s) were sent and Sentinel kept 0" + notKept
+           && ChangesetTrust.ReasonsLine("not json", 1) == "\n⚠ 1 decline reason(s) were sent and Sentinel kept 0" + notKept,
+           "a reported result says how many decline reasons Sentinel kept — read from its reply (claimed vs verified); a bridge that kept fewer than were sent is said");
 
         // Review C15: a result the bridge had already taken (its reply was lost, then a 409) is counted the same way, from the stored result re-read.
         var storedCs = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c\",\"status\":\"partially_applied\",\"result\":{\"applied\":[],\"reasons\":" + rr.GetProperty("stored").GetRawText() + "}}");
         var bareCs = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c\",\"status\":\"partially_applied\",\"result\":{\"applied\":[]}}");
         Ok(ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(storedCs), 2) == "\n2 decline reason(s) recorded with it." && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(storedCs), 0) == ""
-           && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(bareCs), 2) == "\n⚠ 2 decline reason(s) were sent and the bridge kept 0" + notKept
-           && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(null), 1) == "\n⚠ 1 decline reason(s) were sent and the bridge kept 0" + notKept,
-           "a result the bridge had already taken says how many decline reasons it holds — counted from the stored result re-read after the 409 (review C15)");
+           && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(bareCs), 2) == "\n⚠ 2 decline reason(s) were sent and Sentinel kept 0" + notKept
+           && ChangesetTrust.ReasonsLine(UnreportedResults.StoredReply(null), 1) == "\n⚠ 1 decline reason(s) were sent and Sentinel kept 0" + notKept,
+           "a result Sentinel had already taken says how many decline reasons it holds — counted from the stored result re-read after the 409 (review C15)");
 
         // Review C18: Decline all's note is blank by the reasons' own rule — a zero-width space is no reason.
         Ok(ChangesetTrust.Blank(null) && ChangesetTrust.Blank("") && ChangesetTrust.Blank("  \t") && ChangesetTrust.Blank("\u200B") && ChangesetTrust.Blank(" \u200B\uFEFF ")
@@ -113,14 +113,14 @@ static partial class Check
            && ChangesetTrust.BridgeWords(new InvalidOperationException(""), 8) == "the bridge did not answer"
            && UnreportedResults.Outcome(notRefreshed, 1) is var kept && !kept.Drop && kept.Words.StartsWith("not reported: " + notRefreshed, StringComparison.Ordinal) && !kept.Words.Contains("the bridge did not answer")
            && UnreportedResults.Outcome("A task was canceled.", 1).Words.StartsWith("not reported: the bridge did not answer within 120 s", StringComparison.Ordinal),
-           "a request that timed out reads \"the bridge did not answer within N s\" (net48's and net8's words, or the exception itself), a refused connection names its cause, the bridge's own words are never rewritten, and a sign-in that failed before the bridge was asked is never said as the bridge's silence");
+           "a request that timed out reads \"the bridge did not answer within N s\" (net48's and net8's words, or the exception itself), a refused connection names its cause, Sentinel's own words are never rewritten, and a sign-in that failed before Sentinel was asked is never said as Sentinel's silence");
         string client = Src("Coordination", "ChangesetClient.cs"), unreported = Src("Engine", "UnreportedResults.cs");
         int reads = 0;
         for (int i = 0; (i = client.IndexOf("error = ChangesetTrust.BridgeWords(ex, (int)ReadHttp.Timeout.TotalSeconds);", i, StringComparison.Ordinal)) >= 0; i++) reads++;
         Ok(reads == 3 && client.Contains("catch (Exception ex) { error = ChangesetTrust.BridgeWords(ex, (int)(http ?? WriteHttp).Timeout.TotalSeconds); return false; }")
            && unreported.Contains("var err = ChangesetTrust.BridgeWords(error, 120);")
            && client.Contains("ResultBody(applied, rejected, note, reviewRev, reasons, attemptKey, tickReasons, batchReason), 200, out reply, out error);"),
-           "every read (the pending list, the re-check, the role) and every write of the changeset client says its failure in those words, with its own timeout; the result is posted with ResultBody");
+           "every read (the pending list, the re-check, the role) and every write of the set of proposed changes client says its failure in those words, with its own timeout; the result is posted with ResultBody");
         // MA-8 nits (F-B4-2): a refusal says the bridge's message, not its JSON; the "Bridge <code>" prefix Outcome reads is kept.
         int refusalSites = 0;
         for (int i = 0; (i = client.IndexOf("error = ChangesetTrust.Refusal((int)resp.StatusCode, body);", i, StringComparison.Ordinal)) >= 0; i++) refusalSites++;
@@ -129,7 +129,7 @@ static partial class Check
            && ChangesetTrust.Refusal(404, "") == "Bridge 404: " && ChangesetTrust.Refusal(404, null) == "Bridge 404: "
            && ChangesetTrust.Refusal(400, "{\"error\":\"x\"}") == "Bridge 400: {\"error\":\"x\"}"
            && ChangesetTrust.Refusal(500, new string('x', 500)) == "Bridge 500: " + new string('x', 400) + "…"
-           && UnreportedResults.Outcome(ChangesetTrust.Refusal(409, "{\"message\":\"no\"}"), 0) is var refusedWords && refusedWords.Drop && refusedWords.Words == "the bridge refused it (retrying cannot fix this): Bridge 409: no"
+           && UnreportedResults.Outcome(ChangesetTrust.Refusal(409, "{\"message\":\"no\"}"), 0) is var refusedWords && refusedWords.Drop && refusedWords.Words == "Sentinel refused it (retrying cannot fix this): Bridge 409: no"
            && refusalSites == 7 && !client.Contains("error = $\"Bridge {(int)resp.StatusCode}: {body}\";"),
            "F-B4-2: a refusal reads \"Bridge 409: <the message>\" (a non-JSON body as sent, an empty one empty, a long one capped), Outcome still drops a 4xx, and all 7 client calls say it so");
 
@@ -146,6 +146,6 @@ static partial class Check
            "a create's row shows the rectangle around its place — a wall's line (an arc's middle point too), a door's point, a roof's outline — 1 m wider on each side; a level or a grid has no place to show");
         Ok(ChangesetTrust.GhostName(after.Elements[0]) == "retype wall \"W 1\"" && ChangesetTrust.GhostName(new ChangesetElementDto { ProposalGuid = "g-9", Kind = "door" }) == "create door \"g-9\""
            && ChangesetTrust.NoPlace == "A type edit has no place in the model — it reaches every element on its type (the row says how many).",
-           "a row's Show names its ghost as the bridge's refusals do, and a type edit says it has no place");
+           "a row's Show names its ghost as Sentinel's refusals do, and a type edit says it has no place");
     }
 }

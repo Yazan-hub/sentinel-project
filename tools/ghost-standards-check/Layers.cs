@@ -36,7 +36,7 @@ static partial class Check
     // ── 3. layers@n: parsed by the bridge validator's rules; a row of it is the standard, a guess is a heuristic ─
     static void Layers()
     {
-        Console.WriteLine("\nLayers — layers@n by the bridge validator's rules; only its rows are the standard\n");
+        Console.WriteLine("\nLayers — layers@n by Sentinel validator's rules; only its rows are the standard\n");
         var root = RepoRoot();
         var m = LayerRulesetMatcher.FromBody(Good, out var error);
         Ok(m is { HasStandard: true, Sha: null } && error is null, "a complete body parses (the sha is GhostStandards' to set)");
@@ -44,7 +44,7 @@ static partial class Check
                      .Append(Path.Combine(root, "config", "base-standard", "layers.json")))
             Ok(LayerRulesetMatcher.FromBody(File.ReadAllText(f), out var e) is { HasStandard: true }, $"{Path.GetRelativePath(root, f)} parses: it installs as layers@n{(e is null ? "" : " — " + e)}");
         Ok(LayerRulesetMatcher.FromBody(Good.Replace("\"Office_Wall_Ext\"", "null").Replace("[\"WALL-EXT\"]", "null").Replace("[\"*-ANNO\",\"0\"]", "null"), out _) is not null,
-           "family, aliases and ignore may be null (optional = absent or null, as the bridge)");
+           "family, aliases and ignore may be null (optional = absent or null, as Sentinel)");
 
         Refused("null", "the body is null", "JSON null");
         Refused("[]", "the body must be a JSON object", "an array");
@@ -57,7 +57,7 @@ static partial class Check
         Refused(Good.Replace("{\"layer\":\"A-DOOR\",\"category\":\"Doors\"}", "\"A-DOOR\""), "layers[1] must be an object", "a row that is not an object");
         Refused(Good.Replace("\"layer\":\"A-DOOR\"", "\"layer\":\"\""), "layers[1].layer must be a non-empty string", "a blank layer");
         Refused(Good.Replace("\"Doors\"", "\"Stairs\""), "layers[1].category must be " + Categories, "a category Ghost cannot build");
-        Refused(Good.Replace("\"Doors\"", "\"doors\""), "layers[1].category must be " + Categories, "a lower-case category (the bridge is case-sensitive)");
+        Refused(Good.Replace("\"Doors\"", "\"doors\""), "layers[1].category must be " + Categories, "a lower-case category (Sentinel is case-sensitive)");
         Refused(Good.Replace("\"Office_Wall_Ext\"", "7"), "layers[0].family must be a string", "a family that is not text");
         Refused(Good.Replace("[\"WALL-EXT\"]", "\"WALL-EXT\""), "layers[0].aliases must be an array of strings", "aliases not an array");
         Refused(Good.Replace("[\"*-ANNO\",\"0\"]", "[0]"), "ignore must be an array of strings", "an ignore entry that is not text");

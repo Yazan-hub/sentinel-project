@@ -326,11 +326,11 @@ public static class StandardsBuilder
         var ctx = ProjectContext.For(doc);
         if (!ctx.IsBound)
         {
-            r.Skipped.Add("Ruleset: not installed — this model is not bound to a web project (Sentinel ▸ Project Setup), so there is no project to install it on");
+            r.Skipped.Add("Ruleset: not installed — this model is not bound to a web project (Sentinel ▸ More ▸ Project Setup), so there is no project to install the project standards on");
             return;
         }
         string key = ctx.Key, title = doc.Title, packKey = pack.PackKey, packSemver = pack.Semver;
-        r.Created.Add($"Ruleset: installing on {key} — the outcome follows under \"Ruleset install\"");
+        r.Created.Add($"Ruleset: installing on {key} — the outcome follows under \"Project standards install\"");
         r.RulesetJob = () => InstallRuleset(doc, key, title, packKey, packSemver, worksets, naming);
     }
 
@@ -346,17 +346,17 @@ public static class StandardsBuilder
             var cur = ArtefactClient.Resolve(key, "ruleset");
             if (cur.Origin == "cache")
             {
-                lines.Add($"✗ Ruleset NOT installed on {key}: the bridge did not answer ({cur.Label}). A cached copy is never the base of an install — the model was built; run Apply again when the bridge is up.");
+                lines.Add($"✗ Project standards NOT installed on {key}: Sentinel did not answer ({cur.Label}). A cached copy is never the base of an install — the model was built; run Apply again when Sentinel is connected.");
                 return lines;
             }
             bool nothingInstalled = cur.NotInstalled;
             if (cur.Origin == "none" && !nothingInstalled)
             {
-                lines.Add($"✗ Ruleset NOT installed on {key}: {cur.Label}");
+                lines.Add($"✗ Project standards NOT installed on {key}: {cur.Label}");
                 return lines;
             }
             string? baseBody = nothingInstalled ? null
-                : cur.BodyJson ?? throw new InvalidOperationException($"the bridge answered {cur.Label} with no body");
+                : cur.BodyJson ?? throw new InvalidOperationException($"Sentinel answered {cur.Label} with no body");
 
             var m = RulesetMerge.Merge(baseBody, worksets, naming, packKey, packSemver);
             foreach (var l in m.Lines) lines.Add("Ruleset: " + l);
@@ -372,7 +372,7 @@ public static class StandardsBuilder
             var put = GovernedNotify.InstallArtefact(key, "ruleset", body.ToJsonString(), UserSession.Actor);
             if (put.Error is not null)
             {
-                lines.Add($"✗ Ruleset NOT installed on {key}: {put.Error}");
+                lines.Add($"✗ Project standards NOT installed on {key}: {put.Error}");
                 return lines;
             }
 
@@ -384,11 +384,11 @@ public static class StandardsBuilder
                 App.ReloadRuleset(doc);
             });
             if (cur.Source == "office")
-                lines.Add($"⚠ {key} now has its own ruleset: this stops {key} inheriting {cur.Label} from its office — later office installs no longer reach it");
+                lines.Add($"⚠ {key} now has its own project standards: this stops {key} inheriting {cur.Label} from its office — later office installs no longer reach it");
             string sha = put.Sha256 is { Length: > 12 } s ? s.Substring(0, 12) + "…" : put.Sha256 ?? "";
-            lines.Add($"Ruleset: installed ruleset@{put.Version} · project · {sha} on {key} ({m.Semver}); the scanner reloads it");
+            lines.Add($"Ruleset: installed on {key}; the scanner reloads it (Details: ruleset@{put.Version} · project · {sha} · {m.Semver})");
         }
-        catch (Exception ex) { lines.Add($"✗ Ruleset install: {ex.Message}"); }
+        catch (Exception ex) { lines.Add($"✗ Project standards install: {ex.Message}"); }
         return lines;
     }
 }

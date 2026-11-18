@@ -275,7 +275,7 @@ public sealed class StandardsReviewWindow : Window
         {
             if (lines.Count == 0) return;
             sb.Append(title).Append(" (").Append(lines.Count).AppendLine("):");
-            foreach (var l in lines) sb.Append("  • ").AppendLine(l);
+            foreach (var l in lines) sb.Append("  • ").AppendLine(Plain(l));
         }
         Section("✓ Created", r.Created);
         Section("– Skipped", r.Skipped);
@@ -286,15 +286,23 @@ public sealed class StandardsReviewWindow : Window
         SetStatus($"Done — {r.Created.Count} created, {r.Skipped.Count} skipped, {r.Failed.Count} failed.");
     });
 
+    /// <summary>The words people read: the stored "Ruleset:" prefix is shown as "Project standards:", and an inline "(Details: …)" moves under its line.</summary>
+    internal static string Plain(string l)
+    {
+        if (l.StartsWith("Ruleset: ", StringComparison.Ordinal)) l = "Project standards: " + l.Substring(9);
+        var at = l.IndexOf(" (Details: ", StringComparison.Ordinal);
+        return at > 0 && l.EndsWith(")") ? l.Substring(0, at) + "\n      Details: " + l.Substring(at + 11, l.Length - at - 12) : l;
+    }
+
     /// <summary>Append the ruleset install's outcome under the build report (raised off the API thread); the
     /// status line takes its last line — the installed ruleset@n, "unchanged", or why nothing was installed.</summary>
     public void AppendReport(IReadOnlyList<string> lines) => Dispatcher.Invoke(() =>
     {
         var sb = new StringBuilder(_report.Text);
-        sb.AppendLine().Append("Ruleset install (").Append(lines.Count).AppendLine("):");
-        foreach (var l in lines) sb.Append("  • ").AppendLine(l);
+        sb.AppendLine().Append("Project standards install (").Append(lines.Count).AppendLine("):");
+        foreach (var l in lines) sb.Append("  • ").AppendLine(Plain(l));
         _report.Text = sb.ToString();
         _report.Visibility = Visibility.Visible;
-        if (lines.Count > 0) SetStatus(lines[lines.Count - 1]);
+        if (lines.Count > 0) SetStatus(Plain(lines[lines.Count - 1]));
     });
 }

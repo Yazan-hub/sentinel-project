@@ -23,7 +23,7 @@ public sealed class ScanNowCommand : IExternalCommand
         if (doc is null || App.Engine is null || App.PanelVm is null) return Result.Cancelled;
         if (doc.IsFamilyDocument)
         {
-            TaskDialog.Show("Sentinel — Scan Now", "A family document is not scanned — only project documents are judged by their project's ruleset.");
+            TaskDialog.Show("Sentinel — Scan Now", "A family document is not scanned — only project documents are judged by their project's standards.");
             return Result.Cancelled;
         }
         // Re-resolve the document's ruleset@n first (an unchanged one is a cheap 304), then scan by it: the
@@ -66,16 +66,16 @@ public sealed class IfcPreFlightCommand : IExternalCommand
         int issues = report.Violations.Count - notChecked;
         // With no contract the delivery gate is NOT CHECKED too: never point at it as the one that checks.
         var notCheckedLine = notChecked == 0 ? "" : contract is null
-            ? $"\n\nRequired properties not checked — contract: {contractSource.Label}. The delivery gate cannot check them either (NOT CHECKED) until a contract is installed."
-            : $"\n\n{notChecked} requirement(s) not checked here (listed in the panel) — the delivery gate checks them in the IFC.";
+            ? $"\n\nRequired properties not checked — pre-publish check rules: {contractSource.Label}. The pre-publish check cannot check them either until its rules are installed."
+            : $"\n\n{notChecked} requirement(s) not checked here (listed in the panel) — the pre-publish check checks them in the IFC.";
         var clean = contract is null
-            ? "No IFC-01 mapping issues found; required properties not checked (no contract)."
+            ? "No IFC mapping issues found; required properties not checked (no pre-publish check rules)."
             : $"✓ No IFC issues found against {contractSource.Label}.";
-        TaskDialog.Show("Sentinel — IFC Pre-Flight",
+        new TaskDialog("Sentinel — IFC Pre-Flight") { ExpandedContent = "Rules: IFC-01 / IFC-02", MainContent =
             issues == 0
                 ? $"{clean}\n\n{report.ElementsChecked} elements checked in {report.DurationMs} ms.{notCheckedLine}"
                 : $"{issues} issue(s) found across {report.ElementsChecked} elements " +
-                  $"({report.DurationMs} ms).\n\nDetails are listed in the Sentinel panel (rules IFC-01 / IFC-02).{notCheckedLine}");
+                  $"({report.DurationMs} ms).\n\nDetails are listed in the Sentinel panel.{notCheckedLine}" }.Show();
         return Result.Succeeded;
     }
 }
@@ -102,7 +102,7 @@ public sealed class ShowRulesetCommand : IExternalCommand
         var doc = c.Application.ActiveUIDocument?.Document;
         if (doc is null || App.Engine is null)
         {
-            TaskDialog.Show("Sentinel", "Open a project document first — each document is judged by its own project's ruleset.");
+            TaskDialog.Show("Sentinel", "Open a project document first — each document is judged by its own project's standards.");
             return Result.Cancelled;
         }
         var win = new Sentinel.UI.RulesetWindow(App.Engine.RulesetFor(doc), App.Engine.SourceFor(doc), doc.Title);

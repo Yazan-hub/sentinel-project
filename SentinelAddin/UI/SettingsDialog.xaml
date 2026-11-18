@@ -8,13 +8,13 @@
         <Border Background="#1E3A5F" Padding="20,14">
             <StackPanel>
                 <TextBlock Text="Project Setup" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
-                <TextBlock Text="The web project this model belongs to — its ruleset, IDS and naming standard come from there"
+                <TextBlock Text="The web project this model belongs to — its project standards, data requirements and naming standard come from there"
                            Foreground="#9DB4CE" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
 
         <StackPanel Margin="20,16">
-            <TextBlock Text="Project code (optional — tightens the CDE file-name check, e.g. BDS20268)"
+            <TextBlock Text="Project code (optional — tightens the file-name check, e.g. BDS20268)"
                        FontSize="11" Foreground="#667"/>
             <TextBox x:Name="ProjectCodeBox" Height="28" FontSize="12" Padding="6,4"
                      Margin="0,4,0,16" VerticalContentAlignment="Center" Width="200"
@@ -25,7 +25,7 @@
             <ComboBox x:Name="WebProjectBox" Height="28" FontSize="12" Padding="6,4"
                       Margin="0,4,0,2" VerticalContentAlignment="Center" Width="280"
                       HorizontalAlignment="Left" IsEditable="True" IsTextSearchEnabled="False"/>
-            <TextBlock x:Name="WebProjectHint" Text="Loading projects from the bridge…"
+            <TextBlock x:Name="WebProjectHint" Text="Loading projects from Sentinel…"
                        FontSize="10" Foreground="#889" Margin="0,0,0,2"/>
             <TextBlock x:Name="WebProjectScopeNote" FontSize="10" Foreground="#B26B00" Margin="0,0,0,10"
                        TextWrapping="Wrap"/>

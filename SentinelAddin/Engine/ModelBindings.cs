@@ -67,7 +67,7 @@ public static class ModelBindings
     /// <summary>The Doctor line when a model names a key this PC has not confirmed for it.</summary>
     public static string NotConfirmed(string what, string key) =>
         what + ": nothing sent — this model names web project \"" + key + "\", which this PC has not confirmed for it. "
-        + "Sentinel ▸ Project Setup ▸ Save confirms it (a copy or a Save As of a model asks again).";
+        + "Sentinel ▸ More ▸ Project Setup ▸ Save confirms it (a copy or a Save As of a model asks again).";
 
     /// <summary>The pane's line while the open model's key is not confirmed on this PC (it stands where the publish line does).</summary>
     public static string PausedLine(string key) =>

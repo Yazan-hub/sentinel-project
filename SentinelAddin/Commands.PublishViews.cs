@@ -68,8 +68,8 @@ public sealed class PublishViewsCommand : IExternalCommand
 
         TaskDialog.Show("Sentinel — Publish Views",
             $"Published {count} view(s) to:\n{dir}\n\n" +
-            "The Sentinel Bridge serves these to the web app's BIM Tools → Views tab. " +
-            "Make sure the Bridge is running, then open Views and refresh.");
+            "Sentinel serves these to the web app (Models ▸ Views). " +
+            "Make sure Sentinel is running, then open Views and refresh.");
         return Result.Succeeded;
     }
 }

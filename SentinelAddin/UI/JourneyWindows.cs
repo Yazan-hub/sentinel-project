@@ -120,7 +120,18 @@ public sealed class JourneyWindow : Window
     /// The collapsed Details: technical lines (rule ids, versions, notes) a modeller never needs to read.
     public void AddDetails(IEnumerable<string> lines)
     {
-        var box = new TextBox { Text = string.Join(Environment.NewLine, lines), IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), FontSize = 11, MaxHeight = 200, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-        _body.Children.Add(new Expander { Header = "Details", IsExpanded = false, Content = box });
+        if (DetailsExpander.Make(lines) is { } fold) _body.Children.Add(fold);
+    }
+}
+
+/// UX slice 4: the one closed "Details" fold every window uses (codes, numbers, versions, addresses). Null when there is nothing to show.
+public static class DetailsExpander
+{
+    public static Expander Make(IEnumerable<string> lines)
+    {
+        var text = string.Join(Environment.NewLine, System.Linq.Enumerable.Where(lines ?? new string[0], l => !string.IsNullOrWhiteSpace(l)));
+        if (text.Length == 0) return null;
+        var box = new TextBox { Text = text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Consolas"), FontSize = 11, MaxHeight = 200, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        return new Expander { Header = "Details", IsExpanded = false, Content = box };
     }
 }

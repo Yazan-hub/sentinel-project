@@ -102,7 +102,7 @@ public sealed class ChangesetPlacementEvent : IExternalEventHandler
         try { Completed?.Invoke(result); }
         catch (Exception ex)
         {
-            try { App.PanelVm?.LogDoctor($"Review AI Proposals: reporting the changeset's result failed — {ex.GetType().Name}: {ex.Message}. Check the model and the proposal's state before applying it again."); }
+            try { App.PanelVm?.LogDoctor($"Review AI Proposals: sending the proposed changes' result to Sentinel failed — {ex.GetType().Name}: {ex.Message}. Check the model and the proposal's state before applying it again."); }
             catch { /* the pane itself is gone */ }
         }
     }

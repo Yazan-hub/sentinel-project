@@ -49,14 +49,14 @@ static partial class Check
         var fails = new List<string> { StageIds.Line("W 312312", "Walls · DD", unrated) };
         Ok(fails[0] == "W 312312 (Walls · DD): missing Pset_WallCommon.FireRating" && StageIds.Line("W 1", "Walls · DD", V("wall rated")) == null,
            "an element that fails is one line: its label, the specification (the class and stage) and every missing property");
-        Ok(StageIds.WentBack(1, "lod_matrix@2 · office · abababababab…") == "You went back at the DD IDS check — nothing was placed. 1 element(s) would have failed the DD IDS made from lod_matrix@2 · office · abababababab…."
+        Ok(StageIds.WentBack(1, "lod_matrix@2 · office · abababababab…") == "You went back at the DD data requirements check — nothing was placed. 1 element(s) would have failed the DD data requirements made from lod_matrix@2 · office · abababababab…."
            && StageIds.PlacedAnyway(fails, "lod_matrix@2") == "This changeset leaves 1 element(s) failing the DD IDS made from lod_matrix@2 — placed anyway, as the person chose: W 312312 (Walls · DD): missing Pset_WallCommon.FireRating",
            "going back and placing anyway are said in words, naming the matrix the IDS was made from");
         const string storey = "This storey \"Promote (DD) · GR-FFL\" (2 changesets)";
         Ok(StageIds.Headline(4, "lod_matrix@1", storey) == storey + " leaves 4 element(s) failing the DD IDS made from lod_matrix@1"
            && StageIds.PlacedAnyway(fails, "lod_matrix@1", storey).StartsWith(storey + " leaves 1 element(s) failing", StringComparison.Ordinal)
            && StageIds.Summary(1, fails, new string[0], new string[0], "lod_matrix@1", storey).StartsWith(storey + " leaves", StringComparison.Ordinal),
-           "a storey's DD IDS dialog, result line and ledger note speak of the storey, not of one changeset (drill MA2d F-MA2d-2)");
+           "a storey's DD IDS dialog, result line and ledger note speak of the storey, not of one set of proposed changes (drill MA2d F-MA2d-2)");
         var many = Enumerable.Range(0, 26).Select(i => $"W {1000 + i} (Walls · DD): missing Pset_WallCommon.FireRating")
                              .Concat(new[] { "D 7 (Doors · DD): missing Pset_DoorCommon.FireRating", "W 9 (Walls · DD): missing Pset_WallCommon.FireRating, Pset_WallCommon.IsExternal" }).ToList();
         Ok(StageIds.Tally(many).SequenceEqual(new[] { "Walls · DD: missing Pset_WallCommon.FireRating — 26 element(s)", "Doors · DD: missing Pset_DoorCommon.FireRating — 1 element(s)",
@@ -139,8 +139,8 @@ static partial class Check
         var nr = LodState.Read(plans, mx, twoProps, null, Props(twoProps, rated, rated), null).Rows.Single();
         Ok(nr.At == 0 && nr.NotMeasured == 2 && nr.Reasons.Any(kv => kv.Key == "no Revit reader for Pset_WallCommon.AcousticRating" && kv.Value == 2),
            "a property Revit cannot read makes the wall NOT MEASURED, named — never at DD");
-        var none = LodState.Read(plans, mx, null, "bridge unreachable (timed out after 4 s)", new Dictionary<string, StageIds.Verdict>(), null).Rows.Single();
-        Ok(none.At == 0 && none.NotMeasured == 2 && none.Reasons.Any(kv => kv.Key == "the DD IDS was not read: bridge unreachable (timed out after 4 s)"),
+        var none = LodState.Read(plans, mx, null, "Sentinel is not connected (timed out after 4 s)", new Dictionary<string, StageIds.Verdict>(), null).Rows.Single();
+        Ok(none.At == 0 && none.NotMeasured == 2 && none.Reasons.Any(kv => kv.Key == "the DD IDS was not read: Sentinel is not connected (timed out after 4 s)"),
            "with the DD IDS not read, the walls the rules pass are NOT MEASURED, with why");
         mx.Properties["Walls"] = new List<string>();
         var rulesOnly = LodState.Read(plans, mx, null, "no matrix ids", new Dictionary<string, StageIds.Verdict>(), new[] { "Floors: no DD row in the LOD matrix" });

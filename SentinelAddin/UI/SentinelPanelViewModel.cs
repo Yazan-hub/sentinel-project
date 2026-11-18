@@ -65,7 +65,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
     public double Score { get => _score; private set { _score = value; OnChanged(); OnChanged(nameof(ScoreText)); } }
     private string? _notScored;   // set when no ruleset judged the rows: no percentage, no grade
     private string _scoreLabel = "Rule pass rate";   // SCORE-E1: what the figure measures (IFC pre-flight: IFC readiness)
-    public string ScoreText => _notScored is null ? $"{_scoreLabel} {Score:F1}%" : "Not scored — no ruleset judged this model";
+    public string ScoreText => _notScored is null ? $"{_scoreLabel} {Score:F1}%" : "Not scored — no project standards judged this model";
 
     private string _status = "No scan yet";
     public string Status { get => _status; private set { _status = value; OnChanged(); } }
@@ -189,7 +189,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             _connected = j is not null; OnChanged(nameof(StatusDots));
             StandardsLine = j?.StandardsLine ?? "";
             LodLine = j?.LodLine ?? "";
-            NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "the bridge did not answer for this project"}";
+            NextLine = j?.NextLine ?? $"Journey unavailable — {why ?? "Sentinel did not answer for this project"}";
             // SEC-4 (S28): while this PC has not confirmed the model's key, the publish line says it is paused, and where to confirm.
             PublishLine = !confirmed ? Sentinel.Engine.ModelBindings.PausedLine(projectKey)
                 : PublishLines.Policy(policy.Status == TaskStatus.RanToCompletion ? policy.Result
@@ -214,7 +214,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
         ++_journeySeq;
         OnUi(() =>
         {
-            JourneyKey = "Journey — not bound — Sentinel ▸ Project Setup";
+            JourneyKey = "Journey — not bound — Sentinel ▸ More ▸ Project Setup";
             StandardsLine = NextLine = PublishLine = ScanRulesetLine = LodLine = "";
         });
     }
@@ -230,7 +230,7 @@ public sealed class SentinelPanelViewModel : INotifyPropertyChanged
             Violations.Clear();
             _notScored = "loading";
             Score = 0; // raises ScoreText, which reads _notScored
-            Status = $"{docTitle} — loading its ruleset…";
+            Status = $"{docTitle} — loading its project standards…";
             JourneyKey = "Journey — loading…";
             StandardsLine = NextLine = PublishLine = ScanRulesetLine = LodLine = "";
         });

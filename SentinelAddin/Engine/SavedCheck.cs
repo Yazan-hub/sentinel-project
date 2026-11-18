@@ -150,12 +150,12 @@ namespace Sentinel.Engine
         public static string Words(Record r, string how, int held, int missing, string ledger, string error)
         {
             var when = how switch { "saved" => "saved", "saved_locally" => "saved locally (not synced yet)", "synced" => "synchronised with central", _ => "reopened" };
-            if (error != null) return $"Saved check: {(r.Revert ? "the revert of " : "")}\"{r.Name}\" ({when}) — NOT recorded: {error}. Kept on this PC; checked again at the next save, sync or opening.";
+            if (error != null) return $"Saved check: {(r.Revert ? "the undo of " : "")}\"{r.Name}\" ({when}) — NOT recorded: {error}. Kept on this PC; checked again at the next save, sync or opening.";
             if (r.Revert)
                 return missing == 0
-                    ? $"Saved check: the revert of \"{r.Name}\" — all {held} row(s) are still reverted in the model as {when}: changeset_revert_confirmed ({ledger})."
-                    : $"Saved check: the revert of \"{r.Name}\" — {missing} of {held + missing} row(s) are back as the changeset set them in the model as {when}"
-                      + (how == "reopened" ? " (it was closed without saving, or Revit stopped)" : " (the revert was undone before the save)") + $": changeset_revert_lost ({ledger}).";
+                    ? $"Saved check: the undo of \"{r.Name}\" — all {held} row(s) are still undone in the model as {when}: changeset_revert_confirmed ({ledger})."
+                    : $"Saved check: the undo of \"{r.Name}\" — {missing} of {held + missing} row(s) are back as the proposed changes set them in the model as {when}"
+                      + (how == "reopened" ? " (it was closed without saving, or Revit stopped)" : " (the undo was itself undone before the save)") + $": changeset_revert_lost ({ledger}).";
             return missing == 0
                 ? $"Saved check: \"{r.Name}\" — all {held} element(s) are in the model as {when}: changeset_confirmed ({ledger})."
                 : $"Saved check: \"{r.Name}\" — {missing} of {held + missing} element(s) are NOT in the model as {when}"

@@ -28,7 +28,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         var (contract, contractSource) = Task.Run(() => Sentinel.Engine.DeliveryContract.Load(projectKey)).GetAwaiter().GetResult();
         var schema = contract?.IfcSchema ?? "IFC2X3"; // no contract: export IFC 2x3 as before and judge nothing
 
-        var choice = new TaskDialog("Sentinel — IFC Delivery Gate")
+        var choice = new TaskDialog("Sentinel — Pre-publish check")
         {
             MainInstruction = "Certify an IFC deliverable",
             MainContent = Sentinel.Engine.GateLines.Intro(contract?.IfcSchema, contractSource.Label),
@@ -36,7 +36,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         };
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1,
             "Export the whole model to IFC, then certify",
-            "Runs Revit's IFC exporter on the whole model (property sets from the office's ifc_export when one is installed, else Revit's defaults; not a saved IFC export setup), then validates the result. Revit pauses until the export finishes.");
+            "Runs Revit's IFC exporter on the whole model (property sets from the office's IFC export mapping when one is installed, else Revit's defaults; not a saved IFC export setup), then validates the result. Revit pauses until the export finishes.");
         choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2,
             "Certify an existing IFC file",
             "Validate a file already exported (any source).");
@@ -60,7 +60,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         // existing file uses none): one installed and not parsing, or not confirmed either way by the bridge, stops the export. An unbound document has none to read.
         var (mapping, mappingError) = projectKey.Length == 0 ? (null, null)
             : Task.Run(() => Sentinel.Engine.IfcExportMapping.FromResolved(Sentinel.Coordination.ArtefactClient.Resolve(projectKey, "ifc_export"))).GetAwaiter().GetResult();
-        if (mappingError is not null) { TaskDialog.Show("Sentinel — IFC Delivery Gate", Sentinel.Engine.PublishLines.ExportMappingRefused(mappingError, publishes: false)); return Result.Cancelled; }
+        if (mappingError is not null) { TaskDialog.Show("Sentinel — Pre-publish check", Sentinel.Engine.PublishLines.ExportMappingRefused(mappingError, publishes: false)); return Result.Cancelled; }
 
         // Export path: the whole model (GP-2, no view filter) to a save location.
         var save = new Microsoft.Win32.SaveFileDialog
@@ -84,14 +84,14 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
                 d, Path.GetDirectoryName(ifcPath!)!, Path.GetFileName(ifcPath!), schema, mapping);
             if (state != Sentinel.Engine.PlatformExporter.State.Ok)
             {
-                TaskDialog.Show("Sentinel — IFC Delivery Gate",
+                TaskDialog.Show("Sentinel — Pre-publish check",
                     state == Sentinel.Engine.PlatformExporter.State.MissingOrEmpty
                         ? "IFC export contained no geometry — nothing to certify. Check the IFC mappings (Export to IFC As)."
                         : "Export failed: " + (error ?? state.ToString()));
                 return;
             }
             try { Certify(exported, contract, contractSource, projectKey, mapping); }
-            catch (Exception ex) { TaskDialog.Show("Sentinel — IFC Delivery Gate", "Certification failed: " + ex.Message); }
+            catch (Exception ex) { TaskDialog.Show("Sentinel — Pre-publish check", "Certification failed: " + ex.Message); }
         });
         return Result.Succeeded;
     }
@@ -107,7 +107,7 @@ public sealed class IfcDeliveryGateCommand : IExternalCommand
         // The dialog ends with what the ledger answered: "Recorded: ledger #<id> · receipt <16 hex>…", not confirmed,
         // not recorded, or — unbound — nothing sent.
         var ledger = Task.Run(() => Sentinel.Coordination.GovernedNotify.DeliveryGate(Path.GetFileName(ifcPath), r, projectKey, "check", publish: false, mapping?.Ref, mapping?.Sha256)).GetAwaiter().GetResult();
-        TaskDialog.Show("Sentinel — IFC Delivery Gate",
-            Sentinel.Engine.GateLines.GateDialog(r, projectKey) + "\n\n" + Sentinel.Coordination.LedgerLine.Sentence(ledger));
+        var (historyLine, historyDetail) = Sentinel.Coordination.LedgerLine.Display(ledger);
+        new TaskDialog("Sentinel — Pre-publish check") { MainContent = Sentinel.Engine.GateLines.GateDialog(r, projectKey) + "\n\n" + historyLine, ExpandedContent = historyDetail }.Show();
     }
 }

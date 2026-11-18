@@ -172,8 +172,8 @@ public sealed class ClashManagerCommand : IExternalCommand
         // The data gate first (D-01): the same status the web clash panel shows, read for this document's key.
         var ctx = Sentinel.Engine.ProjectContext.For(doc);
         var fedLine = !ctx.IsBound
-            ? "Federation Gate: not checked — " + Sentinel.Engine.ProjectContext.NotBound
-            : Sentinel.Coordination.GovernedQuery.FederationStatus(ctx.Key) ?? "Federation Gate: bridge unreachable";
+            ? "Coordination check: Cannot be checked — " + Sentinel.Engine.ProjectContext.NotBound
+            : Sentinel.Coordination.GovernedQuery.FederationStatus(ctx.Key) ?? "Coordination check: Sentinel is not connected.";
         if (clashes.Count == 0)
         {
             TaskDialog.Show("Sentinel — Clash Manager",
@@ -219,16 +219,16 @@ public sealed class SanitizeLoadedCommand : IExternalCommand
             // wait cannot deadlock; the report then says what the ledger recorded, or why that is not confirmed.
             var payload = Workflow.HealRecord.Payload(verdicts.Count, clean, healedNames, humanNames, failedNames, Sentinel.Coordination.UserSession.Actor);
             var ledger = System.Threading.Tasks.Task.Run(() => Sentinel.Coordination.GovernedNotify.Event("/audit", payload, key)).GetAwaiter().GetResult();
-            var said = Sentinel.Coordination.LedgerLine.Sentence(ledger);
+            var (said, saidDetail) = Sentinel.Coordination.LedgerLine.Display(ledger);
 
-            TaskDialog.Show("Sentinel — Family Auto-Heal",
+            new TaskDialog("Sentinel — Family Auto-Heal") { ExpandedContent = saidDetail, MainContent =
                 verdicts.Count + " families scanned\n" +
                 "✓ Clean: " + clean + "\n" +
                 "⚡ Auto-healed (shared params injected + reloaded): " + healed + "\n" +
                 "⚠ Requires human interaction (geometry/CAD): " + human + "\n" +
                 "✕ Failed: " + failed +
                 (human > 0 ? "\n\nManual attention needed:\n" + string.Join("\n", needsHuman) : "") +
-                "\n\n" + said);
+                "\n\n" + said }.Show();
         });
         return Result.Succeeded;
     }

@@ -61,7 +61,7 @@ static partial class Check
         Ok(R("http://localhost:4100", true) == null && R("http://127.0.0.1:4100", true) == null, "this PC's shared token with the bridge on this PC saves");
         Ok(R("https://pc.tailnet.ts.net", true) == PcSettings.TokenOffPc && R("https://pc.tailnet.ts.net", false) == null,
            "PR-1: the shared token is refused with a bridge off this PC; a signed-in PC may use one");
-        Ok(R("", false)?.StartsWith("Type the bridge address") == true, "a blank bridge address is refused in words");
+        Ok(R("", false)?.StartsWith("Type the Sentinel service address") == true, "a blank bridge address is refused in words");
         var plain = R("http://bridge.example.test", false);
         Ok(plain != null && plain.Contains("PC Settings") && !plain.Contains("Nothing was"), "plain http elsewhere is refused in words that name this window, not a file");
         var cloud = R("http://localhost:4100", false, "https://ai.example/api/generate");
@@ -79,7 +79,7 @@ static partial class Check
            "a model is said installed or not (a bare name matches :latest)");
         var closed = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); closed.Start();
         var port = ((System.Net.IPEndPoint)closed.LocalEndpoint).Port; closed.Stop();
-        Ok(PcSettings.TestBridge("http://127.0.0.1:" + port).StartsWith("✗ No bridge answers at http://127.0.0.1:" + port),
+        Ok(PcSettings.TestBridge("http://127.0.0.1:" + port).StartsWith("✗ Nothing answers at http://127.0.0.1:" + port),
            "Test says in words that no bridge answers");
         Ok(PcSettings.TestBridge("http://bridge.example.test").StartsWith("✗ The bridge address"), "Test sends nothing to an address Sentinel refuses");
 

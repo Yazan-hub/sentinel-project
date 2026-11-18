@@ -92,7 +92,7 @@ public static class FamilySanitizer
         //    shared param names are user-defined, not localized by Revit).
         var fm = famDoc.FamilyManager;
         if (!Engine.OrgNames.Configured(org))
-            App.PanelVm?.LogDoctor("Family sanitizer: no office code configured (ruleset 'org') — required shared-parameter check skipped for " +
+            App.PanelVm?.LogDoctor("Family sanitizer: the office code is not set in the project standards — required shared-parameter check skipped for " +
                 Path.GetFileName(report.FamilyPath.Length > 0 ? report.FamilyPath : famDoc.Title));
         else
         {

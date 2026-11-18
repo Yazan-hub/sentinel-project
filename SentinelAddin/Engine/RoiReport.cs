@@ -127,15 +127,15 @@ public sealed class RoiMoney
 public static class RoiLines
 {
     public const string NotCounted =
-        "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row";
+        "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no History entry";
 
     /// <summary>Exactly seven lines: the header (rows read, and whether the ledger holds more), the three counts (each
     /// priced when there is money and the roi sets minutes for it), the money line, the fixes that write a ledger row
     /// since MA-1a item 7 (counted, not priced) and <see cref="NotCounted"/>.</summary>
     public static string[] Lines(string key, RoiCounts c, RoiMoney? m, ResolvedArtefact roi) => new[]
     {
-        "ROI · " + key + " · counted from the ledger (" + c.RowsRead + " rows read" + (c.Truncated ? ", the newest only — the ledger holds more" : "") + ")",
-        "Delivery gate runs: " + c.GateRuns + Priced(m, m?.GateMinutes, m?.Gate),
+        "ROI · " + key + " · counted from History (" + c.RowsRead + " rows read" + (c.Truncated ? ", the newest only — History holds more" : "") + ")",
+        "Pre-publish check runs: " + c.GateRuns + Priced(m, m?.GateMinutes, m?.Gate),
         "Naming renames: " + c.Renames + Priced(m, m?.NamingMinutes, m?.Naming),
         "Family heals: " + c.Heals + Priced(m, m?.HealMinutes, m?.Heal),
         m is null
@@ -143,7 +143,7 @@ public static class RoiLines
                 ? "Money: not shown — roi: " + roi.Label
                 : "Money: not shown — " + roi.Label + " did not parse: the body is not {currency, hourly_rate, minutes}")
             : "Money: " + F2(m.Total) + " " + m.Currency + " at " + Num(m.HourlyRate) + " " + m.Currency + "/h · " + m.Label,
-        "Fixes on the ledger, not priced: " + c.AutoFixes + " auto-fix(es) · " + c.FixInPlaceValues + " fix-in-place value(s) written · " +
+        "Fixes in History, not priced: " + c.AutoFixes + " auto-fix(es) · " + c.FixInPlaceValues + " fix-in-place value(s) written · " +
             c.DoctorResolutions + " Doctor resolution(s)",
         NotCounted,
     };
@@ -151,14 +151,14 @@ public static class RoiLines
     /// <summary>An unbound document: nothing is read.</summary>
     public static string[] NotBound() => new[]
     {
-        "ROI · not bound — Sentinel ▸ Project Setup",
-        "Nothing was read: this document has no web project, so it has no ledger to count.",
+        "ROI · not bound — Sentinel ▸ More ▸ Project Setup",
+        "Nothing was read: this document has no web project, so it has no History to count.",
     };
 
     /// <summary>The bridge could not be read: nothing is counted (a failed read is never "0").</summary>
     public static string[] Unavailable(string key, string failure) => new[]
     {
-        "ROI · " + key + " · not counted — the ledger could not be read (" + failure + ")",
+        "ROI · " + key + " · not counted — History could not be read (" + failure + ")",
     };
 
     private static string Priced(RoiMoney? m, double? minutes, double? amount) =>

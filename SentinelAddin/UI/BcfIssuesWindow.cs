@@ -73,7 +73,7 @@ public sealed class BcfIssuesWindow : Window
     public BcfIssuesWindow(Func<string>? me = null)
     {
         _me = me ?? (() => "");
-        Title = "Sentinel — Coordination Issues (BCF)";
+        Title = "Sentinel — Issues";
         Width = 700;
         Height = 860;
         MinWidth = 560; MinHeight = 600;
@@ -143,7 +143,7 @@ public sealed class BcfIssuesWindow : Window
         _send.Click += (_, __) => SendComment();
         var commentRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
         DockPanel.SetDock(_send, Dock.Right); commentRow.Children.Add(_send); commentRow.Children.Add(_comment);
-        _comment.ToolTip = "A comment on the selected issue, under your name; everyone sees it on the web board too. Send posts it alone; Save changes sends it with the edit, into the same ledger row.";
+        _comment.ToolTip = "A comment on the selected issue, under your name; everyone sees it on the web board too. Send posts it alone; Save changes sends it with the edit, into the same History entry.";
 
         // ── actions ──
         var act = new UniformGrid { Columns = 2, Margin = new Thickness(0, 4, 0, 0) };
@@ -156,9 +156,9 @@ public sealed class BcfIssuesWindow : Window
         var raise = Btn("＋ New issue from my Revit selection", () => NewIssueRequested?.Invoke());
         raise.FontWeight = FontWeights.SemiBold;
         raise.ToolTip = "Select the element(s) in Revit (a 3D view also sends its camera and a snapshot), then describe the issue — it lands on the web board, linked to them.";
-        _fix = Btn("Fix in Revit (referee-raised IDS issues only)", () => { if (_list.SelectedItem is BcfTopic t) FixRequested?.Invoke(t); });
+        _fix = Btn("Fix in Revit (Sentinel-raised issues only)", () => { if (_list.SelectedItem is BcfTopic t) FixRequested?.Invoke(t); });
         _fix.IsEnabled = false;
-        _fix.ToolTip = "Only issues the referee raised (title “IDS: … — … (N failing)”) can be fixed in place.";
+        _fix.ToolTip = "Only issues Sentinel raised from the data requirements (title “IDS: … — … (N failing)”) can be fixed in place.";
 
         // Work alongside ACC and BIMcollab: a BCF file in, a BCF file out (spec 2026-10-19-work-alongside-connectors).
         var files = new UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 0) };
@@ -294,7 +294,7 @@ public sealed class BcfIssuesWindow : Window
             foreach (var h in t.History)
             {
                 sb.Append("  ").Append(BcfTopic.Day(h.Date)).Append("  ").Append(Or(h.Author)).Append(" — ").Append(h.Action);
-                if (h.LedgerId is long n) sb.Append("  · recorded in the ledger #").Append(n);
+                if (h.LedgerId is long n) sb.Append("  · recorded in History #").Append(n);
                 sb.AppendLine();
             }
         }

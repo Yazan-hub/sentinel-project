@@ -99,7 +99,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var ctx = ProjectContext.For(uiapp.ActiveUIDocument.Document);
         if (!ctx.IsBound)
         {
-            TaskDialog.Show("Sentinel — BCF Issues", ProjectContext.NotBound);
+            TaskDialog.Show("Sentinel — Issues", ProjectContext.NotBound);
             return Result.Cancelled;
         }
         var bcfKey = ctx.Key;
@@ -108,7 +108,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         var apply = new BcfApplyEvent(uiapp.ActiveUIDocument.Document);
         string token;
         try { token = cfg.ServiceToken; }
-        catch (SessionException e) { TaskDialog.Show("Sentinel — BCF Issues", e.Message); return Result.Cancelled; }
+        catch (SessionException e) { TaskDialog.Show("Sentinel — Issues", e.Message); return Result.Cancelled; }
         var sync = new BcfSyncManager(cfg.ServiceUrl, token);
 
         var window = new BcfIssuesWindow(() => UserSession.Actor);
@@ -156,14 +156,15 @@ public sealed class BcfIssuesCommand : IExternalCommand
             catch (SessionException ex) { window.SetStatus(ex.Message); }
             catch (Exception ex)
             {
-                window.SetStatus($"Could not reach the BCF service at {cfg.ServiceUrl}\n{ex.Message}");
+                window.SetStatus($"Could not reach Sentinel at {cfg.ServiceUrl}\n{ex.Message}");
             }
         }
         window.RefreshRequested += Refresh;
 
         // Quick comment and quick edit: network only, under the signed-in person (the bridge stamps the verified identity and asks a
         // lead for a governed close — HTTP 403 comes back in its words). The bearer is read before the send (SI-1).
-        static string Why(int status) => status switch { 0 => "the bridge did not answer", 401 => "signed out — Sentinel ▸ Sign in", 403 => "refused (a lead closes a referee-raised issue; a viewer writes nothing)", _ => $"HTTP {status}" };
+        static string Why(int status) { App.PanelVm?.LogDoctor($"Issues: Sentinel replied HTTP {status}."); return Why0(status); }
+        static string Why0(int status) => status switch { 0 => "Sentinel is not connected", 401 => "signed out — Sentinel ▸ More ▸ Sign in", 403 => "refused (a lead closes an issue Sentinel raised; a viewer writes nothing)", >= 500 => "Sentinel could not answer", _ => $"HTTP {status}" };
         window.CommentRequested += (topic, text) =>
         {
             window.SetStatus("Sending the comment…");
@@ -330,7 +331,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
         window.FixRequested += topic =>
         {
             var req = IdsIssueRef.TryParse(topic.Title);
-            if (req == null) { window.SetStatus("Only referee-raised IDS issues can be fixed here."); return; }
+            if (req == null) { window.SetStatus("Only issues Sentinel raised from the data requirements can be fixed here."); return; }
             if (openFix.ContainsKey(topic.Guid)) { window.SetStatus("a Fix window is already open for this issue"); return; }
             var guids = topic.Viewpoints.SelectMany(v => v.Components?.Selection?.Select(s => s.IfcGuid) ?? Enumerable.Empty<string>())
                              .Where(g => !string.IsNullOrWhiteSpace(g)).Distinct().ToList();
@@ -368,7 +369,9 @@ public sealed class BcfIssuesCommand : IExternalCommand
                 // Resolve never throws; SetBanner marshals to the window. The label says why (not installed,
                 // no project, bridge unreachable) \u2014 so the banner does not claim "not installed" on a timeout.
                 if (t.Result.Origin == "none")
-                    fix.SetBanner($"No IDS to check against for {projectKey} ({t.Result.Label}). Apply is allowed; nothing can be checked, certified or resolved from here.");
+                    App.PanelVm?.LogDoctor($"Fix in Revit: no data requirements for {projectKey} ({t.Result.Label}).");
+                if (t.Result.Origin == "none")
+                    fix.SetBanner($"No data requirements to check against for {projectKey}. Apply is allowed; nothing can be checked, certified or resolved from here.");
             }, TaskScheduler.Default);
 
             bool applied = false;   // set by Apply; decides whether the evidence says "Fixed" or "Verified"
@@ -386,7 +389,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
             // Check = dry run: patched payload -> referee; verdicts painted per row. raise_bcf:false always.
             fix.CheckRequested += ticked =>
             {
-                fix.SetBusy(true); fix.SetStatus("Checking proposed values with the referee\u2026");
+                fix.SetBusy(true); fix.SetStatus("Checking proposed values with Sentinel…");
                 App.Events!.Enqueue(ua2 =>
                 {
                     try
@@ -408,13 +411,13 @@ public sealed class BcfIssuesCommand : IExternalCommand
                                 failuresRequirement: req.Requirement);
                             if (!res.Reached)
                             {
-                                fix.SetStatus($"Could not reach the bridge \u2014 nothing was checked ({res.Error}). Applying is unverified.");
+                                fix.SetStatus($"{ReviewChangesetsCommand.PlainSentence(res.Error)} Nothing was checked. Applying is unverified.");
                                 fix.SetBusy(false); return;
                             }
                             if (res.Verdict == "recorded")
                             {
-                                fix.SetBanner($"No IDS installed for {projectKey} or its office \u2014 verdict \u201crecorded\u201d. Apply is allowed; nothing can be certified or resolved.");
-                                fix.SetStatus($"Not checkable: no IDS installed for {projectKey} or its office."); fix.SetBusy(false); return;
+                                fix.SetBanner($"No data requirements installed for {projectKey} or its office \u2014 recorded, not checked. Apply is allowed; nothing can be certified or resolved.");
+                                fix.SetStatus($"Cannot be checked: no data requirements installed for {projectKey} or its office."); fix.SetBusy(false); return;
                             }
                             var why = NotConclusive(expected, payload.Count, res.InScope, res.ElementFailures.Count, res.FailuresMatched);
                             if (why != null) { fix.SetStatus(why); fix.SetBusy(false); return; }
@@ -422,7 +425,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             fix.RefreshRows();
                             // The bridge filtered the list to this requirement; the footnote count comes from its totals.
                             var other = res.FailuresTotal >= 0 && res.FailuresMatched >= 0 ? res.FailuresTotal - res.FailuresMatched : fold.OtherOpen;
-                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 IDS {res.IdsLabel} \u00b7 {LedgerLine.For(LedgerResult.FromReceipt(res.AuditId, res.ReceiptHash))}");
+                            fix.SetStatus($"Check: {fold.Pass} would pass, {fold.Fail} would fail{(other > 0 ? $" \u00b7 {other} failure(s) on other requirements not part of this issue" : "")} \u00b7 {ReviewChangesetsCommand.HistWords(LedgerResult.FromReceipt(res.AuditId, res.ReceiptHash), "Fix check, IDS " + res.IdsLabel)}");
                             fix.SetBusy(false);
                         });
                     }
@@ -448,7 +451,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                             GovernedNotify.Report("Fix-in-place", CommandReports.FixInPlace(req.Requirement, topic.Guid, done, outcomes.Count - done, UserSession.Actor), projectKey);
                         foreach (var o in outcomes.Where(o => !o.Ok)) { o.Row.Verdict = FixVerdict.Fail; o.Row.Reason = "not written: " + o.Message; }
                         fix.RefreshRows();
-                        fix.SetStatus($"Applied {done}/{outcomes.Count} row(s). Re-checking the model with the referee\u2026");
+                        fix.SetStatus($"Applied {done}/{outcomes.Count} row(s). Re-checking the model with Sentinel\u2026");
                         Recheck(ua2);
                     }
                     catch (Exception ex) { fix.SetStatus("Revit refused: " + ex.Message); fix.SetBusy(false); }
@@ -478,15 +481,15 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         if (!res.Reached)
                         {
                             fix.SetStatus(applied
-                                ? $"Applied. NOT verified \u2014 the bridge could not be reached ({res.Error}); the issue was not touched. Use Re-check when it is back."
-                                : $"NOT verified \u2014 the bridge could not be reached ({res.Error}); the issue was not touched. Use Re-check when it is back.");
+                                ? $"Applied, but not checked \u2014 {ReviewChangesetsCommand.PlainSentence(res.Error)} The issue was not touched. Use Re-check when Sentinel is back."
+                                : $"Not checked \u2014 {ReviewChangesetsCommand.PlainSentence(res.Error)} The issue was not touched. Use Re-check when Sentinel is back.");
                             fix.SetBusy(false); return;
                         }
                         if (res.Verdict == "recorded")
                         {
                             fix.SetStatus(applied
-                                ? $"Applied. NOT verified \u2014 no IDS installed for {projectKey} or its office; the issue was not touched."
-                                : $"NOT verified \u2014 no IDS installed for {projectKey} or its office; the issue was not touched.");
+                                ? $"Applied, but not checked \u2014 no data requirements installed for {projectKey} or its office; the issue was not touched."
+                                : $"Not checked \u2014 no data requirements installed for {projectKey} or its office; the issue was not touched.");
                             fix.SetBusy(false); return;
                         }
                         // Nothing is painted green and no comment is posted off a response that cannot vouch for
@@ -517,7 +520,7 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         try { bearer = BcfConfig.Load().ServiceToken; }
                         catch (SessionException e) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted ({e.Message}); the issue is unchanged."); fix.SetBusy(false); return; }
                         var c = await sync.AddCommentAsync(bcfKey, topic.Guid, evidence, User(), () => bearer).ConfigureAwait(false);
-                        if (c < 200 || c >= 300) { fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted (HTTP {c}); the issue is unchanged."); fix.SetBusy(false); return; }
+                        if (c < 200 || c >= 300) { App.PanelVm?.LogDoctor($"Fix check: the evidence comment was refused (HTTP {c})."); fix.SetStatus($"Re-check done ({passed}/{total} pass) but the evidence comment was not posted; the issue is unchanged."); fix.SetBusy(false); return; }
                         if (!fold.AllPass)
                         {
                             fix.SetStatus($"Re-check: {passed}/{total} pass. Evidence posted; the issue stays {topic.Status} until every element passes.");
@@ -530,8 +533,9 @@ public sealed class BcfIssuesCommand : IExternalCommand
                         }
                         var s = await sync.SetStatusAsync(bcfKey, topic.Guid, "Resolved", User(), () => bearer).ConfigureAwait(false);
                         fix.SetStatus(s >= 200 && s < 300
-                            ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved ({ledgerLine}). Closing it stays a human decision on the web."
-                            : $"Evidence posted; status unchanged (HTTP {s}).");
+                            ? $"\u2713 {passed}/{total} pass \u2014 evidence posted and the issue is now Resolved ({ReviewChangesetsCommand.HistWords(LedgerResult.FromReceipt(res.AuditId, res.ReceiptHash), "Fix check")}). Closing it stays a human decision on the web."
+                            : $"Evidence posted; the status is unchanged.");
+                        if (s < 200 || s >= 300) App.PanelVm?.LogDoctor($"Fix check: the status change was refused (HTTP {s}).");
                         fix.SetBusy(false);
                         try { window.Dispatcher.BeginInvoke(new Action(Refresh)); } catch { /* window closed */ }
                     });

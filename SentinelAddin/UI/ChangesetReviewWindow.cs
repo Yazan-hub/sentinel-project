@@ -79,7 +79,7 @@ public sealed class ChangesetReviewWindow : Window
     private readonly Dictionary<ChangesetElementDto, ChangesetTrust.Tier> _tier = new();
     private readonly IReadOnlyDictionary<string, (bool Own, string Why)> _guards;
     private readonly TextBox _tickWhy = new() { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
-        ToolTip = "Required when a row here is ticked: one line, why you apply these rows — recorded for each ticked row with the result and on the ledger, with your name." };
+        ToolTip = "Required when a row here is ticked: one line, why you apply these rows — recorded for each ticked row with the result and in History, with your name." };
     private readonly TextBox _batchWhy = new() { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center };
     private readonly DockPanel _batchRow = new() { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 4, 0, 4) };
     private ChangesetTrust.Tier TierOf(ChangesetElementDto el) => _tier.TryGetValue(el, out var t) ? t : ChangesetTrust.Tier.Safe;
@@ -120,7 +120,7 @@ public sealed class ChangesetReviewWindow : Window
         head.Children.Add(new TextBlock { Text = _cs.Name, FontSize = 15, FontWeight = FontWeights.Bold });
         head.Children.Add(new TextBlock
         {
-            Text = $"Proposed by {ChangesetTrust.SourceLabel(_cs)} · adjudication: {_cs.Adjudication?.Verdict ?? "?"} (spec: {_cs.Adjudication?.IdsSource ?? "?"})",
+            Text = $"Proposed by {ChangesetTrust.SourceLabel(_cs)} · check result: {_cs.Adjudication?.Verdict ?? "?"} (data requirements: {_cs.Adjudication?.IdsSource ?? "?"})",
             Foreground = Brushes.Gray, Margin = new Thickness(0, 2, 0, 0),
         });
         var unattributed = _cs.Adjudication?.Unattributed?.Count ?? 0;
@@ -185,14 +185,14 @@ public sealed class ChangesetReviewWindow : Window
         scan.Unchecked += (_, _) => ScanRequested?.Invoke(false);
         // MA-8-9: a person's pick of a stair, on any changeset still live.
         var flagStair = new Button { Content = "Flag a stair…", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 12, 0),
-                                     ToolTip = "Pick the stair's two plan corners on a storey's plan; it is saved on this changeset as a flag for a person - nothing is placed",
+                                     ToolTip = "Pick the stair's two plan corners on a storey's plan; it is saved on these proposed changes as a flag for a person - nothing is placed",
                                      Visibility = _cs.Status == "withdrawn" ? Visibility.Collapsed : Visibility.Visible };
         flagStair.Click += (_, _) => FlagStairRequested?.Invoke();
         buttons.Children.Add(flagStair);
         // MA-8-14: the ground of this survey as a Toposolid proposal (a survey changeset only: the bridge reads the job's scan again for it)
         var terrain = new Button { Content = "Propose terrain from the scan…", Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(0, 0, 12, 0),
                                    // review round 2: the shape Revit builds is said (TerrainPlanner.Shape)
-                                   ToolTip = "Read the ground off this survey's scan (the lowest point per cell outside the storey's walls) and propose it as one Toposolid of the office's type, as a changeset of its own — " + TerrainPlanner.Shape + " — nothing is ticked or placed",
+                                   ToolTip = "Read the ground off this survey's scan (the lowest point per cell outside the storey's walls) and propose it as one Toposolid of the office's type, as its own set of proposed changes — " + TerrainPlanner.Shape + " — nothing is ticked or placed",
                                    Visibility = SurveyChangeset && _cs.Status != "withdrawn" ? Visibility.Visible : Visibility.Collapsed };
         terrain.Click += (_, _) => ProposeTerrainRequested?.Invoke();
         buttons.Children.Add(terrain);
@@ -310,7 +310,7 @@ public sealed class ChangesetReviewWindow : Window
             // MA-3b2: one reason for this group's unticked rows — recorded per ghost with the result (result.reasons) and on its ledger row.
             // Review C4: on its own row under the buttons, the box filling it (no fixed width: the bar clips, it does not wrap).
             var why = new TextBox { MaxLength = ChangesetTrust.MaxReason, VerticalContentAlignment = VerticalAlignment.Center,
-                                    ToolTip = "Optional, one line: why this group's unticked rows are declined. Recorded for each of them with the result and, when Revit is signed in, carried to the next filing: the next changeset that proposes the same change files the row already declined — not for a row already declined (its reason stands)." };
+                                    ToolTip = "Optional, one line: why this group's unticked rows are declined. Recorded for each of them with the result and, when Revit is signed in, carried to the next filing: the next proposal of the same change files the row already declined — not for a row already declined (its reason stands)." };
             var whyLabel = new TextBlock { Text = "Reason for the unticked here:", Foreground = Brushes.Gray, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
             var whyRow = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
             DockPanel.SetDock(whyLabel, Dock.Left);
@@ -393,12 +393,12 @@ public sealed class ChangesetReviewWindow : Window
         var status = v?.Status ?? "recorded";
         var (text, fg, tip) = status switch
         {
-            "accepted" => ("✓ accepted", Brushes.LightGreen, "Passed the project's IDS adjudication."),
+            "accepted" => ("✓ accepted", Brushes.LightGreen, "Passed the project's data requirements check."),
             "rejected" => ($"✗ rejected ({v.Failures?.Count ?? 0})", Brushes.IndianRed,
                 string.Join("\n", (v.Failures ?? new List<JsonElement>()).Take(10).Select(FailureText))),
             "recorded" => ("— recorded", Brushes.Gray, "No spec to adjudicate against — nothing was certified for this element."),
             // A status outside the contract is a bridge-contract break — say so, don't dress it as recorded.
-            _ => ($"? {status}", Brushes.Orange, "Unrecognised verdict status — treat as NOT certified."),
+            _ => ($"? {status}", Brushes.Orange, "Unrecognised check result — treat as NOT certified."),
         };
         var tb = new TextBlock { Text = text, Foreground = fg, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold };
         tb.ToolTip = tip;
@@ -459,7 +459,7 @@ public sealed class ChangesetReviewWindow : Window
             if (batchProblem != null) { Say($"The batch reason was not taken — {batchProblem}. Nothing was sent."); return; }
         }
         _go.IsEnabled = false; Reasons(true); // review C2: the reasons are taken here — a box typed in afterwards would look recorded and not be
-        Say("Re-checking with the bridge…");
+        Say("Re-checking with Sentinel…");
         DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? "", reasons, tickReasons, batchReason);
     }
 
@@ -479,7 +479,7 @@ public sealed class ChangesetReviewWindow : Window
     {
         "pick" => "picked by a person",
         "ifc" => $"from the IFC, GlobalId {x.GlobalId}",
-        _ => "posted with the changeset, not checked",
+        _ => "posted with the proposed changes, not checked",
     };
 
     private UIElement HeldRow(ExceptionRowDto x)
@@ -492,7 +492,7 @@ public sealed class ChangesetReviewWindow : Window
         if (stair && SurveyChangeset)
         {
             var slice = new CheckBox { Content = "Scan slice", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
-                                       ToolTip = "Show the scan inside this stair's box (reads the scan on the bridge; off until ticked)" };
+                                       ToolTip = "Show the scan inside this stair's box (reads the scan from Sentinel; off until ticked)" };
             slice.Checked += (_, _) =>
             {
                 if (_scanBox?.IsChecked == true) _scanBox.IsChecked = false;
@@ -508,7 +508,7 @@ public sealed class ChangesetReviewWindow : Window
         if (stair && _cs.Status != "withdrawn")
         {
             var propose = new Button { Content = "Propose a stair…", Padding = new Thickness(8, 2, 8, 2), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
-                                       ToolTip = "Plan one straight stair in this box from the office's Stairs rule and the model's stair type, as a changeset of its own - nothing is ticked or placed" };
+                                       ToolTip = "Plan one straight stair in this box from the office's Stairs rule and the model's stair type, as its own set of proposed changes - nothing is ticked or placed" };
             propose.Click += (_, _) => ProposeStairRequested?.Invoke(x.UniqueId);
             DockPanel.SetDock(propose, Dock.Right);
             row.Children.Add(propose);
@@ -569,6 +569,11 @@ public sealed class ChangesetReviewWindow : Window
     public void Shown(string words) => Ui(() =>
     {
         if (_gone) return;
+        // UX slice 4: a "\nDetails: …" tail (job, History number) is the hover and the Doctor log, not part of the line.
+        var cut = words?.IndexOf("\nDetails: ", StringComparison.Ordinal) ?? -1;
+        _shown.ToolTip = cut >= 0 ? words.Substring(cut + 1) : null;
+        if (cut >= 0) App.PanelVm?.LogDoctor("Review: " + words.Substring(cut + 1));
+        if (cut >= 0) words = words.Substring(0, cut);
         _shown.Text = words ?? "";
         _shown.Visibility = string.IsNullOrEmpty(words) ? Visibility.Collapsed : Visibility.Visible;
     });

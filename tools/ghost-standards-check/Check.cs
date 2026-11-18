@@ -101,8 +101,8 @@ static partial class Check
         var cat = catalog.GetAwaiter().GetResult();
         var def = plain.GetAwaiter().GetResult();
         slow.GetAwaiter().GetResult();
-        Ok(cat.Origin == "bridge" && cat.Label == "type_catalog@1 · office · 0123456789ab…", "a 20 s call outlives the old client-wide 4 s (the bridge took 4.5 s)");
-        Ok(def.Origin == "none" && def.Label == "none — bridge unreachable (timed out after 4 s)", "a call with no cap of its own still stops at 4 s, and says so");
+        Ok(cat.Origin == "bridge" && cat.Label == "type_catalog@1 · office · 0123456789ab…", "a 20 s call outlives the old client-wide 4 s (Sentinel took 4.5 s)");
+        Ok(def.Origin == "none" && def.Label == "none — Sentinel is not connected (timed out after 4 s)", "a call with no cap of its own still stops at 4 s, and says so");
 
         // A bridge that accepts and never answers: the caller's cap, and the label says which.
         var silent = new TcpListener(IPAddress.Loopback, 0);
@@ -111,7 +111,7 @@ static partial class Check
         var quiet = ArtefactClient.Resolve("quiet", "guideline", "http://127.0.0.1:" + ((IPEndPoint)silent.LocalEndpoint).Port, "", TimeSpan.FromMilliseconds(500));
         var took = sw.Elapsed;
         silent.Stop();
-        Ok(quiet.Label == "none — bridge unreachable (timed out after 0.5 s)" && took < TimeSpan.FromSeconds(3), "0.5 s asked, under 3 s waited, and the label says 0.5 s");
+        Ok(quiet.Label == "none — Sentinel is not connected (timed out after 0.5 s)" && took < TimeSpan.FromSeconds(3), "0.5 s asked, under 3 s waited, and the label says 0.5 s");
     }
 
     // ── 2. GhostStandards: the kinds a command asks for, fetched together, each labelled ────────────────
@@ -139,7 +139,7 @@ static partial class Check
         var again = GhostStandards.Load((kind, t) => ArtefactClient.Resolve("demo", kind, dead, "", t), true, true, true);
         Ok(again.LayersSource.Origin == "cache" && again.LayersSource.Label.StartsWith("layers@1 · office · 0123456789ab… (cached ")
            && again.CatalogSource.Label.StartsWith("type_catalog@1 · office · 0123456789ab… (cached ")
-           && again.GuidelineSource.Label.StartsWith("none — bridge unreachable"), "bridge stopped → the cached copies say cached; the guideline stays none");
+           && again.GuidelineSource.Label.StartsWith("none — Sentinel is not connected"), "bridge stopped → the cached copies say cached; the guideline stays none");
 
         // The catalogue asks for 20 s, the others take the default; the three go out together, not one after another.
         var asked = new ConcurrentDictionary<string, TimeSpan?>();
@@ -161,7 +161,7 @@ static partial class Check
         Ok(thrown.LayersSource.Label == "none — the layers could not be loaded (boom)", "a resolver that throws is none with the reason, never a crash");
 
         var unbound = GhostStandards.Load("");
-        Ok(unbound.Header == "Layers: none — not bound — Sentinel ▸ Project Setup · Guideline: none — not bound — Sentinel ▸ Project Setup · Type catalogue: none — not bound — Sentinel ▸ Project Setup",
+        Ok(unbound.Header == "Layers: none — not bound — Sentinel ▸ More ▸ Project Setup · Guideline: none — not bound — Sentinel ▸ More ▸ Project Setup · Type catalogue: none — not bound — Sentinel ▸ More ▸ Project Setup",
            "an unbound document asks nothing and reads not bound, three times");
     }
 }

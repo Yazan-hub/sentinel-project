@@ -48,7 +48,7 @@ namespace Sentinel.Coordination
             string token;
             try { cfg = BcfConfig.Load(); token = cfg.ServiceToken; }
             catch (SessionException e) { return Fallback(kind, ArtefactCache.Read((key ?? "").Trim(), (kind ?? "").Trim()), e.Message, null); } // SI-1: no bridge call
-            catch (Exception e) { return None(kind, "the bridge settings could not be read (" + e.Message + ")"); }
+            catch (Exception e) { return None(kind, "Sentinel settings could not be read (" + e.Message + ")"); }
             return Resolve(key, kind, cfg.ServiceUrl, token, timeout);
         }
 
@@ -57,7 +57,7 @@ namespace Sentinel.Coordination
         {
             key = (key ?? "").Trim();
             kind = (kind ?? "").Trim();
-            if (key.Length == 0) return None(kind, "not bound — Sentinel ▸ Project Setup");
+            if (key.Length == 0) return None(kind, "not bound — Sentinel ▸ More ▸ Project Setup");
             var cap = timeout ?? DefaultTimeout;
             var cached = ArtefactCache.Read(key, kind);
             try
@@ -77,7 +77,7 @@ namespace Sentinel.Coordination
                 var why = e is OperationCanceledException
                     ? "timed out after " + cap.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) + " s"
                     : (e.InnerException?.Message ?? e.Message);
-                return Fallback(kind, cached, "bridge unreachable", why);
+                return Fallback(kind, cached, "Sentinel is not connected", why);
             }
         }
 
@@ -116,7 +116,7 @@ namespace Sentinel.Coordination
         {
             if (status == 304)
             {
-                if (cached == null) return None(kind, "the bridge answered 304 but there is no cached copy");
+                if (cached == null) return None(kind, "Sentinel answered 304 but there is no cached copy");
                 cached.FetchedAt = nowUtc; // confirmed current now
                 ArtefactCache.Write(key, kind, cached);
                 return From(kind, cached, "bridge");
@@ -135,7 +135,7 @@ namespace Sentinel.Coordination
                     string? r = S("ref"), src = S("source"), sha = S("sha256");
                     if (string.IsNullOrEmpty(r) || string.IsNullOrEmpty(src) || string.IsNullOrEmpty(sha)
                         || !root.TryGetProperty("body", out var b) || b.ValueKind != JsonValueKind.Object)
-                        return Fallback(kind, cached, "the bridge answered 200 without ref, source, sha256 and body", null);
+                        return Fallback(kind, cached, "Sentinel answered 200 without ref, source, sha256 and body", null);
                     var fresh = new CachedArtefact { Kind = kind, Ref = r!, Source = src!, Sha256 = sha!, BodyJson = b.GetRawText(), FetchedAt = nowUtc };
                     ArtefactCache.Write(key, kind, fresh);
                     return From(kind, fresh, "bridge");
@@ -151,13 +151,13 @@ namespace Sentinel.Coordination
             if (status == 404 && reason == "no_project")
             {
                 ArtefactCache.Clear(key, kind);
-                var noProject = None(kind, $"no project {key} on the bridge");
+                var noProject = None(kind, $"no project {key} on Sentinel");
                 noProject.NoProject = true;
                 return noProject;
             }
-            if (status == 404 && reason == "unknown_kind") return None(kind, $"the bridge does not know the kind '{kind}'");
+            if (status == 404 && reason == "unknown_kind") return None(kind, $"Sentinel does not know the kind '{kind}'");
             if (status == 401) return Fallback(kind, cached, SignedOutLine, null);
-            return Fallback(kind, cached, $"the bridge answered HTTP {status}", message);
+            return Fallback(kind, cached, $"Sentinel answered HTTP {status}", message);
         }
 
         /// <summary>The ETag the bridge sends for an artefact: <c>"&lt;ref&gt;:&lt;source&gt;:&lt;sha256&gt;"</c>, quotes
@@ -182,7 +182,7 @@ namespace Sentinel.Coordination
         // No confirmation from the bridge: the cached copy says so, else none.
         /// <summary>A 401 in words (H4). The same words as GovernedQuery.SignedOutLine; kept here so the check tools that
         /// compile this file alone still build.</summary>
-        internal const string SignedOutLine = "signed out — Sentinel ▸ Sign in";
+        internal const string SignedOutLine = "signed out — Sentinel ▸ More ▸ Sign in";
 
         private static ResolvedArtefact Fallback(string kind, CachedArtefact? cached, string what, string? detail) =>
             cached != null

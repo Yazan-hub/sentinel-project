@@ -46,7 +46,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         // fixed names, and the preview says they are not checked.
         if (App.Engine is not RuleEngineHost engine || !engine.Has(doc))
         {
-            TaskDialog.Show(Title, "The project's ruleset has not loaded yet, so the view names cannot be judged by Scan Now's rule. Run Scan Now, then Annotate again. Nothing was created.");
+            TaskDialog.Show(Title, "The project standards have not loaded yet, so the view names cannot be judged by Scan Now's rule. Run Scan Now, then Annotate again. Nothing was created.");
             return Result.Cancelled;
         }
         var ruleset = engine.RulesetFor(doc);
@@ -508,14 +508,21 @@ public sealed class AnnotateViewsCommand : IExternalCommand
             warnings.Count, storyNames.Count, pinnedNow.Select(e => e.Id.IdValue()).ToList(), pinnedLine, kept, guidelineLabel, rulesetLabel, UserSession.Actor, more), key);
 
         var sb = new StringBuilder();
+        var det = new StringBuilder();
         if (!kept)
-            sb.AppendLine($"Revit committed this run but did not keep the Undo group (B31?): {present.Count} view(s), {pinnedNow.Count} pin(s), {sheetsNow.Count} sheet(s) and {templatesNow.Count} view template(s) are in the model — the annotate ledger row is the record.").AppendLine();
+        {
+            sb.AppendLine($"Revit committed this run but did not keep the Undo group: {present.Count} view(s), {pinnedNow.Count} pin(s), {sheetsNow.Count} sheet(s) and {templatesNow.Count} view template(s) are in the model — the record in History is the proof.").AppendLine();
+            det.AppendLine("Undo group not kept (B31).");
+        }
         sb.AppendLine(words[0]).AppendLine(words[1]);
         sb.AppendLine($"Created: {present.Count} view(s). Pinned: {pinnedLevels} level(s) and {pinnedGrids} grid(s).");
         sb.AppendLine(pinnedLine);
         if (src != null)
-            sb.AppendLine($"View templates: copied {templatesNow.Count} from {src.FileName} (sha256 {src.Sha256.Substring(0, 12)}…) — "
+        {
+            sb.AppendLine($"View templates: copied {templatesNow.Count} from {src.FileName} — "
                 + (src.Opened ? "opened in the background, closed unsaved." : "the file was already open and is still open, unchanged by Sentinel."));
+            det.AppendLine($"View template file: {src.FileName} (sha256 {src.Sha256.Substring(0, 12)}…)");
+        }
         if (pick.SheetLevel != null)
         {
             sb.AppendLine($"Sheets on {pick.SheetLevel}: {sheetsNow.Count} made with {sheetsNow.Sum(s => s.Viewports)} viewport(s)" + (sheetsNow.Count > 0 ? " — " + string.Join(", ", sheetsNow.Select(s => s.Number)) : "") + ".");
@@ -538,7 +545,7 @@ public sealed class AnnotateViewsCommand : IExternalCommand
         }
         sb.AppendLine().AppendLine(ViewPlanner.UndoWords());
         sb.AppendLine().Append("Scan Now judges the new view names by the same rule.");
-        TaskDialog.Show(Title, sb.ToString());
+        new TaskDialog(Title) { MainContent = sb.ToString(), ExpandedContent = det.ToString() }.Show();
         return Result.Succeeded;
         }
         finally

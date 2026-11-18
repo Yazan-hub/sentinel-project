@@ -34,7 +34,7 @@ namespace Sentinel.Coordination
 
         /// <summary>The bridge answered 401: no session and no machine token (H4). The tools say so, never "unreachable".</summary>
         public sealed class SignedOutException : Exception { public SignedOutException() : base(SignedOutLine) { } }
-        public const string SignedOutLine = "signed out — Sentinel ▸ Sign in";
+        public const string SignedOutLine = "signed out — Sentinel ▸ More ▸ Sign in";
 
         /// <summary>
         /// One line for the Clash Manager header: the project's Federation Gate status from the web
@@ -55,7 +55,7 @@ namespace Sentinel.Coordination
                 if (!root.TryGetProperty("latest", out var latest) || latest.ValueKind != JsonValueKind.Object)
                 {
                     int live = root.TryGetProperty("live_set", out var ls) && ls.ValueKind == JsonValueKind.Array ? ls.GetArrayLength() : 0;
-                    return $"Federation Gate: NOT RUN — {live} live model(s) on '{key}'; run it on the web before clashing.";
+                    return $"Coordination check: Not run yet — {live} live model(s) on '{key}'; run it on the web (Models) before raising clashes.";
                 }
                 var result = latest.GetProperty("result");
                 var verdict = result.GetProperty("verdict").GetString() ?? "";
@@ -70,13 +70,13 @@ namespace Sentinel.Coordination
                         if (m.TryGetProperty("has_manifest", out var hm) && hm.ValueKind == JsonValueKind.True) read++;
                     }
                 bool stale = root.TryGetProperty("stale", out var st) && st.ValueKind == JsonValueKind.True;
-                var word = verdict == "pass" ? "PASS" : verdict == "fail" ? "FAIL" : "NOT CHECKABLE";
-                return $"Federation Gate: {word}" + (failing.Count > 0 ? " (" + string.Join(", ", failing) + " — see the web Issues)" : "")
+                var word = verdict == "pass" ? "Passed" : verdict == "fail" ? "Failed" : "Cannot be checked";
+                return $"Coordination check: {word}" + (failing.Count > 0 ? " (" + string.Join(", ", failing) + " — see the web Issues)" : "")
                      + (total > 0 && read < total ? $" · {read} of {total} read" : "")
                      + (stale ? " — STALE, a live version changed" : "") + $" on '{key}'";
             }
-            catch (SignedOutException) { return "Federation Gate: " + SignedOutLine; }
-            catch (SessionException e) { return "Federation Gate: " + e.Message; }
+            catch (SignedOutException) { return "Coordination check: " + SignedOutLine; }
+            catch (SessionException e) { return "Coordination check: " + e.Message; }
             catch { return null; }
         }
 
@@ -114,7 +114,7 @@ namespace Sentinel.Coordination
         {
             failure = null;
             var key = (projectKey ?? "").Trim();
-            if (key.Length == 0) { failure = "not bound — Sentinel ▸ Project Setup"; return null; }
+            if (key.Length == 0) { failure = "not bound — Sentinel ▸ More ▸ Project Setup"; return null; }
             try
             {
                 var cfg = BcfConfig.Load();
@@ -178,7 +178,7 @@ namespace Sentinel.Coordination
                 {
                     Key = Str(root, "key") ?? key,
                     Kind = Str(root, "kind") ?? "",
-                    StandardsLine = $"Standards in force: IDS {Label("ids")} · Rules {Label("ruleset")} · Naming {Label("naming")}",
+                    StandardsLine = $"Standards in force: data requirements {Label("ids")} · Rules {Label("ruleset")} · Naming {Label("naming")}",
                     NextLine = nextLine,
                     Done = done,
                     Total = total,
@@ -203,11 +203,11 @@ namespace Sentinel.Coordination
         public static string ScanRulesetLine(ResolvedArtefact local, JourneyInfo? j)
         {
             var head = "Judged by " + local.Label;
-            if (j is null) return head + " — the project's ruleset now is unknown (journey unavailable)";
+            if (j is null) return head + " — the project's standards now are unknown (journey unavailable)";
             if (string.IsNullOrEmpty(j.RulesetRef))
             {
-                if (j.RulesetLabel is { } l && l != "none") return head + " — the project's ruleset is " + l; // a failed read is not "nothing installed"
-                return local.Ref is null ? head + " — nothing is scored" : head + " — but the project now has no ruleset installed (Scan Now reloads)";
+                if (j.RulesetLabel is { } l && l != "none") return head + " — the project's standards are " + l; // a failed read is not "nothing installed"
+                return local.Ref is null ? head + " — nothing is scored" : head + " — but the project now has no standards installed (Scan Now reloads)";
             }
             if (local.Ref == j.RulesetRef && local.Source == j.RulesetSource && local.Sha256 == j.RulesetSha256) return head;
             return head + $" — the project now has {j.RulesetLabel ?? j.RulesetRef} (Scan Now reloads)";
@@ -235,7 +235,7 @@ namespace Sentinel.Coordination
         {
             failure = null;
             var key = (projectKey ?? "").Trim();
-            if (key.Length == 0) { failure = "not bound — Sentinel ▸ Project Setup"; return null; }
+            if (key.Length == 0) { failure = "not bound — Sentinel ▸ More ▸ Project Setup"; return null; }
             try
             {
                 var cfg = BcfConfig.Load();
@@ -289,7 +289,7 @@ namespace Sentinel.Coordination
         /// <summary>As above; <paramref name="failure"/> says why a null came back ("signed out — …", "bridge unreachable").</summary>
         public static List<ClashRow>? ClashRegister(string projectKey, out string failure)
         {
-            failure = "bridge unreachable";
+            failure = "Sentinel is not connected";
             var key = (projectKey ?? "").Trim();
             if (key.Length == 0) { failure = "not bound"; return null; }
             try

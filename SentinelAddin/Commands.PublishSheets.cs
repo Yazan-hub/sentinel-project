@@ -71,7 +71,7 @@ public sealed class PublishSheetsCommand : IExternalCommand
         const int Max = 25;
         var sb = new StringBuilder();
         int shown = run.Sheets.Count(s => s.Png != null), registered = run.Sheets.Count(s => s.VersionId != null);
-        sb.AppendLine($"{shown} of {run.Sheets.Count} sheet(s) exported · {registered} registered in the CDE.");
+        sb.AppendLine($"{shown} of {run.Sheets.Count} sheet(s) exported · {registered} added to the project's files.");
         sb.AppendLine();
         foreach (var s in run.Sheets.Take(Max))
         {
@@ -79,10 +79,10 @@ public sealed class PublishSheetsCommand : IExternalCommand
                 s.Png is null ? "not exported — " + s.NotExported
                 : s.Pdf is null ? "image only (not proposed) — " + s.PdfMissing
                 : s.ProposalError ?? (s.Verdict == "rejected" ? "refused — " + s.Refusal
-                    : $"registered {s.VersionRevision ?? "?"} ({s.Verdict}) · {s.Midp ?? "the bridge said nothing of the MIDP"}");
+                    : $"registered {s.VersionRevision ?? "?"} ({s.Verdict}) · {s.Midp ?? "Sentinel said nothing of the delivery plan"}");
             sb.AppendLine($"{s.Number}  {line}");
         }
-        if (run.Sheets.Count > Max) sb.AppendLine($"… and {run.Sheets.Count - Max} more (all in the web's Sheets tab).");
+        if (run.Sheets.Count > Max) sb.AppendLine($"… and {run.Sheets.Count - Max} more (all in Models ▸ Sheets on the web).");
         sb.AppendLine();
         sb.Append("Images, PDFs and the manifest: " + run.OutDir);
         return sb.ToString();

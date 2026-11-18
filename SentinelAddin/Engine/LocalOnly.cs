@@ -22,15 +22,15 @@ namespace Sentinel.Engine
         {
             string u = string.IsNullOrWhiteSpace(url) ? DefaultModelUrl : url!.Trim();
             if (!Uri.TryCreate(u, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-                return $"The model address \"{u}\" is not an http or https address — set the local AI address in Standards ▸ PC Settings." + Nothing;
+                return $"The model address \"{u}\" is not an http or https address — set the local AI address in Sentinel ▸ More ▸ PC Settings." + Nothing;
             if (uri.UserInfo.Length > 0)
-                return "The model address carries a user name or password — set the local AI address in Standards ▸ PC Settings without one." + Nothing;
+                return "The model address carries a user name or password — set the local AI address in Sentinel ▸ More ▸ PC Settings without one." + Nothing;
             if (!OnThisPc(uri) && !cloudOptIn)
                 return $"The model at {uri.Host} is not on this PC, and this PC has not opted in to a model elsewhere "
-                     + "(\"Allow a model off this PC\" in Standards ▸ PC Settings)." + Nothing;
+                     + "(\"Allow a model off this PC\" in Sentinel ▸ More ▸ PC Settings)." + Nothing;
             if (!OnThisPc(uri) && uri.Scheme != Uri.UriSchemeHttps)
                 return $"The model at {uri.Host} is not on this PC, and Sentinel calls a model elsewhere over https only "
-                     + "— set an https local AI address in Standards ▸ PC Settings." + Nothing;
+                     + "— set an https local AI address in Sentinel ▸ More ▸ PC Settings." + Nothing;
             return null;
         }
 

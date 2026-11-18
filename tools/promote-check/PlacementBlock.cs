@@ -127,7 +127,7 @@ static partial class Check
            "Try again once it can be read — Sentinel never places on a guess.",
            "a guideline that could not be read is refused with the reader's own reason");
         Ok(PlacementPolicy.UnreadRefusal("none", true, true, "not installed for demo or its office") == null
-           && PlacementPolicy.UnreadRefusal("none", false, false, "not bound — Sentinel ▸ Project Setup") == null,
+           && PlacementPolicy.UnreadRefusal("none", false, false, "not bound — Sentinel ▸ More ▸ Project Setup") == null,
            "no guideline installed, or a model that is not bound, is no block — not a refusal");
         Ok(PlacementPolicy.UnreadRefusal("bridge", false, true, null) == null && PlacementPolicy.UnreadRefusal("cache", false, true, "bridge unreachable — cached 14:02") == null,
            "a guideline read from the bridge, or from its cached copy, is read: its block — or its lack of one — is known");
@@ -250,7 +250,7 @@ static partial class Check
         string evc = Src("Coordination", "EvidenceClient.cs");
         Ok(evc.Contains("CopyHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(120)") && evc.Contains("Url(cfg, projectKey, packId, $\"/items/{Uri.EscapeDataString(itemId)}/view\"), CopyHttp)"),
            "MA-7-14: a blurred copy downloads on the 120 s client, the pack on the 8 s one");
-        Ok(massingCmd.Contains("onRead: p =>") && massingCmd.Contains("photosRead.Count == 0") && massingCmd.Contains("an older Photo Massing changeset read outside the evidence pack")
+        Ok(massingCmd.Contains("onRead: p =>") && massingCmd.Contains("photosRead.Count == 0") && massingCmd.Contains("an older set of Photo Massing proposed changes, read outside the evidence pack")
            && massingCmd.Contains("receipt.Parameters[\"model_values\"]") && !massingCmd.Contains("? photosRead.Select"),
            "MA-7-14 review: a photo is named only when the model read it; nothing read is said before the review; an older evidence-less photo changeset is declined, not opened; the receipt always names the photos");
 

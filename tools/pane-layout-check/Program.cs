@@ -27,7 +27,7 @@ public sealed class PaneVm
         JourneyKey = "Journey — loading…";
         StandardsLine = NextLine = LodLine = PublishLine = ScanRulesetLine = "";
     }
-    public string JourneyKey { get; } = "Journey — not bound — Sentinel ▸ Project Setup";
+    public string JourneyKey { get; } = "Journey — not bound — Sentinel ▸ More ▸ Project Setup";
     public string StandardsLine { get; } = "Standards in force: IDS none — install from Settings ▸ Standards · Packs · Rules ruleset@1 · office · 0261a9b3c4d5… · Naming none — install from Settings";
     public string NextLine { get; } = "Next: Team in place — web ▸ Settings ▸ Members — add an owner and a lead by e-mail (owner first) (owner) · 0 of 8 done";
     public string LodLine { get; } = "LOD state: DD → design: 9 of 86 at DD (10%) · 68 below · 9 blocked · 0 not measured · 101 on other office types, not counted — Revit's count (claimed), lead@office.example, 2026-10-03 09:12 UTC · ledger #1548";

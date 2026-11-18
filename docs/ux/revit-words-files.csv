@@ -1,0 +1,103 @@
+file,class,candidates,note
+SentinelAddin/App.cs,mixed,31,"screen: tooltips 472-557 (plain words; versions, sha and paths out of the sentence), sync dialogs 309-342 (plain reason first, CDE-01 to ExpandedContent), 447 (Doctor line). Labels at 469, 526, 550, 552 only if the founder accepts open point 1 (then the dialog titles in Commands.BcfIssues, Commands.IfcGate, Commands.GovernedPublish, RulesetWindow.xaml follow). keep: every Sentinel_* id, command class names, icon keys. After any change run tools/help/build.py and tools/ribbon-coverage/check.py"
+SentinelAddin/Commands.Annotate.cs,screen,3,49 project rules; 512 drop the code B31 to ExpandedContent; 517 sha256 to ExpandedContent
+SentinelAddin/Commands.AppliedChanges.cs,screen,5,"changeset = proposed changes, revert = undo; 91 not-connected wording with the cause in Details"
+SentinelAddin/Commands.BcfIssues.cs,mixed,21,"screen: 102, 111 (titles), 159, 166, 206 and 223 (dialog titles keep BCF: import/export), 333, 371, 411-417, 425 (History ref to Details), 481-489. keep: 206 and 224 file filters (format names), 407 and 476 notes (posted with the check), 504 evidence text (written into the issue as a comment, with LedgerLine.For inside)"
+SentinelAddin/Commands.ClashRegister.cs,screen,3,32-39: not-connected wording; the start command goes to ExpandedContent
+SentinelAddin/Commands.GovernedPublish.cs,screen,4,48-49 referee = Sentinel; 67 and 84 follow the button name (open point 1). ExpandedContent already used at 120
+SentinelAddin/Commands.IfcGate.cs,screen,5,five dialog titles: Sentinel - Pre-publish check
+SentinelAddin/Commands.Massing.cs,screen,5,"200 sha256 out of the sentence; 223-270 bridge = Sentinel, changeset = proposed changes, filed = sent for review"
+SentinelAddin/Commands.MepTypeCheck.cs,screen,7,83 Recorded in History (mep_check to Details); 87-119 keep BCF (export). 113 'ids' means element ids: leave
+SentinelAddin/Commands.NamingManager.cs,screen,4,"32, 36 project rules (ruleset@n to Details); 94, 103 History"
+SentinelAddin/Commands.PcSettings.cs,screen,5,labels per the PC Settings table in revit-words.md; values stay visible. tools/promote-check/PcSettings.cs reads this file: update its quoted strings
+SentinelAddin/Commands.Phase2.cs,screen,7,175-176 Coordination check; 104-155 keep BCF (export)
+SentinelAddin/Commands.PromoteWalls.cs,screen,20,"bridge, ledger, changeset, Holding Area, DD IDS per the tables; 200-211 and 278 'sent to the ledger' = recorded in History. Quoted by tools/promote-check (many files): update the quotes"
+SentinelAddin/Commands.Protection.cs,mixed,2,"screen: 69, 189 (protection@n to Details). keep: 138 tests Label.StartsWith(""the built-in"") - if ArtefactClient changes that label, change the test with it"
+SentinelAddin/Commands.PublishSheets.cs,screen,2,74 CDE = the project's files; 82 MIDP = delivery plan
+SentinelAddin/Commands.PublishViews.cs,screen,2,71-72 bridge = Sentinel; the web place takes its slice 2 name (docs/ux/web-coverage.md)
+SentinelAddin/Commands.ReviewChangesets.cs,mixed,28,"screen: all dialog and status sentences (38, 76, 118-159, 355, 484-957). keep: 48 (code), 274 the test for ""Bridge 409"" (internal marker, see revit-words.md 2.3)"
+SentinelAddin/Commands.ShellMass.cs,screen,14,"bridge = Sentinel, changeset = proposed changes, filed = sent for review"
+SentinelAddin/Commands.Standards.cs,mixed,4,"screen: 224-252 (ruleset = project rules; 252 web place by its slice 2 name). keep in step: 364 and 378 test StartsWith(""Ruleset:"") on lines made in Standards/StandardsBuilder.cs - change both files together or neither"
+SentinelAddin/Commands.StandardsEditors.cs,screen,4,"170-171 not-connected wording; 207 kind@version to Details, Recorded in History; 452 Governed Publish = Publish"
+SentinelAddin/Commands.cs,screen,4,"26, 105 project rules; 69-70 pre-publish check and its rules"
+SentinelAddin/Coordination/ArtefactClient.cs,mixed,7,"51, 80, 119, 138, 154-160 are reasons and labels shown in many dialogs: plain words, HTTP status as detail. Before changing a label check it is not posted (search .Label in GovernedNotify.cs and CommandReports.cs) and note Commands.Protection.cs:138. ""bridge unreachable"" is quoted by 6 checks in tools"
+SentinelAddin/Coordination/BcfApplyEvent.cs,none,6,"72 is the background operation's name; 81, 153 are code; 109-184 have no internal word ('ids' = element ids)"
+SentinelAddin/Coordination/BcfSyncManager.cs,screen,8,"85, 166, 200, 201, 232 not-connected wording with status in Details; 191, 218 keep 'BCF 2.1' (format name)"
+SentinelAddin/Coordination/BuildReceipt.cs,none,2,"30 'token counts' are AI usage, not a sign-in; 32 code"
+SentinelAddin/Coordination/ChangesetClient.cs,mixed,23,"keep: 524 the ""Bridge <code>: ..."" value (tested in 7 places) - add reading of the bridge's detail field here. screen: 368-370, 416, 446, 494, 503-505, 532-534, 608-680, 967; 436-438 become the display twin of the History line. Where these are shown, pass through the new plain-error helper"
+SentinelAddin/Coordination/CommandReports.cs,none,1,76 is a note stored in a History row
+SentinelAddin/Coordination/FixInPlaceService.cs,none,2,"224 is a row's kept reason (recorded with the result); 368 VerdictNote is stored; 344 test on ""wall type Function"""
+SentinelAddin/Coordination/GovernedNotify.cs,screen,4,"164-255 'bridge returned HTTP n' is an error reason shown in dialogs: 'Sentinel could not answer', status as detail. Do not touch the request bodies or the source names"
+SentinelAddin/Coordination/GovernedQuery.cs,screen,10,"58-79 Coordination check: Passed / Failed / Cannot be checked / Not run yet; 181 Standards in force keeps names, versions go to the pane's Details; 206-210 project rules; 292, 320 not connected. Quoted by tools/pane-layout-check"
+SentinelAddin/Coordination/IdsIssueRef.cs,none,2,"issue title format and its regex: stored, and read back to avoid duplicates"
+SentinelAddin/Coordination/IssueDraft.cs,mixed,1,"screen: 83. fix: 90 EndsWith(""nothing was saved"") must ignore case and a final full stop (slice 3 wrote some bridge endings as 'Nothing was saved.')"
+SentinelAddin/Coordination/LedgerResult.cs,mixed,4,"keep: LedgerLine.For (177) - its text is written into issue comments. add: a display twin giving 'Recorded in History' + detail, and move screen callers to it. screen: 30, 100, 117 reasons"
+SentinelAddin/Coordination/ProposalResult.cs,mixed,4,"keep: 73 source ""Governed Publish"" (stored as the author). screen: 154-157 MIDP = delivery plan (first confirm MidpWords is only displayed)"
+SentinelAddin/Coordination/UrlRule.cs,screen,1,20: 'a token or a sign-in' = 'your sign-in'
+SentinelAddin/Coordination/UserSession.cs,screen,1,131: 'Signed out. Sign in again (More > Sign in).'; 'refresh token' goes away
+SentinelAddin/Engine/AiPolicy.cs,screen,4,"28-41 reasons shown in Build dialogs: 'Sentinel's answer could not be read', the raw cause as detail. Quoted by tools/promote-check/AiPolicy.cs"
+SentinelAddin/Engine/BcfExporter.cs,none,1,51 is a preview transaction name
+SentinelAddin/Engine/BlockCheck.cs,screen,1,21 project rules
+SentinelAddin/Engine/CdeSyncGuard.Judge.cs,screen,1,33 Governed Publish = Publish
+SentinelAddin/Engine/CdeSyncGuard.cs,screen,1,59: 'the naming standard has not been read yet - file names are checked from the next sync'; naming@n and CDE-01 to detail
+SentinelAddin/Engine/GateLines.cs,mixed,7,"screen: 32-77 dialog lines (pre-publish check, its rules, data requirements, Publish). keep: AuditValue (99 on) - stored in History. Quoted by tools/gate-check, publish-check, roi-check"
+SentinelAddin/Engine/HealthScorecard.cs,screen,1,39 project rules
+SentinelAddin/Engine/IfcDeliveryGate.cs,none,1,211 issued_by is written into the certificate file
+SentinelAddin/Engine/IfcExportMapping.cs,mixed,3,screen: 64. keep: 181-182 (header of the written mapping file)
+SentinelAddin/Engine/IfcPreFlightScanner.cs,screen,2,"53, 56 pre-publish check"
+SentinelAddin/Engine/MepTypeCheck.cs,none,1,34 code
+SentinelAddin/Engine/MepVoidManager.cs,screen,1,23 'the office code is not set in the project rules'
+SentinelAddin/Engine/PcSettings.cs,screen,7,79-131 per the PC Settings table; the address stays visible; drop the code PR-1
+SentinelAddin/Engine/ProvenanceStamp.cs,mixed,4,"screen: the labels at 201 ('Source file fingerprint:', value stays visible - this is an audit window) and 205-206 ('History entry:'; drop MA-1a codes), 204 path = More > Sign in. keep: stamp field names and values, and the test on ""unsigned"" (204)"
+SentinelAddin/Engine/Publisher.cs,mixed,33,"keep: 253 default source ""Governed Publish"" (stored as the author). screen: 78-80, 280, 333-514 (verdict = result, referee = Sentinel, gate row and ledger refs to detail, 412 start command to detail, IDS = data requirements, 426 'BCF issue(s)' = issues). Quoted by tools/publish-check and event-check"
+SentinelAddin/Engine/RoiReport.cs,screen,7,"130-161 History, pre-publish check, the project's files; 130 keeps 'BCF export'. Quoted by tools/roi-check"
+SentinelAddin/Engine/RuleEngineHost.cs,screen,2,86-87 'the office code is not set in the project rules'
+SentinelAddin/Engine/RulesetStore.Revit.cs,screen,2,"28, 32 project rules; the label with @n as detail"
+SentinelAddin/Engine/SavedCheck.cs,mixed,6,"screen: 153-162 and 193 are Doctor lines: plain words, the action code and History ref stay at the end (open point 2). keep: 167 test on ""Bridge 400/404/409"""
+SentinelAddin/Engine/UndoWatcher.cs,mixed,3,"keep: 49 TxName (Revit's Undo name, read back). screen: 139"
+SentinelAddin/Engine/UnreportedResults.cs,mixed,29,"keep: 137 and 303 tests on ""Bridge <code>"", 276 and 294 code. screen: every other line (dialogs and Doctor lines): bridge = Sentinel, changeset = proposed changes, ledger = History; changeset_reverted stays only as a trailing code. Quoted by tools/promote-check"
+SentinelAddin/Engine/ViewGenerator.cs,screen,1,42 'the office code is not set in the project rules'
+SentinelAddin/GhostBuilder/ChangesetExecutor.cs,none,7,refusal and kept reasons are reported with the row's result and stored. Treat all as stored
+SentinelAddin/GhostBuilder/ChangesetPlacementEvent.cs,mixed,8,"keep: 194 (background operation name). screen: 105, 111, 122, 139. verify: 72, 75 feed idsLine (166) - if it is posted with the result keep them, else screen"
+SentinelAddin/GhostBuilder/ChangesetReverter.cs,none,3,"58, 77, 174 kept reasons are recorded with the undo"
+SentinelAddin/GhostBuilder/DatumBuilder.cs,none,1,67 code variable
+SentinelAddin/GhostBuilder/GhostChangesetBuild.cs,mixed,12,"keep: 586, 588 tests on ""Bridge 4.."". screen: 101-103, 589-597, 653, 861 (drop 'founder decision F2'). verify first that these report lines are not saved in the build receipt (Coordination/BuildReceipt.cs); if saved, keep"
+SentinelAddin/GhostBuilder/GhostFailurePolicy.cs,mixed,9,"keep: 110 ChangesetTxPrefix (Undo name), 136 code. screen: 129-161"
+SentinelAddin/GhostBuilder/GhostOverlayGeometry.cs,screen,2,"230, 238: drop '(ledger #n)' from the status line; write the full line to the Doctor log"
+SentinelAddin/GhostBuilder/GuidelineMatcher.cs,none,1,324 'sheet token' is a naming placeholder; validation of a standard
+SentinelAddin/GhostBuilder/LayerRulesetMatcher.cs,none,1,171 code and 'layers standard' (already plain)
+SentinelAddin/GhostBuilder/LodState.cs,mixed,14,"screen: 138 (dialog). keep in step: 222 EndsWith("": no DD row in the LOD matrix"") and its producer. verify: 128, 149-175 (Summary feeds ChangesetPlacementEvent idsLine) and 72, 79, 282-297 - if posted with the result or the LOD state keep, else DD IDS = DD data requirements. Quoted by tools/promote-check (8 files)"
+SentinelAddin/GhostBuilder/MassingPlanner.cs,mixed,1,"verify: 390 - if thrown to a dialog only, screen ('one set of proposed changes holds n elements'); if it becomes a filed row reason, keep"
+SentinelAddin/GhostBuilder/PackPhotos.cs,none,1,55 pack line with sha256 (compared)
+SentinelAddin/GhostBuilder/PromoteContext.cs,mixed,7,"screen: 147, 151 (dialog). keep: 78 code, 149 test on ""storey "". verify: 91-106 (same path as LodState's not-judged lines)"
+SentinelAddin/GhostBuilder/PromoteWallsPlanner.cs,none,1,422 and 628 are reasons of filed rows (stored)
+SentinelAddin/GhostBuilder/PropertyPlanner.cs,mixed,17,"keep: 394 and 482-483 (reasons of filed rows), 471 regex, 511 and 556 tests. screen: 527-590 (status lines and the File n? dialog), 543, 557"
+SentinelAddin/GhostBuilder/RevertPlan.cs,mixed,7,"keep: 45 (kept reason, recorded). screen: 62, 85 (to detail), 91, 152-154"
+SentinelAddin/GhostBuilder/SheetPlanner.cs,screen,1,"164 office code wording (first confirm it is a preview line, not a filed reason)"
+SentinelAddin/GhostBuilder/ShellPlanner.cs,none,2,"96, 171 are reasons of rows sent to a person (filed)"
+SentinelAddin/GhostBuilder/StoreyBatch.cs,none,1,"106 the merged name ends "", one Undo)"" and ChangesetReviewWindow.cs:278 tests for it"
+SentinelAddin/GhostBuilder/TerrainPlanner.cs,mixed,5,"keep: 161 regex on the bridge's sentence, 76 (filed reason). screen: 208-210 (dialog), 218 RowWords (shown beside the row)"
+SentinelAddin/GhostBuilder/ViewPlanner.cs,screen,7,"205-206 project rules (label as detail), 234 sha256 to detail, 259 drop B31 and say 'the History entry is the record'. 85 code"
+SentinelAddin/Resources/help/content.json,screen,266,"all text fields: same word tables; quotes of on-screen sentences must equal the new sentences; fix the 20 'in the Coordinate/Validate panel' steps and every 'X > Tool' path to the 7-button ribbon. keep: the Sentinel_* keys and the sources lists. Do this file last, then run tools/help/build.py and commit Resources/help/*.html. tools/promote-check/PcSettings.cs checks the PC Settings entry exists"
+SentinelAddin/Standards/IsoGapAnalyzer.cs,screen,10,"49-55 title 'File naming convention', details say 'file name'; keep the clause text 'ISO 19650-2 §container ID' and the check id ""container-naming""; 63 'the model is not divided by zone or discipline'"
+SentinelAddin/Standards/NamingProposer.cs,mixed,6,"screen: 105 ('the office code is not set in the project rules'). keep: 104, 250, 372-409 ('token' is a naming placeholder)"
+SentinelAddin/Standards/RulesetMerge.cs,screen,1,"50 'the installed project rules could not be read', raw cause as detail"
+SentinelAddin/Standards/StandardsBuilder.cs,mixed,10,"screen: 349-391. in step: the 'Ruleset:' prefix at 329, 333, 365, 389 is tested by Commands.Standards.cs:364,378 and the heading in UI/StandardsReviewWindow.cs:294 - rename to 'Project rules:' in all three or leave all. 389 ruleset@n and sha as detail. Quoted by tools/ruleset-install-check"
+SentinelAddin/Standards/TypeCatalogExport.cs,screen,3,"86; 96-97 'installed' line plain, the GET route and sha as detail"
+SentinelAddin/UI/AppliedChangesWindow.cs,screen,3,"24, 41, 63: proposed changes, undo, History"
+SentinelAddin/UI/BcfIssuesWindow.cs,screen,9,76 title 'Sentinel - Issues'; 159-161 'issues Sentinel raised from the data requirements' (do not quote the title pattern); 297 History ref to a Details fold; 165-169 keep BCF (import/export)
+SentinelAddin/UI/ChangesetReviewWindow.cs,mixed,9,"screen: 82, 188-195, 313, 396, 462, 482, 495, 511. keep: 91 tests on the stored source (""sentinel-drawing "", ""sentinel-ifc ""), 278 test on "", one Undo)"""
+SentinelAddin/UI/ClashManagerDialog.xaml,none,1,35 'Export BCF' stays (export)
+SentinelAddin/UI/ClashManagerDialog.xaml.cs,none,4,58-86 BCF export wording stays
+SentinelAddin/UI/FixReviewDialog.xaml.cs,none,1,45 'token pattern' is the naming pattern
+SentinelAddin/UI/RoiDashboard.cs,screen,1,71 not-connected wording
+SentinelAddin/UI/RulesetWindow.xaml,screen,1,4 title: 'Sentinel - Project rules'
+SentinelAddin/UI/SentinelPanelViewModel.cs,screen,2,"68, 233 project rules. Quoted by tools/pane-layout-check"
+SentinelAddin/UI/SettingsDialog.xaml,screen,3,"11 'its rules, data requirements and naming'; 17 'the file-name check'; 28 'Loading projects...'"
+SentinelAddin/UI/SettingsDialog.xaml.cs,screen,2,"25 path = More > Sign in, 'this PC's shared access'; 113 'Sentinel is not connected - type the project key'"
+SentinelAddin/UI/SignInDialog.xaml,screen,1,11 'Everything you send from Revit then carries your name in History.'
+SentinelAddin/UI/SignInDialog.xaml.cs,screen,4,24 path = More > PC Settings; 27 the addresses go into a Details fold; 36-38 per the token row of the table
+SentinelAddin/UI/StandardsReviewWindow.cs,screen,1,294 heading follows the 'Ruleset:' decision in Standards/StandardsBuilder.cs
+SentinelAddin/Updaters/DoctorPolicy.cs,none,1,55 code ('Ids')
+SentinelAddin/Workflow/FamilySanitizer.cs,screen,1,95 'the office code is not set in the project rules'
+SentinelAddin/Workflow/NamingManagerService.cs,mixed,1,"verify: 170 'refused: rule no longer in the ruleset' - if it is a row result sent to History keep, else 'the rule is no longer in the project rules'"

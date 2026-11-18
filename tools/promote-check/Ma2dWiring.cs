@@ -55,10 +55,10 @@ static partial class Check
            && promote.Contains("ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed))") // MA-3b5: the plan hop's UIApplication
            && promote.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first))") // MA-3b5: the open hop, DocPin
            // Review C7: a Promote part reviewed alone (a part waits twice, or one is missing) is said.
-           && review.Contains("is reviewed alone: another part of its storey is missing (not filed, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.")
+           && review.Contains("is reviewed alone: another part of its storey is missing (not sent for review, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.")
            // Review C17: a storey's dialogs speak of the storey.
            && review.Contains("GhostFailurePolicy.WarningsLine(result.Warnings, fresh.Count > 1 ? \"storey\" : \"changeset\")")
-           && review.Contains("Nothing was reported: the {(fresh.Count > 1 ? $\"storey's {fresh.Count} changesets stay\" : \"changeset stays\")} proposed.")
+           && review.Contains("Nothing was reported: the {(fresh.Count > 1 ? $\"storey's {fresh.Count} sets of proposed changes stay\" : \"proposed changes stay\")} proposed.")
            // Review C11: in a storey's window the type edit's row counts "this storey's" retypes.
            && window.Contains("((_cs.Name ?? \"\").EndsWith(\", one Undo)\", StringComparison.Ordinal) ? \"storey\" : \"changeset\")}'s retypes onto it are applied"),
            "Review AI Proposals and Promote open a Promote storey's changesets in one window, each re-checked before anything runs; a part reviewed alone is said; a type edit's row says whose retypes it counts");
@@ -76,7 +76,7 @@ static partial class Check
            "each changeset of the storey is reported on its own ledger row and remembered under the Undo entry's name and its own; the LOD state after is read once, for the storey");
         Ok(review.Contains("ResultOf(key, f, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),")
            // Review C14: the rolled-back storey's declines are counted from what the bridge took, as C6's are (MA-3b: the reports that landed).
-           && Count(review, "int declined = rep.Landed.Count;") == 2 && review.Contains("Reported as declined: {declined} of {fresh.Count} changeset(s)")
+           && Count(review, "int declined = rep.Landed.Count;") == 2 && review.Contains("Reported as declined: {declined} of {fresh.Count} set(s) of proposed changes")
            && review.Contains("(declined < fresh.Count ? \" — the rest are still proposed; the model holds none of them.\" : \".\")")
            && Count(review, "(PromoteRun(fresh[0]) ? CarriedEdits(fresh) + \"\\n\\n\" + RunPromoteAgain : \"\")") == 2 // MA-6 amendment 12: never of a shell
            && review.Contains("it first opens any other Promote storey still waiting for review, and plans again once none is waiting")
@@ -84,7 +84,7 @@ static partial class Check
            && review.Contains("Other storeys of the same run that retype onto those types will fail the DD IDS check for that property until Promote plans again — decline them (untick all, write the reason in the note, press Decline all), then run Promote (DD).") // MA-3b review C16: Decline all needs a reason
            // Review C6: an all-unticked storey is declined in words, counted from what the bridge took.
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))") // MA-3b2: each part's own reasons
-           && review.Contains("$\"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed.\""),
+           && review.Contains("$\"Declined {declined} of {fresh.Count} set(s) of proposed changes — nothing in the model changed.\""),
            "a storey that fails or is unticked whole is declined whole, each changeset with the reason, said with its type edits' consequence, and the words say Promote reopens a waiting storey before it plans again (drill MA2c D2)");
     }
 }

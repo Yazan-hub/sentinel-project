@@ -17,9 +17,9 @@ static class Check
     // A roi body as the bridge validator accepts it (Task 1): 90 EUR/h; 20 min a gate run, 6 a rename, 15 a heal.
     const string Body = "{\"currency\":\"EUR\",\"hourly_rate\":90,\"minutes\":{\"delivery_gate\":20,\"naming\":6,\"family_heal\":15},\"basis\":\"office estimate\"}";
     const string Partial = "{\"currency\":\"GBP\",\"hourly_rate\":60,\"minutes\":{\"naming\":10}}";
-    const string NotCounted = "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no ledger row";
+    const string NotCounted = "Not counted: CDE intercepts, MEP voids, BCF export, clash views — they write no History entry";
     // MA-1a item 7 (P1-9): the fixes that now write a ledger row are counted, on their own line, not priced.
-    const string NoFixes = "Fixes on the ledger, not priced: 0 auto-fix(es) · 0 fix-in-place value(s) written · 0 Doctor resolution(s)";
+    const string NoFixes = "Fixes in History, not priced: 0 auto-fix(es) · 0 fix-in-place value(s) written · 0 Doctor resolution(s)";
     static readonly JsonElement[] AutoFixRows = Rows("[" +
         "{\"id\":840,\"entity_type\":\"auto_fix\",\"action\":\"Auto-fix VP-01: 1 Views renamed\",\"new_value\":{\"rule\":\"VP-01\",\"old_name\":\"Level 1\",\"new_name\":\"FP_L01\"}}," +
         "{\"id\":839,\"entity_type\":\"auto_fix\",\"action\":\"Auto-fix SH-01: 1 Sheets renamed\",\"new_value\":{\"rule\":\"SH-01\"}}" +
@@ -68,7 +68,7 @@ static class Check
 
     static int Main()
     {
-        Console.WriteLine("RoiCounts + RoiMoney + RoiLines — counts from the ledger only, money only by a named roi@n, the dashboard's lines\n");
+        Console.WriteLine("RoiCounts + RoiMoney + RoiLines — counts from History only, money only by a named roi@n, the dashboard's lines\n");
         Counts();
         Money();
         Lines();
@@ -83,7 +83,7 @@ static class Check
         Ok(c.GateRuns == 3, "delivery_gate: passed true and passed false are runs; passed null (not checked) and a row without new_value are not");
         Ok(c.Renames == 5, "naming: rows.length summed over the batches; a naming row without rows adds nothing");
         Ok(c.Heals == 7, "family_heal: healed_total summed; a row without it adds nothing");
-        Ok(c.RowsRead == 12 && !c.Truncated, "every row the bridge returned counts as read (12), counted or not; not truncated");
+        Ok(c.RowsRead == 12 && !c.Truncated, "every row Sentinel returned counts as read (12), counted or not; not truncated");
         Ok(RoiCounts.From(GateRows, NamingRows, HealRows, true).Truncated, "truncated is carried to the lines");
         Ok(RoiCounts.From(NoRows, NoRows, NoRows, false) is { GateRuns: 0, Renames: 0, Heals: 0, RowsRead: 0, Truncated: false }, "no rows → zeros, never a guess");
         Ok(RoiCounts.From(Rows("[{\"new_value\":{\"passed\":\"true\"}},{\"new_value\":{\"passed\":1}}]"), NoRows, NoRows, false).GateRuns == 0,
@@ -105,15 +105,15 @@ static class Check
     {
         var c = RoiCounts.From(GateRows, NamingRows, HealRows, false);
         var m = RoiMoney.From(c, Roi(Body, "bridge"));
-        Ok(m is not null && m.Currency == "EUR" && m.HourlyRate == 90, "roi@1 from the bridge prices the counts in its currency at its rate");
+        Ok(m is not null && m.Currency == "EUR" && m.HourlyRate == 90, "roi@1 from Sentinel prices the counts in its currency at its rate");
         Ok(m!.GateMinutes == 20 && Math.Round(m.Gate, 2) == 90.00, "3 gate runs × 20 min at 90 EUR/h = 90.00");
         Ok(m.NamingMinutes == 6 && Math.Round(m.Naming, 2) == 45.00, "5 renames × 6 min = 45.00");
         Ok(m.HealMinutes == 15 && Math.Round(m.Heal, 2) == 157.50, "7 heals × 15 min = 157.50");
         Ok(Math.Round(m.Total, 2) == 292.50, "the total is the three summed (292.50)");
-        Is(m.Label, "roi@1 · office · 3f07a1b2c3d4…", "money names what priced it: the bridge's refLabel");
+        Is(m.Label, "roi@1 · office · 3f07a1b2c3d4…", "money names what priced it: Sentinel's refLabel");
         Is(RoiMoney.From(c, Roi(Body, "cache"))!.Label, "roi@1 · office · 3f07a1b2c3d4… (cached 14:03)", "a cached roi prices too, and its label says it is the cached copy");
         Ok(RoiMoney.From(c, None) is null, "no roi installed → no money");
-        Ok(RoiMoney.From(c, ArtefactClient.None("roi", "bridge unreachable (No connection could be made)")) is null, "no bridge and no cache → no money");
+        Ok(RoiMoney.From(c, ArtefactClient.None("roi", "Sentinel is not connected (No connection could be made)")) is null, "no bridge and no cache → no money");
         var p = RoiMoney.From(c, Roi(Partial, "bridge"));
         Ok(p is { GateMinutes: null, HealMinutes: null, Gate: 0, Heal: 0 } && Math.Round(p.Naming, 2) == 50.00 && Math.Round(p.Total, 2) == 50.00,
            "a kind the roi sets no minutes for is not priced and adds nothing (5 renames × 10 min at 60 GBP/h = 50.00, the total)");
@@ -140,22 +140,22 @@ static class Check
         var withMoney = RoiLines.Lines(Key, c, RoiMoney.From(c, Roi(Body, "bridge")), Roi(Body, "bridge"));
         Ok(withMoney.Length == 7, "exactly seven lines");
         Is(string.Join("\n", withMoney),
-           "ROI · aster-tower · counted from the ledger (12 rows read)\n" +
-           "Delivery gate runs: 3 · 20 min each · 90.00 EUR\n" +
+           "ROI · aster-tower · counted from History (12 rows read)\n" +
+           "Pre-publish check runs: 3 · 20 min each · 90.00 EUR\n" +
            "Naming renames: 5 · 6 min each · 45.00 EUR\n" +
            "Family heals: 7 · 15 min each · 157.50 EUR\n" +
            "Money: 292.50 EUR at 90 EUR/h · roi@1 · office · 3f07a1b2c3d4…\n" + NoFixes + "\n" + NotCounted,
-           "the seven lines with roi@1 from the bridge");
+           "the seven lines with roi@1 from Sentinel");
         Is(RoiLines.Lines(Key, RoiCounts.From(GateRows, NamingRows, HealRows, false).WithFixes(AutoFixRows, FixInPlaceRows, DoctorRows, false), null, None)[5],
-           "Fixes on the ledger, not priced: 2 auto-fix(es) · 7 fix-in-place value(s) written · 5 Doctor resolution(s)",
+           "Fixes in History, not priced: 2 auto-fix(es) · 7 fix-in-place value(s) written · 5 Doctor resolution(s)",
            "auto-fix, fix-in-place and Doctor rows are counted on their own line, never priced");
         Ok(!NotCounted.Contains("auto-fix") && !NotCounted.Contains("doctor") && !NotCounted.Contains("fix-in-place") && RoiLines.NotCounted == NotCounted,
            "the not-counted line lists none of them (P1-9)");
 
         var noRoi = RoiLines.Lines(Key, c, RoiMoney.From(c, None), None);
         Is(string.Join("\n", noRoi),
-           "ROI · aster-tower · counted from the ledger (12 rows read)\n" +
-           "Delivery gate runs: 3\n" +
+           "ROI · aster-tower · counted from History (12 rows read)\n" +
+           "Pre-publish check runs: 3\n" +
            "Naming renames: 5\n" +
            "Family heals: 7\n" +
            "Money: not shown — roi: none — not installed for aster-tower or its office\n" + NoFixes + "\n" + NotCounted,
@@ -163,8 +163,8 @@ static class Check
         Ok(!noRoi.Any(l => l.Contains(" min each") || l.Contains(" EUR") || l.Contains("/h")), "without roi@n no line carries minutes, money or a rate");
 
         Is(RoiLines.Lines(Key, RoiCounts.From(GateRows, NamingRows, HealRows, true), null, None)[0],
-           "ROI · aster-tower · counted from the ledger (12 rows read, the newest only — the ledger holds more)",
-           "the header says when the ledger holds more than was read");
+           "ROI · aster-tower · counted from History (12 rows read, the newest only — History holds more)",
+           "the header says when History holds more than was read");
 
         var cached = Roi(Body, "cache");
         Is(RoiLines.Lines(Key, c, RoiMoney.From(c, cached), cached)[4],
@@ -173,7 +173,7 @@ static class Check
 
         var partial = Roi(Partial, "bridge");
         var pl = RoiLines.Lines(Key, c, RoiMoney.From(c, partial), partial);
-        Is(pl[1], "Delivery gate runs: 3 · not priced — the roi sets no minutes for it", "a kind the roi sets no minutes for says so");
+        Is(pl[1], "Pre-publish check runs: 3 · not priced — the roi sets no minutes for it", "a kind the roi sets no minutes for says so");
         Is(pl[2], "Naming renames: 5 · 10 min each · 50.00 GBP", "…while a kind it prices is priced");
         Is(pl[4], "Money: 50.00 GBP at 60 GBP/h · roi@1 · office · 3f07a1b2c3d4…", "…and the total holds only what was priced");
 
@@ -187,10 +187,10 @@ static class Check
            "an installed body the dashboard cannot use: no money, naming the artefact");
 
         Is(string.Join("\n", RoiLines.NotBound()),
-           "ROI · not bound — Sentinel ▸ Project Setup\nNothing was read: this document has no web project, so it has no ledger to count.",
+           "ROI · not bound — Sentinel ▸ More ▸ Project Setup\nNothing was read: this document has no web project, so it has no History to count.",
            "unbound: nothing is read, and the window says so");
         Is(RoiLines.Unavailable(Key, "403: Not authorized: you are not a member of this project")[0],
-           "ROI · aster-tower · not counted — the ledger could not be read (403: Not authorized: you are not a member of this project)",
-           "a failed read counts nothing — never 0 — and names the bridge's refusal");
+           "ROI · aster-tower · not counted — History could not be read (403: Not authorized: you are not a member of this project)",
+           "a failed read counts nothing — never 0 — and names Sentinel's refusal");
     }
 }

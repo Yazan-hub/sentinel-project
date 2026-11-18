@@ -36,7 +36,7 @@ public static class HealthScorecard
         public List<DomainScore> Domains { get; } = new List<DomainScore>();
         public string? NotScored { get; set; }               // no ruleset judged the model: no score, no grade
         public string Headline => NotScored is not null
-            ? $"Not scored — {NotScored} · {TotalViolations} open issue(s) from checks outside the ruleset"
+            ? $"Not scored — {NotScored} · {TotalViolations} open issue(s) from checks outside the project standards"
             : $"Weighted rule score {Score:F1}% ({Grade}) · rule pass rate {PassRate:F1}% — {TotalViolations} open issue(s) across {Domains.Count} domain(s)";
     }
 

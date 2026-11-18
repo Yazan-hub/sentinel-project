@@ -83,7 +83,7 @@ static class Check
         var huge = MassingPlanner.Validate(new MassingEstimate { FootprintWidthMm = V(20000), FootprintDepthMm = V(20000), Storeys = V(200), StoreyHeightMm = V(3000), FacadesSeen = new List<string> { "front" } });
         var (none, why) = MassingPlanner.Changeset(huge, new List<(string, double, bool)>(), "a");
         var (fits, fitsWhy) = MassingPlanner.Changeset(huge, Enumerable.Range(0, 2).Select(i => ($"L{i}", i * 3000.0, true)).ToList(), "a");
-        Ok(none == null && why == "201 levels and a mass are 202 elements — a changeset holds 200 elements: lower the storey count, or file the levels with Datum"
+        Ok(none == null && why == "201 levels and a mass are 202 elements — one set of proposed changes holds 200 elements: lower the storey count, or file the levels with Datum"
            && fits != null && fitsWhy == null,
            "200 storeys with no levels are refused in words (201 levels and the mass); with two of the levels there, 199 + 1 = 200 is filed");
         // MA-6-6 review fix: the bridge's mass height cap (MAX_MASS_MM, 1000000 mm), said by the planner before anything is filed.

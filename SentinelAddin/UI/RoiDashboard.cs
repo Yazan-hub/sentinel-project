@@ -68,7 +68,7 @@ public sealed class RoiDashboard : Window
         var inPlace = autoFix is null ? null : GovernedQuery.RoiRows(key, "fix_in_place", out failure);
         var doctor = inPlace is null ? null : GovernedQuery.RoiRows(key, "doctor", out failure);
         if (gate is null || naming is null || heal is null || autoFix is null || inPlace is null || doctor is null)
-            return RoiLines.Unavailable(key, failure ?? "the bridge did not answer");
+            return RoiLines.Unavailable(key, failure ?? "Sentinel did not answer");
         var counts = RoiCounts.From(gate.Rows, naming.Rows, heal.Rows, gate.Truncated || naming.Truncated || heal.Truncated)
             .WithFixes(autoFix.Rows, inPlace.Rows, doctor.Rows, autoFix.Truncated || inPlace.Truncated || doctor.Truncated);
         var roi = ArtefactClient.Resolve(key, "roi");

@@ -75,7 +75,7 @@ static class Check
         d = Draft(); d.Title = "   ";
         Ok(d.Refusal() == "A title, please — nothing was sent.", "a blank title is refused");
         d = Draft(); d.Title = new string('x', 601);
-        Ok(d.Refusal()!.StartsWith("A title is at most 600"), "a title past the bridge's 600 characters is refused before sending");
+        Ok(d.Refusal()!.StartsWith("A title is at most 600"), "a title past Sentinel's 600 characters is refused before sending");
         d = Draft(); d.Priority = "Urgent";
         Ok(d.Refusal()!.StartsWith("Priority is one of Low, Normal, High, Critical"), "a priority outside the web's list is refused");
         Ok(Draft().Refusal() == null, "a complete draft passes");
@@ -136,11 +136,11 @@ static class Check
         _topicStatus = 401; _vpStatus = 201; lock (_seen) _seen.Clear();
         var d = Draft();
         var r = Send(d).GetAwaiter().GetResult();
-        Ok(r.Sentence(d, _url) == "Not created — signed out — Sentinel ▸ Sign in — nothing was saved.", "401 → 'signed out — Sentinel ▸ Sign in', never 'bridge down'");
+        Ok(r.Sentence(d, _url) == "Not created — signed out — Sentinel ▸ More ▸ Sign in — nothing was saved.", "401 → 'signed out — Sentinel ▸ More ▸ Sign in', never 'bridge down'");
         lock (_seen) Ok(_seen.Count == 1, "…and no viewpoint is attempted");
         _topicStatus = 403;
         r = Send(d).GetAwaiter().GetResult();
-        Ok(r.Sentence(d, _url) == "Not created — HTTP 403: a viewer writes nothing on aster-tower — nothing was saved.", "403 → the bridge's own words");
+        Ok(r.Sentence(d, _url) == "Not created — HTTP 403: a viewer writes nothing on aster-tower — nothing was saved.", "403 → Sentinel's own words");
     }
 
     static void Lost()
@@ -151,7 +151,7 @@ static class Check
         Ok(r.TopicGuid == "topic-1" && r.Sentence(d, _url).StartsWith("Issue created: 'Door clashes with duct' — but its viewpoint was not saved (HTTP 413"), "a lost viewpoint is said: the issue points at no element");
         _vpStatus = 201; _noGuid = true;
         r = Send(d).GetAwaiter().GetResult();
-        Ok(r.TopicGuid == null && r.Sentence(d, _url) == "Not created — HTTP 502: the bridge answered 201 without a topic guid — nothing was saved.", "201 without a guid is not called created");
+        Ok(r.TopicGuid == null && r.Sentence(d, _url) == "Not created — HTTP 502: Sentinel answered 201 without a topic guid — nothing was saved.", "201 without a guid is not called created");
         _noGuid = false;
     }
 
@@ -160,7 +160,7 @@ static class Check
         var d = Draft();
         using var sync = new BcfSyncManager("http://127.0.0.1:9", null);
         var r = sync.CreateIssueAsync("aster-tower", d, "m").GetAwaiter().GetResult();
-        Ok(r.TopicStatus == 0 && r.Sentence(d, "http://127.0.0.1:9") == "Not created — the bridge did not answer at http://127.0.0.1:9 — nothing was saved.", "no answer → said as such, never a throw");
+        Ok(r.TopicStatus == 0 && r.Sentence(d, "http://127.0.0.1:9") == "Not created — Sentinel did not answer at http://127.0.0.1:9 — nothing was saved.", "no answer → said as such, never a throw");
     }
 
     // SEC-6 (S20): the live stream reads its bearer at every connect — never the token the window opened with — and an answer
@@ -264,7 +264,7 @@ static class Check
             T(4, "IDS: WALL — LoadBearing (3 failing)", "In Progress", "Low", "", null),
         };
         var open = IssueList.Filter(all, "", IssueList.OpenIssues, "All types", "All priorities", null, "Nr", false);
-        Ok(open.Select(t => t.Nr).SequenceEqual(new[] { 1, 3, 4 }), "'Open issues' = everything not Closed, Resolved included (the bridge's working set)");
+        Ok(open.Select(t => t.Nr).SequenceEqual(new[] { 1, 3, 4 }), "'Open issues' = everything not Closed, Resolved included (Sentinel's working set)");
         Ok(IssueList.Filter(all, "", "Closed", "All types", "All priorities", null, "Nr", false).Single().Nr == 2, "the Closed filter shows closed issues (BCF Manager's 'Closed issues')");
         Ok(IssueList.Filter(all, "duct", "All", "All types", "All priorities", null, "Nr", false).Single().Nr == 1, "search matches the title, case-insensitively");
         Ok(IssueList.Filter(all, "", "All", "All types", "All priorities", "mep@", "Nr", false).Select(t => t.Nr).SequenceEqual(new[] { 1, 3 }), "'Mine' keeps the issues assigned to the signed-in person");

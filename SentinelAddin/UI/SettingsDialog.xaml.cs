@@ -19,10 +19,10 @@ public partial class SettingsDialog : Window
     {
         _doc = doc;
         InitializeComponent();
-        // H4: who the bridge will see. The sign-in itself lives in Sentinel ▸ Sign in.
+        // H4: who Sentinel will see. The sign-in itself lives in More ▸ Sign in.
         WhoText.Text = Sentinel.Coordination.UserSession.Email is { } who
-            ? "Signed in as " + who + " (Sentinel ▸ Sign in to sign out)."
-            : "Signed out — Sentinel ▸ Sign in to act under your own name; until then this PC's shared token (if any) is used.";
+            ? "Signed in as " + who + " (Sentinel ▸ More ▸ Sign in to sign out)."
+            : "Signed out — Sentinel ▸ More ▸ Sign in to act under your own name; until then this PC's shared access (if any) is used.";
         _current = SettingsManager.Resolve(doc);
         // The DOCUMENT's code (never the merged machine value): a project-scope save must not turn a machine default
         // into a document fact — CDE-01 reads ProjectCode from the document only, so a machine has none to show.
@@ -77,7 +77,7 @@ public partial class SettingsDialog : Window
             if (!string.IsNullOrWhiteSpace(cfg.ServiceToken))
                 msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", cfg.ServiceToken);
             var resp = await http.SendAsync(msg);
-            if ((int)resp.StatusCode == 401) { WebProjectHint.Text = "Signed out — Sentinel ▸ Sign in, or type the project key."; return; }
+            if ((int)resp.StatusCode == 401) { WebProjectHint.Text = "Signed out — Sentinel ▸ More ▸ Sign in, or type the project key."; return; }
             resp.EnsureSuccessStatusCode();
             var json = await resp.Content.ReadAsStringAsync();
 
@@ -110,7 +110,7 @@ public partial class SettingsDialog : Window
         catch (Sentinel.Coordination.SessionException e) { WebProjectHint.Text = e.Message + " — or type the project key."; } // SI-1
         catch
         {
-            WebProjectHint.Text = "Bridge unreachable — type the project key (e.g. \"demo\").";
+            WebProjectHint.Text = "Sentinel is not connected — type the project key (e.g. \"demo\").";
         }
     }
 

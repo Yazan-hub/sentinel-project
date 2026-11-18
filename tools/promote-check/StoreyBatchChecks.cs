@@ -58,7 +58,7 @@ static partial class Check
            "once a part was reviewed alone, the leftover parts of two runs never batch as one storey (A1, B1, A2: B1 and A2 alone); a later run's parts still batch");
 
         var merged = StoreyBatch.Merge(new[] { c1, c2 });
-        Ok(merged.Id == c1.Id && merged.Name == "Promote (DD) · GR-FFL (2 changesets, one Undo)" && merged.Source == "promote" && merged.Claimed == true
+        Ok(merged.Id == c1.Id && merged.Name == "Promote (DD) · GR-FFL (2 sets of proposed changes, one Undo)" && merged.Source == "promote" && merged.Claimed == true
            && merged.Elements.Select(e => e.ProposalGuid).SequenceEqual(new[] { "a", "b", "c" }) && merged.Exceptions.Count == 2
            && ReferenceEquals(StoreyBatch.Merge(new[] { l1 }), l1),
            "the review window shows one storey: every part's elements and held rows, named as the storey; a changeset alone is shown as it is");

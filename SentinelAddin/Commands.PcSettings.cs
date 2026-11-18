@@ -64,12 +64,12 @@ public sealed class PcSettingsWindow : Window
         var root = new StackPanel { Margin = new Thickness(12) };
         root.Children.Add(new TextBlock { Text = "This PC's settings", FontSize = 15, FontWeight = FontWeights.Bold });
         root.Children.Add(new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4), Foreground = System.Windows.Media.Brushes.DimGray,
-            Text = "Where this PC finds the Sentinel bridge, how it signs in, and its local AI and Ghost Builder folders. They belong to this PC only — a model never carries them. Project and office standards are set on the web project instead." });
+            Text = "Where this PC finds Sentinel, how it signs in, and its local AI and Ghost Builder folders. They belong to this PC only — a model never carries them. Project and office standards are set on the web project instead." });
 
-        root.Children.Add(Heading("Bridge and sign-in"));
-        root.Children.Add(Row("Bridge address", _serviceUrl, TestButton(_bridgeTest, () => { var u = _serviceUrl.Text; return () => PcSettings.TestBridge(u); })));
+        root.Children.Add(Heading("Connection and sign-in"));
+        root.Children.Add(Row("Sentinel service address", _serviceUrl, TestButton(_bridgeTest, () => { var u = _serviceUrl.Text; return () => PcSettings.TestBridge(u); })));
         root.Children.Add(_bridgeTest);
-        root.Children.Add(Row("This PC's shared token", Pair(_token, _removeToken), null));
+        root.Children.Add(Row("This PC's shared access code", Pair(_token, _removeToken), null));
         root.Children.Add(_tokenState);
         root.Children.Add(Row("Sign-in address", _supabaseUrl, TestButton(_signInTest, () => { var u = _supabaseUrl.Text; var k = AnonKey(); return () => PcSettings.TestSignIn(u, k); })));
         root.Children.Add(Row("Sign-in key", _anonKey, null));
@@ -218,8 +218,8 @@ public sealed class PcSettingsWindow : Window
         _hasToken = used.FileToken.Length > 0; _hasAnon = used.SupabaseAnonKey.Length > 0;
         _token.Clear(); _anonKey.Clear(); _removeToken.IsChecked = false; _removeToken.IsEnabled = _hasToken;
         _tokenState.Text = _hasToken
-            ? "Set (hidden). Type a new one to replace it; leave blank to keep it. It works only with the bridge on this PC."
-            : "None — people sign in instead (Standards ▸ Sign in).";
+            ? "Set (hidden). Type a new one to replace it; leave blank to keep it. It works only when Sentinel runs on this PC."
+            : "None — people sign in instead (Sentinel ▸ More ▸ Sign in).";
         _anonState.Text = _hasAnon ? "Set (hidden). Type a new one to replace it; leave blank to keep it." : "None — sign-in is not possible on this PC until it is set.";
         _shown = Snapshot();
         var unread = string.Join("; ", new[] { _bcfError, _cfgError }).Trim(';', ' ');

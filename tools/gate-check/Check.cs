@@ -79,13 +79,13 @@ static class Check
             Ok(DeliveryContract.FromBody(File.ReadAllText(f), out var e) is not null, $"{Path.GetRelativePath(_root, f)} parses: it installs as contract@n{(e is null ? "" : " — " + e)}");
 
         Ok(DeliveryContract.FromBody(Good.Replace("\"schema_version\":1,", ""), out _) is { SchemaVersion: null }, "schema_version is the one optional field");
-        Ok(DeliveryContract.FromBody(Good.Replace("\"schema_version\":1", "\"schema_version\":null"), out _) is { SchemaVersion: null }, "schema_version null reads as absent, as the bridge validator accepts it");
+        Ok(DeliveryContract.FromBody(Good.Replace("\"schema_version\":1", "\"schema_version\":null"), out _) is { SchemaVersion: null }, "schema_version null reads as absent, as Sentinel validator accepts it");
         var whole = DeliveryContract.FromBody(Good.Replace("\"min_count\":1}", "\"min_count\":1.0}"), out _);
-        Ok(whole is not null && whole.RequiredEntities[0].MinCount == 1, "1.0 is the integer 1, as the bridge reads it (Number.isInteger)");
+        Ok(whole is not null && whole.RequiredEntities[0].MinCount == 1, "1.0 is the integer 1, as Sentinel reads it (Number.isInteger)");
         Ok(DeliveryContract.FromBody(Good.Replace("\"require_georeference\":true", "\"require_georeference\":true,\"notes\":\"x\""), out _) is not null, "an unknown field is ignored");
         Ok(c is { MinCoverage: 1.0 }, "min_coverage is optional: absent is 1 (every element)");
         Ok(DeliveryContract.FromBody(WithCoverage("0.5"), out _) is { MinCoverage: 0.5 }, "min_coverage 0.5 reads as written");
-        Ok(DeliveryContract.FromBody(WithCoverage("null"), out _) is { MinCoverage: 1.0 }, "min_coverage null reads as absent, as the bridge validator accepts it");
+        Ok(DeliveryContract.FromBody(WithCoverage("null"), out _) is { MinCoverage: 1.0 }, "min_coverage null reads as absent, as Sentinel validator accepts it");
         Ok(DeliveryContract.FromBody(WithCoverage("0"), out _) is { MinCoverage: 0.0 }, "min_coverage 0 is kept, not defaulted");
 
         // not a contract at all
@@ -109,7 +109,7 @@ static class Check
         // a field of the wrong shape
         Refused(Good.Replace("\"gate-check\"", "\"  \""), "contract_key must be a non-empty string", "a blank contract_key");
         Refused(Good.Replace("\"IFC4\"", "\"IFC4X3\""), "ifc_schema must be IFC2X3 | IFC4", "a schema the exporter cannot produce");
-        Refused(Good.Replace("\"IFC4\"", "\"ifc4\""), "ifc_schema must be IFC2X3 | IFC4", "a lower-case schema (the bridge is case-sensitive)");
+        Refused(Good.Replace("\"IFC4\"", "\"ifc4\""), "ifc_schema must be IFC2X3 | IFC4", "a lower-case schema (Sentinel is case-sensitive)");
         Refused(Good.Replace("\"IFC4\"", "\"\""), "ifc_schema must be IFC2X3 | IFC4", "an empty schema (it used to skip the check)");
         Refused(Good.Replace("\"IFCWALL\"", "\"IfcWall\""), "required_entities[0].entity must match ^IFC[A-Z0-9_]+$", "a mixed-case entity");
         Refused(Good.Replace("\"IFCWALL\"", "\"IFCWALL\\n\""), "required_entities[0].entity must match ^IFC[A-Z0-9_]+$", "an entity with a trailing newline");
@@ -145,7 +145,7 @@ static class Check
         Ok(notInstalled.Contract is null && ReferenceEquals(notInstalled.Source, none) && none.Label == "none — not installed for p-none or its office",
            "none stays none, with the client's reason (ArtefactClient.None is public)");
         var unbound = DeliveryContract.Load("");
-        Ok(unbound.Contract is null && unbound.Source.Label == "none — not bound — Sentinel ▸ Project Setup", "an unbound document asks nothing and reads not bound");
+        Ok(unbound.Contract is null && unbound.Source.Label == "none — not bound — Sentinel ▸ More ▸ Project Setup", "an unbound document asks nothing and reads not bound");
     }
 
     // A small IFC4 file that meets Good: an IFCSITE with no lat/long, a wall, a door, Pset_WallCommon with FireRating on

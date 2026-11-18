@@ -120,7 +120,7 @@ namespace Sentinel.Engine
         public static string Elsewhere(Record r, string pathName)
         {
             if (r?.Path == null) return null;
-            string delete = $"check the changeset's status on the bridge, then delete {PathFor(r.Key, r.ChangesetId)}.";
+            string delete = $"check the proposed changes' status on Sentinel, then delete {PathFor(r.Key, r.ChangesetId)}.";
             if (r.Path.Length == 0)
                 return $"\"{r.Name}\": applied in a model that was never saved, and this model holds none of it — a title cannot tell whether this is that model. Nothing reported, and the record is kept. If it was undone, or that model is gone, {delete}";
             if (string.Equals(r.Path, pathName ?? "", StringComparison.OrdinalIgnoreCase)) return null;
@@ -136,16 +136,16 @@ namespace Sentinel.Engine
             var err = ChangesetTrust.BridgeWords(error, 120);
             bool Is(params string[] codes) => codes.Any(c => err.StartsWith("Bridge " + c, StringComparison.Ordinal));
             if (Is("400", "404", "409"))
-                return (true, $"the bridge refused it (retrying cannot fix this): {err}" +
-                              (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review." : ""));
-            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Standards ▸ Sign in) as a contributor on this project" + PressRetry : "") + Kept(applied));
+                return (true, $"Sentinel refused it (retrying cannot fix this): {err}" +
+                              (applied > 0 ? $"\nThis PC's record is removed; the {applied} element(s) Apply placed are still in this model — check the proposed changes' status on Sentinel before any re-review." : ""));
+            return (false, $"not reported: {err}" + (Is("401", "403") ? "\nSign in (Sentinel ▸ More ▸ Sign in) as a contributor on this project" + PressRetry : "") + Kept(applied));
         }
 
         /// <summary>Review C6: a result not sent because the round's first report did not land (each waits up to 120 s) — kept, said.</summary>
         public static string NotSent(int applied) => "not sent: the first report of this round did not land." + Kept(applied);
 
         private static string Kept(int applied) => applied > 0
-            ? "\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
+            ? "\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this set of proposed changes is not opened for review until Sentinel takes it, so nothing is applied twice."
             : "\n" + DeclineKept;
 
         /// <summary>A decline that did not land lives in its window (E4). Review C13: once the window is closed there is no Retry report —
@@ -156,7 +156,7 @@ namespace Sentinel.Engine
         public const string DeclineKept = "Nothing in the model changed; Retry report sends it again.";
         // MA-3b2b review C8: never "it stays proposed" — after a lost reply the bridge may hold the decline; the picker's list says which.
         // Review C15: nor "no longer listed was declined" — the picker lists proposed only, and a withdrawal or another PC's Apply unlists it too.
-        public const string DeclineLost = "Nothing in the model changed; the bridge may or may not have taken the decline — run Review AI Proposals: a changeset no longer listed is no longer proposed — declined, unless it was withdrawn or applied meanwhile (the web desk's Recently decided in Revit lists what Revit reported); one still listed is reviewed again.";
+        public const string DeclineLost = "Nothing in the model changed; Sentinel may or may not have taken the decline — run Review AI Proposals: a set of proposed changes no longer listed is no longer proposed — declined, unless it was withdrawn or applied meanwhile (the web desk's Recently decided in Revit lists what Revit reported); one still listed is reviewed again.";
 
         /// <summary>Review C1: the words when the bridge already holds this result — a 409 whose stored changeset (<paramref name="fresh"/>,
         /// re-read) is no longer proposed and applied exactly the record's ghosts: its earlier report landed and the reply was lost (the 120 s
@@ -172,7 +172,7 @@ namespace Sentinel.Engine
         {
             if (r == null || fresh?.Status == null || fresh.Status == "proposed") return null;
             if (fresh.Result is not { ValueKind: JsonValueKind.Object } res) return null;
-            string taken = $"\"{r.Name}\": the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; the bridge named no ledger row for it here.";
+            string taken = $"\"{r.Name}\": Sentinel had already taken it (its reply did not reach Revit) — {fresh.Status}; Sentinel named no History entry for it here.";
             if ((r.Applied?.Count ?? 0) == 0)
             {
                 if (fresh.Status != "declined" || (r.Rejected?.Count ?? 0) == 0 || !res.TryGetProperty("rejected", out var rej) || rej.ValueKind != JsonValueKind.Array) return null;
@@ -208,52 +208,52 @@ namespace Sentinel.Engine
         {
             var why = $"\"{r.Name}\": not in this model as applied (undone, the model was closed without saving, or a local that was never synchronised)";
             if (fresh?.Status == null)
-                return (false, false, $"{why}, and the bridge could not be re-read to say whether it took it ({err ?? "no answer"}) — nothing reported." + Kept(r.Applied?.Count ?? 0));
+                return (false, false, $"{why}, and Sentinel could not be re-read to say whether it took it ({err ?? "no answer"}) — nothing reported." + Kept(r.Applied?.Count ?? 0));
             if (fresh.Status == "proposed")
-                return (true, false, $"{why} — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed.");
+                return (true, false, $"{why} — nothing reported; Sentinel holds the set of proposed changes as proposed, so it opens for review again. This PC's record is removed.");
             // MA-3b2b review C10: only a result that applied something has an Undo to post — a decline the bridge holds (AlreadyTaken's
             // new case) never asks for a changeset_reverted row with no ghost.
             if ((r.Applied?.Count ?? 0) > 0 && AlreadyTaken(r, fresh) != null)
-                return (true, true, $"{why}, but the bridge had already taken it (its reply did not reach Revit) — {fresh.Status}; a changeset_reverted row (undo) for its {r.Applied.Count} element(s) was ");
-            return (true, false, $"{why}, and the bridge holds the changeset as {fresh.Status} with a result that is not this one — nothing reported. This PC's record is removed.");
+                return (true, true, $"{why}, but Sentinel had already taken it (its reply did not reach Revit) — {fresh.Status}; a changeset_reverted row (undo) for its {r.Applied.Count} element(s) was ");
+            return (true, false, $"{why}, and Sentinel holds the set of proposed changes as {fresh.Status} with a result that is not this one — nothing reported. This PC's record is removed.");
         }
 
         /// <summary>Review C9: the end of Gone's words once the revert was sent (<paramref name="err"/> null: posted).</summary>
         public static string RevertPosted(string err) => err == null
             ? "posted. This PC's record is removed."
-            : $"NOT posted: {err}\nThe record is kept on this PC; Retry report or the next Review AI Proposals asks the bridge again.";
+            : $"NOT posted: {err}\nThe record is kept on this PC; Retry report or the next Review AI Proposals asks Sentinel again.";
 
         /// <summary>Review C10: a 409 whose changeset could not be re-read — it may be this result, landed earlier; never called refused.</summary>
         public static string NotReRead(string err, int applied) =>
-            $"not reported: the bridge answered 409 and the changeset could not be re-read to tell whether it already holds this result ({err})." + Kept(applied);
+            $"not reported: Sentinel answered 409 and the set of proposed changes could not be re-read to tell whether it already holds this result ({err})." + Kept(applied);
 
         /// <summary>Review C8: the result landed, but an Undo of it came while its report was in flight — the changeset_reverted row the
         /// undo watcher would have posted; <paramref name="err"/> is null when it was posted.</summary>
         public static string UndoneInFlight(Record r, string err) => $"\"{r.Name}\": undone in Revit while its report was in flight — " + (err == null
             ? $"a changeset_reverted row (undo) was posted for its {r.Applied?.Count ?? 0} element(s)."
-            : $"the changeset_reverted row (undo) was NOT posted: {err}\nThe bridge holds it as applied and the model does not — check the changeset on the bridge.");
+            : $"the changeset_reverted row (undo) was NOT posted: {err}\nSentinel holds it as applied and the model does not — check the set of proposed changes on Sentinel.");
 
         /// <summary>Why a changeset is not opened for review: its result waits on this PC.</summary>
         public static string Blocked(IEnumerable<Record> waiting) =>
-            string.Join("\n\n", waiting.Select(r => $"\"{r.Name}\" was applied in {r.Doc} ({r.At}) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first. {DeleteOnce(r)}"));
+            string.Join("\n\n", waiting.Select(r => $"\"{r.Name}\" was applied in {r.Doc} ({r.At}) and Sentinel has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first. {DeleteOnce(r)}"));
 
         /// <summary>Founder decision F4 (review C14): the file that keeps the changeset closed on this PC, named for a model that is gone.</summary>
-        public static string DeleteOnce(Record r) => $"If that model is gone, check the changeset's status on the bridge, then delete {PathFor(r.Key, r.ChangesetId)}.";
+        public static string DeleteOnce(Record r) => $"If that model is gone, check the proposed changes' status on Sentinel, then delete {PathFor(r.Key, r.ChangesetId)}.";
 
         /// <summary>MA-3b4 (founder decision F2 B): the head of the Doctor line when a model opens and its waiting results are checked and sent.</summary>
         public static string OnOpening(string title) => $"Review AI Proposals (on opening \"{title}\"): ";
 
         /// <summary>MA-3b4: a model opened while the one-review guard is held (a picker or a window open, a report in flight) — nothing sent, said.</summary>
         public static string OpenHeld(int n) =>
-            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent now: a review window is open, a report is in flight, or Promote (DD) is reading or filing. Once it is done, run Review AI Proposals in this model: it checks the model and sends them.";
+            $"{n} result(s) applied in this model wait on this PC for Sentinel — not sent now: a review window is open, a report is in flight, or Promote (DD) is reading or filing. Once it is done, run Review AI Proposals in this model: it checks the model and sends them.";
 
         /// <summary>MA-3b4 review C1: a model opened while nobody is signed in — nothing sent (a result is reported in a person's name, never
         /// the machine credential's, which the bridge would still accept as service), said.</summary>
         public static string OpenSignedOut(int n) =>
-            $"{n} result(s) applied in this model wait on this PC for the bridge — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Standards ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model.";
+            $"{n} result(s) applied in this model wait on this PC for Sentinel — not sent: nobody is signed in, and a result is reported in a person's name. Sign in (Sentinel ▸ More ▸ Sign in) as a contributor on this project, then run Review AI Proposals in this model.";
 
         /// <summary>MA-3b4 (G2): the head of Ghost Builder's Doctor line — its report runs after its summary is shown.</summary>
-        public const string GhostHead = "Ghost Builder — the report to the bridge: ";
+        public const string GhostHead = "Ghost Builder — the report to Sentinel: ";
 
         // MA-3b4 (S4): what a window's words offer that no window can — MA-3b2b review C14's rule, for every offer: a round at a model's
         // opening or from Ghost Builder has no Retry report and no window to close.
@@ -270,18 +270,18 @@ namespace Sentinel.Engine
 
         /// <summary>MA-3b4: a round that did not finish (its task faulted) — nothing on this PC is lost.</summary>
         public static string Failed(string why) =>
-            $"reporting failed — {why ?? "it did not finish"}\nWhat Revit applied is kept on this PC ({Root}) and sent again by the next opening of this model or Review AI Proposals; a decline that did not land leaves its changeset proposed.";
+            $"reporting failed — {why ?? "it did not finish"}\nWhat Revit applied is kept on this PC ({Root}) and sent again by the next opening of this model or Review AI Proposals; a decline that did not land leaves its set of proposed changes proposed.";
 
         /// <summary>MA-3b4 (AI-2): Ghost Builder's ledger line — its results are written on this PC and reported off Revit's thread.</summary>
         public static string GhostReporting(string key, IList<string> ids, IList<string> unsaved) =>
-            $"Ledger: reporting {ids.Count} changeset(s) to {key} (source dwg: {string.Join(", ", ids)}) off Revit's thread — the pane's Doctor log says what the bridge took. " +
-            "A result it does not take is kept on this PC and sent again by the next opening of this model or Review AI Proposals; that changeset is not opened for review until then, so nothing is applied twice. " +
-            "One Ctrl+Z undoes the whole build; changeset_reverted is posted for what the bridge holds." +
-            (unsaved.Count == 0 ? "" : $"\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again.");
+            $"History: reporting {ids.Count} set(s) of proposed changes to {key} (source dwg: {string.Join(", ", ids)}) off Revit's thread — the pane's Doctor log says what Sentinel took. " +
+            "A result it does not take is kept on this PC and sent again by the next opening of this model or Review AI Proposals; that set of proposed changes is not opened for review until then, so nothing is applied twice. " +
+            "One Ctrl+Z undoes the whole build; changeset_reverted is posted for what Sentinel holds." +
+            (unsaved.Count == 0 ? "" : $"\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({Root}): if its report fails too, nothing on this PC remembers it — check the proposed changes' status on Sentinel before reviewing it again.");
 
         /// <summary>MA-3b4: Ghost Builder's ledger line when the build rolled back — every filed changeset is reported declined off Revit's thread.</summary>
         public static string GhostDeclining(int n) =>
-            $"Ledger: reporting {n} changeset(s) as declined, with the reason, off Revit's thread — the pane's Doctor log says what the bridge took; one it does not take is withdrawn instead, and one that is neither is named there (still proposed: withdraw it on the web).";
+            $"History: reporting {n} set(s) of proposed changes as declined, with the reason, off Revit's thread — the pane's Doctor log says what Sentinel took; one it does not take is withdrawn instead, and one that is neither is named there (still proposed: withdraw it on the web).";
 
         /// <summary>MA-3b4 (B4): after Ghost Builder's declines — the changesets withdrawn instead, and those neither declined nor withdrawn.</summary>
         public static string WithdrawnInstead(IList<string> withdrawn, IList<string> kept) =>
@@ -308,6 +308,6 @@ namespace Sentinel.Engine
         /// <summary>MA-3b4 review C8: Ghost Builder's results whose save on this PC failed and whose report did not land — the round's
         /// "kept on this PC" is not true for them.</summary>
         public static string NotKept(IList<string> ids) => ids.Count == 0 ? ""
-            : $"\n\n⚠ {string.Join(", ", ids)}: NOT kept on this PC — its save failed ({Root}), so nothing here keeps that changeset closed; check its status on the bridge before anyone reviews it.";
+            : $"\n\n⚠ {string.Join(", ", ids)}: NOT kept on this PC — its save failed ({Root}), so nothing here keeps that set of proposed changes closed; check its status on Sentinel before anyone reviews it.";
     }
 }

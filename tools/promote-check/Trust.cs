@@ -66,7 +66,7 @@ static partial class Check
            "from a bridge before item 8 the window's own rule holds: a Promote attach, a Promote retype with the type the plan saw");
         Ok(ChangesetTrust.Accuracy(cs.Elements[0]) == "not measured" && ChangesetTrust.Accuracy(older.Elements[0]) == null,
            "accuracy reads \"not measured\"; from an older bridge it reads nothing — never a pass");
-        Ok(ChangesetTrust.SourceLabel(cs) == "sentinel-survey 0.1 (claimed — the bridge records who a changeset says it is from, and cannot verify it)"
+        Ok(ChangesetTrust.SourceLabel(cs) == "sentinel-survey 0.1 (claimed — Sentinel records who a set of proposed changes says it is from, and cannot verify it)"
            && ChangesetTrust.SourceLabel(older) == "promote", "the source is shown as a claim when the bridge marks it one");
         string filed = JsonSerializer.Serialize(new ChangesetElementDto { Kind = "wall", Op = "create" }, ChangesetClient.WriteJson);
         Ok(!filed.Contains("pretick") && !filed.Contains("accuracy") && !filed.Contains("cid") && !filed.Contains("evidence"),

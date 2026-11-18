@@ -60,18 +60,18 @@ static partial class Check
         // Drill MA1a-I35: the reader shows the 64 digits in groups of 8 (the dialog clipped them as one word).
         const string sha8 = "01234567 89abcdef 01234567 89abcdef 01234567 89abcdef 01234567 89abcdef";
         var said = ProvenanceStamp.Describe(ghost, uid);
-        Ok(said.StartsWith("Placed or changed by Sentinel.") && said.Contains("Source: dwg") && said.Contains("Source file sha256: " + sha8 + "\n")
+        Ok(said.StartsWith("Placed or changed by Sentinel.") && said.Contains("Source: dwg") && said.Contains("Source file hash: " + sha8 + "\n")
            && said.Contains("Layer: A-WALL-EXT") && said.Contains("Rule: type by the guideline") && said.Contains("Approver: yazan@example.com")
-           && said.Contains("Ledger row: #1287") && said.Contains("Placed at: 2026-10-02T12:00:00Z (UTC, this PC's clock)") && !said.Contains("Reason given by the proposer"),
+           && said.Contains("History entry: #1287") && said.Contains("Placed at: 2026-10-02T12:00:00Z (UTC, this PC's clock)") && !said.Contains("Reason given by the proposer"),
            "the reader shows the source file sha, layer, rule, approver and ledger row (drill row 'pick any wall')");
         var saidRetyped = ProvenanceStamp.Describe(retyped, uid);
         Ok(saidRetyped.EndsWith("\nReason given by the proposer (promote): \"" + ddReason + "\"") && !saidRetyped.Contains("Rule: ")
-           && saidRetyped.Contains("Layer: A-WALL-EXT") && saidRetyped.Contains("Source file sha256: " + sha8 + "\n"),
+           && saidRetyped.Contains("Layer: A-WALL-EXT") && saidRetyped.Contains("Source file hash: " + sha8 + "\n"),
            "with no rule of the placer's own the reader labels the element's reason as the proposer's — it never reads as an office rule (C2)");
         Ok(ProvenanceStamp.Describe(ghost, "5a1c-0004c3f9").StartsWith("Copied, not placed by Sentinel — this stamp came with a copy of element 5a1c-0004c3f8"),
            "a stamp whose unique_id_at_placement is another element's reads as copied (drill row 'a copy-pasted wall')");
         var d2 = ProvenanceStamp.Describe(datum.ToJsonString(), uid);
-        Ok(d2.Contains("(not signed in") && d2.Contains("Ledger row: none — not on a project ledger") && d2.Contains("Source file sha256: none recorded"),
+        Ok(d2.Contains("(not signed in") && d2.Contains("History entry: none — not on a History entry") && d2.Contains("Source file hash: none recorded"),
            "signed out, no ledger row, no file read: each said in words, never left blank (founder decision F5)");
         var v1 = ProvenanceStamp.Describe(ProvenanceStamp.Json("seed-cs", "concept", new[] { "s1" }, uid).Replace("\"v\":2", "\"v\":1"), uid);
         Ok(v1.Contains("Layer: not recorded (a stamp from before MA-1a item 4)") && v1.Contains("Source: concept"), "a v1 stamp (MA-0) still reads, its missing fields named as older");
@@ -79,11 +79,11 @@ static partial class Check
            "no stamp, or an unreadable one, is said so");
         // C1: a value with a line break in it stays on its own line — it cannot pass for another field of the stamp.
         var forged = ProvenanceStamp.Json("cs-9", "agent\nApprover: forged", new[] { "g9" }, uid, null,
-            new ProvenanceStamp.Facts { Layer = "A-WALL\r\nLedger row: #1", Reason = "as asked\nApprover: the office lead", SourceSha256 = sha, LedgerRow = "12\n34" },
+            new ProvenanceStamp.Facts { Layer = "A-WALL\r\nHistory entry: #1", Reason = "as asked\nApprover: the office lead", SourceSha256 = sha, LedgerRow = "12\n34" },
             "a@example.com" + (char)0x2028 + "Placed at: never", "2026-10-02T12:00:00Z\tx"); // 0x2028: the Unicode line separator
         var lines = ProvenanceStamp.Describe(forged, uid).Split('\n');
-        Ok(lines.Length == 9 && lines[3] == "Layer: A-WALL Ledger row: #1"
-           && lines[4] == "Approver: a@example.com Placed at: never" && lines[5].StartsWith("Ledger row: #12 34 —")
+        Ok(lines.Length == 9 && lines[3] == "Layer: A-WALL History entry: #1"
+           && lines[4] == "Approver: a@example.com Placed at: never" && lines[5].StartsWith("History entry: #12 34 —")
            && lines[8] == "Reason given by the proposer (agent Approver: forged): \"as asked Approver: the office lead\""
            && lines.Count(l => l.StartsWith("Approver: ")) == 1 && lines.Count(l => l.StartsWith("Placed at: ")) == 1,
            "Describe prints one line per field: a line break inside any value is collapsed to a space (C1)");

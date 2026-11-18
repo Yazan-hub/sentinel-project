@@ -82,7 +82,7 @@ var pp2 = bds.Find(p => p.Use == "Presentation Plan (no colour)" && p.LevelName 
 Check("K5: the second PP entry is refused by name, not skipped in silence", pp2?.Refusal == "same name as 'Presentation Plan' on GR-FFL" && !pp2.PreTicked);
 Check("every other BDS name passes VN-01 as it is (Scan Now's rule)", bds.Count(p => p.Refusal != null) == 3);
 Check("the rule line names VN-01 and the ruleset",
-    ViewPlanner.RuleLine(bdsRules, "ruleset@1 · office · ab12…") == "View names are checked against VN-01 (ruleset ruleset@1 · office · ab12…) — Scan Now's own rule.");
+    ViewPlanner.RuleLine(bdsRules, "ruleset@1 · office · ab12…") == "View names are checked against VN-01 (project standards ruleset@1 · office · ab12…) — Scan Now's own rule.");
 var again = ViewPlanner.Plan(m.Views, m.ViewNaming, bdsLevels, bdsRules, new HashSet<string> { "WIP_FP_GR-FFL" });
 Check("a name a view or a template already holds is listed as such, unticked",
     again[0].Refusal == ViewPlanner.Existing && !again[0].PreTicked && again.Count(p => p.PreTicked) == 3);
@@ -122,7 +122,7 @@ Check("F44: a fixed WIP_ name the project's View rule refuses is never created",
     fixedAst[0].Refusal == "'WIP_FP_L01' does not pass VN-01: View 'WIP_FP_L01' does not match [DISCIPLINE]_[LEVEL]_[TYPE]_[DESCRIPTION]." && !fixedAst.Any(p => p.PreTicked));
 Check("no View rule: a fixed name is planned and the line says it is not checked",
     ViewPlanner.Plan(views, naming, two, none, null).Count(p => p.PreTicked) == 4
-    && ViewPlanner.RuleLine(none, "none — not installed for p-none or its office") == "View names not checked: no View rule with tokens or a whitelist in the ruleset (none — not installed for p-none or its office).");
+    && ViewPlanner.RuleLine(none, "none — not installed for p-none or its office") == "View names not checked: no View rule with tokens or a whitelist in the project standards (none — not installed for p-none or its office).");
 Check("no View rule: an entry named by tokens is refused, since nothing orders them",
     ViewPlanner.Plan(tokened, naming, two, none, null).All(p => p.Refusal == "'" + p.Use + "' names its view by tokens, but no View rule with tokens is installed to order them"));
 var flat = new List<GuidelineViewStandard> { new() { Use = "GA Plan", ViewType = "FloorPlan", Tokens = new() { ["DISC"] = "ARC", ["LEVEL"] = "XX", ["TYPE"] = "PLAN", ["DESC"] = "GA" } } };
@@ -170,7 +170,7 @@ Check("F7 (review C7): a datum another user owns, or one changed in central, is 
 Check("S3 (review C6): the MH-LNK-01 substitute reads every level and grid from the model and says links are not checked",
     ViewPlanner.PinnedLine(2, 2, 0, 1, 3, 4) == "Pinned now: 2/2 story level(s), 0/1 other level(s), 3/4 grid(s) (read from the model after the commit); links are not checked (MH-LNK-01 is not in code).");
 Check("S1 (review C3): the B31 words, in every model",
-    ViewPlanner.UndoWords() == "Revit may empty its Undo list after views are named (B31) — if Edit ▸ Undo does not list \"Sentinel: Annotate views\", the annotate ledger row is the record: it names the views and datums to delete or unpin by hand.");
+    ViewPlanner.UndoWords() == "Revit may empty its Undo list after views are named (B31) — if Edit ▸ Undo does not list \"Sentinel: Annotate views\", the History entry for this run is the record: it names the views and datums to delete or unpin by hand.");
 
 // ── MA-2e: Annotate's wiring, by source scan (Revit-bound; proven in drill MA2e) ──
 string Src(params string[] p) => File.ReadAllText(Path.Combine(new[] { root, "SentinelAddin" }.Concat(p).ToArray()));
@@ -233,7 +233,7 @@ Check("F3: Datum's result names Annotate as the next step", Src("Commands.Datum.
     Check("MA-8-11: the file is picked and opened before the preview, and a refusal is a dialog and Cancelled with nothing written",
         pickAt > 0 && pickAt < ann.IndexOf("new AnnotatePreviewWindow(") && annN.Contains("TaskDialog.Show(Title, why); return Result.Cancelled;"));
     Check("MA-8-11: one Close(false), in a finally, and only for a document this run opened",
-        CountOf(ann, ".Close(false)") == 1 && finAt > ann.IndexOf("TaskDialog.Show(Title, sb.ToString())") && ann.IndexOf(".Close(false)") > finAt && ann.Contains("try { if (src != null && src.Opened) src.Doc.Close(false); }") && ann.Contains("could not be closed in the background"));
+        CountOf(ann, ".Close(false)") == 1 && ann.IndexOf("new TaskDialog(Title) { MainContent = sb.ToString()") is int dlgAt && dlgAt > 0 && finAt > dlgAt && ann.IndexOf(".Close(false)") > finAt && ann.Contains("try { if (src != null && src.Opened) src.Doc.Close(false); }") && ann.Contains("could not be closed in the background"));
     Check("MA-8-11: the office file is never saved - no Save( / SaveAs( in either file",
         !off.Contains(".Save(") && !off.Contains("SaveAs(") && !ann.Contains(".Save(") && !ann.Contains("SaveAs(") && !ann.Contains("SaveAsOptions"));
     int detach = off.IndexOf("DetachFromCentralOption"), shared = off.IndexOf("if (info.IsWorkshared)");

@@ -46,13 +46,13 @@ public static class IsoGapAnalyzer
     {
         var container = p.NamingRules.FirstOrDefault(n => IsSheetOrView(n.Target) && n.Tokens.Count >= 4);
         if (container != null)
-            return new IsoCheck("container-naming", "Container naming convention", IsoStatus.Present,
+            return new IsoCheck("container-naming", "File naming convention", IsoStatus.Present,
                 $"{container.Target} rule {container.Id} — {container.Pattern}", "ISO 19650-2 §container ID");
         if (p.NamingRules.Count > 0)
-            return new IsoCheck("container-naming", "Container naming convention", IsoStatus.Partial,
-                "naming rules exist but none for Sheets/Views with ≥4 fields (the container ID has 7)", "ISO 19650-2 §container ID");
-        return new IsoCheck("container-naming", "Container naming convention", IsoStatus.Missing,
-            "no container naming rule (Project-Originator-Volume-Level-Type-Role-Number)", "ISO 19650-2 §container ID");
+            return new IsoCheck("container-naming", "File naming convention", IsoStatus.Partial,
+                "naming rules exist but none for Sheets/Views with ≥4 fields (the file name has 7)", "ISO 19650-2 §container ID");
+        return new IsoCheck("container-naming", "File naming convention", IsoStatus.Missing,
+            "no file naming rule (Project-Originator-Volume-Level-Type-Role-Number)", "ISO 19650-2 §container ID");
     }
 
     private static IsoCheck Worksets(ProvisionSet p) =>
@@ -60,7 +60,7 @@ public static class IsoGapAnalyzer
             ? new IsoCheck("worksets", "Federation-ready worksets", IsoStatus.Present,
                 $"{p.Worksets.Count} workset(s) defined", "ISO 19650 · information structure")
             : new IsoCheck("worksets", "Federation-ready worksets", IsoStatus.Missing,
-                "no worksets — spatial/discipline containers undefined", "ISO 19650 · information structure");
+                "the model is not divided by zone or discipline (no worksets)", "ISO 19650 · information structure");
 
     private static IsoCheck ParamCheck(ProvisionSet p, string key, string title, string[] needles, string want, string clause)
     {

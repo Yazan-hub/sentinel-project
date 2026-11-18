@@ -76,15 +76,15 @@ namespace Sentinel.Engine
             Uri.TryCreate((url ?? "").Trim(), UriKind.Absolute, out var u) && (u.IsLoopback || u.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
 
         public const string TokenOffPc =
-            "This PC's shared token works only with the bridge on this PC (PR-1), and Sentinel never sends it to another one. "
-            + "Use the bridge address on this PC (http://localhost:4100), or tick \"Remove it\" and sign in instead.";
+            "This PC's shared access code works only when Sentinel runs on this PC, and Sentinel never sends it to another one. "
+            + "Use the Sentinel service address on this PC (http://localhost:4100), or tick \"Remove it\" and sign in instead.";
 
         /// <summary>Null when the form may be saved; else the words. The add-in's own rules (UrlRule, LocalOnly), and PR-1: this PC's
         /// shared token (the machine credential) goes only to the bridge on this PC.</summary>
         public static string? Refusal(string serviceUrl, string supabaseUrl, bool keepsMachineToken,
                                       string ollamaUrl, bool cloudOptIn, string familyDir, string schemaPath, string addinDir, string schemasDir)
         {
-            if (string.IsNullOrWhiteSpace(serviceUrl)) return "Type the bridge address — on this PC it is http://localhost:4100.";
+            if (string.IsNullOrWhiteSpace(serviceUrl)) return "Type the Sentinel service address — on this PC it is http://localhost:4100.";
             var why = UrlRule.Refusal(serviceUrl, "bridge") ?? UrlRule.Refusal(supabaseUrl, "sign-in")
                       ?? (keepsMachineToken && !OnThisPc(serviceUrl) ? TokenOffPc : null)
                       ?? LocalOnly.ModelUrlRefusal(ollamaUrl, cloudOptIn)
@@ -119,16 +119,16 @@ namespace Sentinel.Engine
         public static string TestBridge(string serviceUrl)
         {
             var u = (serviceUrl ?? "").Trim().TrimEnd('/');
-            if (u.Length == 0) return "✗ No bridge address.";
+            if (u.Length == 0) return "✗ No Sentinel service address.";
             if (UrlRule.Refusal(u, "bridge") is { } why) return "✗ " + Plain(why);
             try
             {
                 using var r = Http.GetAsync(u + "/health").GetAwaiter().GetResult();
                 return r.IsSuccessStatusCode
-                    ? $"✓ The bridge at {u} answers."
-                    : $"✗ {u} answered {(int)r.StatusCode} {r.ReasonPhrase} — it is not a Sentinel bridge, or the bridge is not working.";
+                    ? $"✓ Sentinel answers at {u}."
+                    : $"✗ {u} answered {(int)r.StatusCode} {r.ReasonPhrase} — it is not Sentinel, or Sentinel is not working.";
             }
-            catch (Exception e) { return $"✗ No bridge answers at {u} ({Inner(e)}). Is the bridge running?"; }
+            catch (Exception e) { return $"✗ Nothing answers at {u} ({Inner(e)}). Is Sentinel running on that PC?"; }
         }
 
         public static string TestModel(string ollamaUrl, bool cloudOptIn, string model, string visionModel)
@@ -152,13 +152,13 @@ namespace Sentinel.Engine
         public static string TestSignIn(string supabaseUrl, string anonKey)
         {
             if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(anonKey))
-                return "✗ This PC has no sign-in address or key — fill both and Save, then Standards ▸ Sign in.";
+                return "✗ This PC has no sign-in address or key — fill both and Save, then Sentinel ▸ More ▸ Sign in.";
             if (UrlRule.Refusal(supabaseUrl, "sign-in") is { } why) return "✗ " + Plain(why);
-            if (UserSession.Email is not { } who) return "Signed out — Standards ▸ Sign in to act under your own name.";
+            if (UserSession.Email is not { } who) return "Signed out — Sentinel ▸ More ▸ Sign in to act under your own name.";
             string? token;
             try { token = UserSession.AccessToken(supabaseUrl.Trim(), anonKey.Trim()); }
             catch (SessionException e) { return $"✗ The sign-in for {who} could not be used: {e.Message}"; }
-            if (token is null) return "Signed out — Standards ▸ Sign in to act under your own name.";
+            if (token is null) return "Signed out — Sentinel ▸ More ▸ Sign in to act under your own name.";
             try
             {
                 using var msg = new HttpRequestMessage(HttpMethod.Get, supabaseUrl.Trim().TrimEnd('/') + "/auth/v1/user");
@@ -167,7 +167,7 @@ namespace Sentinel.Engine
                 using var r = Http.SendAsync(msg).GetAwaiter().GetResult();
                 var code = (int)r.StatusCode;
                 return r.IsSuccessStatusCode ? $"✓ Signed in as {who}; the sign-in is valid."
-                    : code == 401 || code == 403 ? $"✗ The sign-in for {who} is no longer accepted — Standards ▸ Sign in again."
+                    : code == 401 || code == 403 ? $"✗ The sign-in for {who} is no longer accepted — Sentinel ▸ More ▸ Sign in again."
                     : $"✗ The sign-in address answered {code} {r.ReasonPhrase}.";
             }
             catch (Exception e) { return $"✗ The sign-in address does not answer ({Inner(e)})."; }

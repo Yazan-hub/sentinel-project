@@ -83,7 +83,7 @@ public static class TypeCatalogExport
                 if (d.RootElement.TryGetProperty("office_key", out var o) && o.ValueKind == JsonValueKind.String) office = o.GetString();
             }
         }
-        catch (JsonException) { error = "the bridge's answer to the scope read could not be read"; return null; }
+        catch (JsonException) { error = "Sentinel's answer to the scope read could not be read"; return null; }
         if (kind == "office") return key;
         if (!string.IsNullOrWhiteSpace(office)) return office;
         error = $"project {key} belongs to no office — link it to an office in the web app first (a catalogue installed on a project would shadow its office's, for that project alone)";
@@ -93,8 +93,8 @@ public static class TypeCatalogExport
     /// <summary>MA-2a (BOS-3): the window's line after an install — the artefact's label (the bridge's refLabel), the office, the count,
     /// and where it is read from, so the proof (GET answers the same sha) is one line away.</summary>
     public static string InstallLine(string officeKey, int version, string? sha256, int count, string templateTitle) =>
-        $"{ArtefactClient.RefLabel("type_catalog@" + version, "office", sha256)}: installed on {officeKey} — {count:N0} types from {templateTitle}. " +
-        $"Ghost Builder, Promote and the bridge read it from here on; GET /cde/{officeKey}/artefacts/type_catalog answers the same sha.";
+        $"Installed on {officeKey} — {count:N0} types from {templateTitle}. Ghost Builder and Promote read it from here on.\n" +
+        $"Details: {ArtefactClient.RefLabel("type_catalog@" + version, "office", sha256)}; GET /cde/{officeKey}/artefacts/type_catalog answers the same sha.";
 
     /// <summary>MA-2a (BOS-3): the window's line after a refusal — the bridge's own words (a 403 carries the role sentence).</summary>
     public static string NotInstalledLine(string error) => "Catalogue NOT installed: " + error;

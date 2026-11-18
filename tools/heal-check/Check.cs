@@ -49,7 +49,7 @@ static class Check
         Ok(processor.Contains("ScanLoaded(Document doc,") && !processor.Contains("ActiveUIDocument"),
            "ScanLoaded heals the document it is handed, never the one in focus when the job runs");
         Ok(command.Contains("ProjectContext.For(doc).Key") && command.Contains("ScanLoaded(doc,")
-           && command.Contains("GovernedNotify.Event(\"/audit\", payload, key)") && command.Contains("LedgerLine.Sentence(ledger)"),
+           && command.Contains("GovernedNotify.Event(\"/audit\", payload, key)") && command.Contains("LedgerLine.Display(ledger)"),
            "Heal Loaded Families records the run on the key captured at command time and prints the ledger line");
 
         Console.WriteLine($"\n{_pass}/{_pass + _fail} checks pass");

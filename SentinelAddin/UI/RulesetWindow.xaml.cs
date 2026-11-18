@@ -78,15 +78,18 @@ public sealed class RulesetWindowViewModel
 {
     public RulesetWindowViewModel(Ruleset rs, ResolvedArtefact src, string docTitle)
     {
-        // The artefact that judges this document, exactly as every other surface names it (refLabel), or none.
-        Header = src.Label;
+        // UX slice 4: plain heading; the standard that judges this document, exactly as every other surface names it
+        // (refLabel: ruleset@n · scope · sha), and its version stay readable in the closed Details under it.
+        Header = "Project standards";
         SubHeader = rs.Rules.Count == 0
             ? $"{docTitle} — no rules, nothing is scored"
-            : $"{docTitle} — {rs.StandardKey} v{rs.Semver} · {rs.Rules.Count} rule(s)";
+            : $"{docTitle} — {rs.Rules.Count} rule(s)";
+        Details = rs.Rules.Count == 0 ? src.Label : $"{src.Label} · {rs.StandardKey} v{rs.Semver}";
         Rules = rs.Rules.Select(r => new RuleCard(r)).ToList();
     }
 
     public string Header { get; }
     public string SubHeader { get; }
+    public string Details { get; }
     public IReadOnlyList<RuleCard> Rules { get; }
 }

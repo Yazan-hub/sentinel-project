@@ -30,7 +30,7 @@ public static partial class CdeSyncGuard
                 return new Violation(RuleId, reject ? EnforcementMode.Block : EnforcementMode.Warn, -1, fileName,
                     "Central file '" + fileName + "' does not match " + namingLabel + ": " +
                     string.Join("; ", v.Failures.Select(f => f.Reason)) + ". " +
-                    (reject ? "The naming standard rejects this name (enforce: reject) — Governed Publish rejects it too."
+                    (reject ? "The naming standard rejects this name (enforce: reject) — Publish rejects it too."
                             : "Recorded as a warning (enforce: warn)."),
                     "اسم الملف المركزي لا يطابق اتفاقية التسمية المعتمدة.",
                     namingLabel);

@@ -47,7 +47,7 @@ namespace Sentinel.GhostBuilder
             if (el.Replaces != null) return "it replaced a DirectShape or Generic Model that Sentinel removed; Sentinel cannot bring that back — a person decides";
             if (el.Op == "attach" && a.Before == null) return "the wall's top before the attach was not recorded (applied before 2026-10-20) — a person resets it by hand";
             if (el.Op == "delete" && string.IsNullOrEmpty(a.Deleted?.KeeperUniqueId)) return "the copy's record (the element it duplicated, its values) was not kept — Sentinel cannot re-create it; a person decides";
-            if (el.Op is not (null or "create" or "retype" or "attach" or "reshape" or "set_parameter" or "delete")) return $"Revert does not know the op \"{el.Op}\" — a person decides";
+            if (el.Op is not (null or "create" or "retype" or "attach" or "reshape" or "set_parameter" or "delete")) return $"Undo does not know the op \"{el.Op}\" — a person decides";
             return null;
         }
 
@@ -59,7 +59,7 @@ namespace Sentinel.GhostBuilder
         {
             problem = null;
             var t = string.Join(" ", (text ?? "").Split(new[] { '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries)).Trim();
-            if (t.Length == 0) { problem = "Type why you revert it — the reason is recorded on the ledger with your name."; return null; }
+            if (t.Length == 0) { problem = "Type why you undo it — the reason is recorded in History with your name."; return null; }
             if (t.Length > 500) { problem = $"The reason is {t.Length} characters — keep it to 500."; return null; }
             return t;
         }
@@ -69,11 +69,11 @@ namespace Sentinel.GhostBuilder
         {
             var parts = new List<string>();
             if (cs.Reverted != null)
-                parts.Add($"reverted by {cs.Reverted.By ?? "?"}" + (cs.Reverted.Kept is > 0 ? $" ({cs.Reverted.Kept} row(s) kept as they stood)" : "") + Ledger(cs.Reverted.LedgerId)
+                parts.Add($"undone by {cs.Reverted.By ?? "?"}" + (cs.Reverted.Kept is > 0 ? $" ({cs.Reverted.Kept} row(s) kept as they stood)" : "") + Ledger(cs.Reverted.LedgerId)
                           // 2026-10-20 (spec §4): the revert's own save
-                          + (cs.Reverted.Persisted is not { } rp ? " — revert not yet seen saved"
-                             : rp.State == "confirmed" ? " — revert " + (rp.How switch { "synced" => "synchronised with central", "saved_locally" => "saved locally, not synced yet", "reopened" => "found in the model when it was reopened", _ => "saved in the model" })
-                             : $" — revert NOT in the saved model ({rp.Missing ?? 0} row(s) back) — closed without saving, or Revit stopped"));
+                          + (cs.Reverted.Persisted is not { } rp ? " — the undo is not yet seen saved"
+                             : rp.State == "confirmed" ? " — the undo is " + (rp.How switch { "synced" => "synchronised with central", "saved_locally" => "saved locally, not synced yet", "reopened" => "found in the model when it was reopened", _ => "saved in the model" })
+                             : $" — the undo is NOT in the saved model ({rp.Missing ?? 0} row(s) back) — closed without saving, or Revit stopped"));
             var p = cs.Persisted;
             // drill REV (F-REV-2): after a revert the saved check is about the change as applied — said so, never read as the revert's
             parts.Add((cs.Reverted != null ? "as applied: " : "") + (p == null ? "not yet seen saved"
@@ -82,13 +82,13 @@ namespace Sentinel.GhostBuilder
             return string.Join(" · ", parts);
         }
 
-        private static string Ledger(long? id) => id == null ? "" : $" (ledger #{id})";
+        private static string Ledger(long? id) => id == null ? "" : $" (History #{id})";
 
         /// <summary>The window's preview: what goes back and what is kept, each kept row with why.</summary>
         public static string Preview(int back, IReadOnlyList<(string Label, string Why)> kept)
         {
             var head = back == 0 ? "Nothing would go back — every applied row is kept as it stands:"
-                     : $"{back} row(s) go back to how they were before this changeset." + (kept.Count == 0 ? "" : $" {kept.Count} kept as they stand:");
+                     : $"{back} row(s) go back to how they were before these proposed changes." + (kept.Count == 0 ? "" : $" {kept.Count} kept as they stand:");
             return head + string.Concat(kept.Take(20).Select(k => $"\n• {k.Label}: {k.Why}")) + (kept.Count > 20 ? $"\n… and {kept.Count - 20} more" : "");
         }
 
@@ -149,9 +149,9 @@ namespace Sentinel.GhostBuilder
             var ok = ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Guids, "undo", out var error, "revert", r.Reason, r.Kept);
             if (ok || SavedCheck.ForGood(error)) Delete(r.Key, r.ChangesetId);
             if (ok) UndoWatcher.Remember(r.Tx, r.Key, r.ChangesetId, r.Guids, r.Reason, r.Kept, inverse: true);
-            return ok ? $"\"{r.Name}\": revert recorded on the ledger ({r.Guids.Count} row(s) back, {r.Kept.Count} kept)."
-                 : SavedCheck.ForGood(error) ? $"\"{r.Name}\": the bridge refused the revert's record ({error}). The model is reverted; this PC's record is removed — tell the project lead."
-                 : $"\"{r.Name}\": the model is reverted, but the ledger row was NOT posted: {error}. Kept on this PC; sent again when Applied AI Changes opens.";
+            return ok ? $"\"{r.Name}\": undo recorded in History ({r.Guids.Count} row(s) back, {r.Kept.Count} kept)."
+                 : SavedCheck.ForGood(error) ? $"\"{r.Name}\": Sentinel refused the undo's record ({error}). The model is undone; this PC's record is removed — tell the project lead."
+                 : $"\"{r.Name}\": the undo is in the model, but the History entry was NOT recorded: {error}. Kept on this PC; sent again when Applied AI Changes opens.";
         }
     }
 }
