@@ -63,7 +63,7 @@ describe("R1b journey", () => {
   });
   it("R1b: no hint sends anyone to the old panel's Compile to IDS", () => {
     for (const s of [...OFFICE_STEPS, ...PROJECT_STEPS]) expect(s.how.web?.hint ?? "", s.id).not.toContain("Documents ▸ EIR ▸ Compile to IDS");
-    expect(PROJECT_STEPS.find((s) => s.id === "standards").how.web.hint).toContain("Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project");
+    expect(PROJECT_STEPS.find((s) => s.id === "standards").how.web.hint).toContain("Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Turn into data requirements ▸ Install on this project");
   });
 });
 
@@ -129,9 +129,9 @@ describe("project journey", () => {
     const one = buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, live_set: [{ version_id: "v-1" }] }) });
     expect(byId(one).federated).toMatchObject({ status: "done" });
     const partial = { ...FED_PASS, latest: { ...FED_PASS.latest, set: [{ container: "A.ifc" }] }, live_set: [{ container: "A.ifc", version_id: "v-1" }, { container: "B.ifc", version_id: "v-2" }] };
-    expect(byId(buildJourney({ ...emptyProject(), federation: ok(partial) })).federated).toMatchObject({ status: "todo", reason: "the latest pass did not judge 1 live model(s) — run the Federation Gate on the whole live set" });
-    expect(byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, latest: null }) })).federated).toMatchObject({ status: "todo", reason: "the Federation Gate has not run" });
-    expect(byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, latest: { at: "x", result: { verdict: "fail" } } }) })).federated).toMatchObject({ status: "todo", reason: "latest Federation Gate: fail" });
+    expect(byId(buildJourney({ ...emptyProject(), federation: ok(partial) })).federated).toMatchObject({ status: "todo", reason: "the latest pass did not judge 1 live model(s) — run the coordination check on the whole live set" });
+    expect(byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, latest: null }) })).federated).toMatchObject({ status: "todo", reason: "the coordination check has not run" });
+    expect(byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, latest: { at: "x", result: { verdict: "fail" } } }) })).federated).toMatchObject({ status: "todo", reason: "latest coordination check: fail" });
   });
   it("a failed fact makes only its steps not_checkable with the error as reason; next skips them", () => {
     const j = buildJourney({ ...fullProject(), members: bad("Supabase 500: boom"), verdicts: bad("audit read failed") });
@@ -205,7 +205,7 @@ describe("office journey", () => {
 describe("amendments (controller cross-check)", () => {
   it("A1: a stale pass is todo with its own reason and no evidence; a fresh pass is done", () => {
     const stale = byId(buildJourney({ ...emptyProject(), federation: ok({ ...FED_PASS, stale: true }) })).federated;
-    expect(stale).toMatchObject({ status: "todo", reason: "latest pass is stale — the live set changed since; re-run the Federation Gate", evidence: null });
+    expect(stale).toMatchObject({ status: "todo", reason: "latest pass is stale — the live set changed since; re-run the coordination check", evidence: null });
     const fresh = byId(buildJourney({ ...emptyProject(), federation: ok(FED_PASS) })).federated;
     expect(fresh.status).toBe("done");
   });

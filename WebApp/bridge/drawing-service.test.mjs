@@ -70,7 +70,7 @@ describe("runDrawing (MA-5a-3) — the supervisor, with a Node stand-in for sent
     expect(r.status).toBe("failed");
     expect(r.error).toMatch(/^sentinel-drawing could not start \(ENOENT\)/);
     expect(notSetUp({ exe: "sentinel-drawing.exe" })).toBe("sentinel-drawing is not set up on this PC: SENTINEL_DRAWING_EXE must be the absolute path of sentinel-drawing.exe — nothing was saved");
-    expect(notSetUp({ exe: missing })).toBe("sentinel-drawing is not set up on this PC: build it in the bridge's checkout (dotnet build drawing -c Release) — nothing was saved");
+    expect(notSetUp({ exe: missing })).toBe("sentinel-drawing is not set up on this PC: build it in this installation's folder (dotnet build drawing -c Release) — nothing was saved");
   });
 });
 

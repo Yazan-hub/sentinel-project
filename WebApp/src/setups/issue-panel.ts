@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite, bridgeEvents } from "./bridge-fetch";
 import { relayStandardEvent } from "./active-ruleset";
+import { withDetails, detailOf } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import { myRole, canGovernRole } from "./my-role";
@@ -163,7 +164,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const val = (id: string) => (el(id) as HTMLInputElement).value;
-  const msg = (t: string, color = "#9ca3af") => { el("ip-msg").textContent = t; el("ip-msg").style.color = color; };
+  const msg = (t: string, color = "#9ca3af", detail?: string | null) => { el("ip-msg").replaceChildren(withDetails(t, detail)); el("ip-msg").style.color = color; };
 
   type Mode = "list" | "create" | "detail";
   const setMode = (m: Mode) => {
@@ -189,7 +190,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
   };
 
   const closeSuperseded = async () => {
-    const b = el("ip-close-sup") as HTMLButtonElement; b.disabled = true; msg("Closing superseded IDS issues…");
+    const b = el("ip-close-sup") as HTMLButtonElement; b.disabled = true; msg("Closing issues raised by superseded data requirements…");
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(projectId())}/artefacts/ids/close-superseded`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
@@ -198,7 +199,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       if (!r.ok) throw new Error(j.message || `HTTP ${r.status}`);
       msg(`✅ ${j.closed} superseded issue(s) closed — recorded in the audit log.`, "#22c55e");
       await fetchAll();
-    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); b.disabled = false; }
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); b.disabled = false; }
   };
 
   // Why the last read failed (null once a read succeeds): said in the list's place, so a filter never turns it into "No issues match".
@@ -214,7 +215,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     let h = current.map(rowHtml).join("") || (sup.length ? "" : '<div style="color:#9ca3af;font-size:12px;padding:.4rem">No issues match the filters.</div>');
     if (sup.length) {
       h += '<div style="display:flex;align-items:center;gap:.4rem;margin:.6rem 0 .3rem;padding-top:.4rem;border-top:1px solid #2a2a30">' +
-        `<span style="flex:1;color:#eab308;font:600 12px system-ui">Raised by a superseded IDS (${sup.length})</span>` +
+        `<span style="flex:1;color:#eab308;font:600 12px system-ui">Raised by superseded data requirements (${sup.length})</span>` +
         (canGovernRole(role) ? `<button id="ip-close-sup" style="${btn};background:#2a2a30;color:#eee">Close all as superseded</button>` : "") +
         "</div>" + sup.map(rowHtml).join("");
     }
@@ -230,7 +231,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     h += `<div style="font-weight:600;font-size:14px;margin-bottom:.4rem">${esc(t.title)}</div><div style="font-size:12px;line-height:1.5">`;
     h += row("Type", t.topic_type) + row("Status", t.topic_status) + row("Priority", t.priority) + row("Assigned", t.assigned_to) + row("Due", fmtDate(t.due_date));
     if (t.labels?.length) h += row("Labels", t.labels.join(", "));
-    if (/^IDS:/.test(t.title)) h += row("Raised by", `${t.ids_ref ? `${t.ids_ref} (${t.ids_source || "?"})` : "an IDS without a ref (before refs were recorded)"}${t.superseded_by ? ` · ${supersededWords(t)}` : ""}`);
+    if (/^IDS:/.test(t.title)) h += row("Raised by", `${t.ids_ref ? `${t.ids_ref} (${t.ids_source || "?"})` : "data requirements without a version (before versions were recorded)"}${t.superseded_by ? ` · ${supersededWords(t)}` : ""}`);
     h += row("Author", `${t.creation_author || "—"}  ${fmtDate(t.creation_date)}`);
     if (t.description) h += `<div style="margin-top:.3rem"><span style="color:#9ca3af">Description:</span><br>${esc(t.description)}</div>`;
     if (t.comments?.length) { h += `<div style="margin-top:.4rem;color:#9ca3af">Comments (${t.comments.length}):</div>`; for (const c of t.comments) h += `<div>• ${esc(c.author)}: ${esc(c.comment)}</div>`; }
@@ -268,8 +269,8 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     try {
       const saved = await bwrite<Topic | null>(topicUrl(t.guid), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes) });
       const n = saved?.history?.at(-1)?.ledger_id;
-      msg(n ? `✅ Saved — recorded in the ledger #${n}.` : "✅ Saved.", "#22c55e"); await fetchAll(); showDetail(t.guid);
-    } catch (e) { msg("❌ Not saved — " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+      msg(n ? "✅ Saved — recorded in History." : "✅ Saved.", "#22c55e"); if (n) el("ip-msg").append(withDetails("", `History entry ${n}`)); await fetchAll(); showDetail(t.guid);
+    } catch (e) { msg("❌ Not saved — " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
   const sendComment = async (t: Topic) => {
@@ -279,7 +280,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     try {
       await bwrite(topicUrl(t.guid) + "/comments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ comment: text }) });
       msg("✅ Comment posted.", "#22c55e"); await fetchAll(); showDetail(t.guid);
-    } catch (e) { msg("❌ Not posted — " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("❌ Not posted — " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
 
@@ -293,7 +294,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       const r = await bfetch(`${base}/bcf/3.0/projects/${encodeURIComponent(projectId())}/topics?status=all&model=`);
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const list = await r.json();
-      if (!Array.isArray(list)) throw new Error("the bridge answered without a list");
+      if (!Array.isArray(list)) throw new Error("Sentinel could not answer");
       const rl = await myRole(base, projectId());
       if (mine !== seq) return;
       topics = list; role = rl; readErr = null;
@@ -301,7 +302,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
     } catch (e) {
       if (mine !== seq) return;
       topics = [];
-      readErr = e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message;
+      readErr = e instanceof TypeError ? `Sentinel is not connected (${e.message})` : (e as Error).message;
       renderList();
     }
   };
@@ -313,7 +314,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       const r = await bwrite<ImportReply>(bcfUrl("import"), { method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file });
       const s = importSummary(r); msg((s.bad ? "⚠ " : "✅ ") + s.text, s.bad ? "#eab308" : "#22c55e");
       await fetchAll();
-    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
   const exportBcf = async () => {
@@ -334,7 +335,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
         names.push(name);
       }
       const s = exportSummary(names, info ? { ...info, topics: total, lost: lostAll, lost_total: lostTotal } : null); msg((s.bad ? "⚠ " : "✅ ") + s.text, s.bad ? "#eab308" : "#22c55e");
-    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
 
@@ -360,7 +361,7 @@ export function issuePanel(components: OBC.Components, opts: { bcfBaseUrl?: stri
       for (const id of ["ip-title", "ip-assignee", "ip-labels", "ip-desc", "ip-due"]) (el(id) as HTMLInputElement).value = "";
       msg("✅ Issue raised.", "#22c55e");
       await fetchAll(); setMode("list");
-    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { send.disabled = false; }
   });
 

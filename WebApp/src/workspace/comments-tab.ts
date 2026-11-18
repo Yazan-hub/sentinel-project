@@ -4,7 +4,7 @@
 import { C, btn, h } from "./dom";
 import { pathSegment } from "../setups/escape-html";
 import type { MemberRow } from "../setups/members-people";
-import type { Audience, Thread } from "./workspace-state";
+import { showMessage, type Audience, type Thread } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page";
 
 export const AUDIENCE_WORDS: Record<Audience, string> = { everyone: "Everyone", team: "Delivery team" };
@@ -36,7 +36,7 @@ export function commentsTab(ctx: PaneCtx): HTMLElement {
   // Every action: send through the controller, then re-read the threads (which redraws this tab); a refusal says the bridge's words here.
   const act = async <T,>(sent: Promise<T | null>): Promise<void> => {
     if (await sent) await ctx.ws.reload();
-    else note.textContent = ctx.ws.state().message;
+    else showMessage(note, ctx.ws.state());
   };
 
   /** A "Mention" choice: picking a member puts @e-mail into the box (the bridge resolves it). */

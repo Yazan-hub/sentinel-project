@@ -530,7 +530,7 @@ export function planDrawing({ job, candidates, align, manifest = [], type, filed
         reason: `over the ${MAX_CHANGESET_ELEMENTS} elements one changeset (one Undo) holds — propose the drawing again once this one is applied, and it is filed then` });
     }
   if (elements.length > MAX_CHANGESET_ELEMENTS)
-    throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; nothing was saved`);
+    throw err(413, `${item} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one set of proposed changes (one Undo) holds; nothing was saved`);
   const body = elements.length ? { name: `Drawing ${job.id} · ${item} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } : null;
   return { storeys: [{ storey: s, body, byCid, exceptions, once: [] }], groups: groupGaps(gaps), already_filed: already, alignment, differences, tally, revision };
 }

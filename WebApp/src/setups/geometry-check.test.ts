@@ -6,9 +6,9 @@ import { firstTag, geometryCheck, linkedHash, linkedTag, sha256Hex } from "./geo
 const F = "f".repeat(64), I = "a".repeat(64), OTHER = "0".repeat(64);
 const row = (nv: Record<string, string>) => ({ new_value: { platform_item_id: "item-1", ...nv } });
 const CHANGED = "the downloaded bytes are not the ones linked to this version (the item changed on the platform, or the download was cut) — not shown";
-const LEGACY = "geometry not hash-checked — this version was linked before Sentinel recorded the geometry's hash";
-const NO_ROW = "geometry not hash-checked — the ledger holds no geometry link for this version";
-const FIRST = "geometry not hash-checked — the item's first platform version";
+const LEGACY = "geometry not compared with its record — this version was linked before Sentinel recorded the geometry's fingerprint";
+const NO_ROW = "geometry not compared with its record — History holds no geometry link for this version";
+const FIRST = "geometry not compared with its record — the item's first platform version";
 
 describe("sha256Hex", () => {
   it("is the lower-case hex sha256 of the bytes", async () => {
@@ -18,7 +18,7 @@ describe("sha256Hex", () => {
 
 describe("geometryCheck — never other bytes as the version's geometry", () => {
   it("bytes that hash to the link's .frag (or, on a raw-IFC link recorded since SEC-5, its IFC) load, checked", () => {
-    expect(geometryCheck(F, "item-1", row({ frag_sha256: F, ifc_sha256: I }))).toEqual({ load: true, checked: true, line: "geometry checked against the ledger's link" });
+    expect(geometryCheck(F, "item-1", row({ frag_sha256: F, ifc_sha256: I }))).toEqual({ load: true, checked: true, line: "geometry checked against its record in History" });
     expect(geometryCheck(F.toUpperCase(), "item-1", row({ frag_sha256: F }))).toMatchObject({ load: true, checked: true });
     expect(geometryCheck(I, "item-1", row({ ifc_sha256: I, ifc_item_id: "item-1" }))).toMatchObject({ load: true, checked: true });
   });
@@ -29,7 +29,7 @@ describe("geometryCheck — never other bytes as the version's geometry", () => 
     expect(geometryCheck(OTHER, "item-1", row({ ifc_item_id: "item-1" }))).toEqual({ load: false, line: CHANGED });
   });
   it("a link to another item is refused", () => {
-    expect(geometryCheck(F, "item-2", row({ frag_sha256: F }))).toEqual({ load: false, line: "the ledger links another platform item to this version — not shown as this version's geometry" });
+    expect(geometryCheck(F, "item-2", row({ frag_sha256: F }))).toEqual({ load: false, line: "History links another platform item to this version — not shown as this version's geometry" });
   });
   it("a link that recorded no hash, or no link row at all, loads with words that say it was not checked (A-a, review C2, C6)", () => {
     expect(linkedHash(row({ ifc_sha256: I }))).toBeNull();
@@ -68,7 +68,7 @@ describe("geometryCheck — never other bytes as the version's geometry", () => 
     expect(dl).toBeLessThan(check);
     expect(check).toBeLessThan(refuse);
     expect(refuse).toBeLessThan(load);
-    expect(src).toContain("the ledger's geometry link could not be read");
+    expect(src).toContain("the geometry link in History could not be read");
     // SEC-7 (founder decision B-a): a recorded tag the platform does not serve is said — never the item's newest version instead.
     expect(src).toContain('the platform did not serve version tag "${tag}" of this item (HTTP ${resp.status})');
   });

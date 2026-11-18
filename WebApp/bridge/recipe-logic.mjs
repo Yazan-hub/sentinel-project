@@ -101,7 +101,7 @@ export function approvalState(rows, ref, sha, holders) {
 /** The words for a recipe that does not run yet (approve and run share them), without the "nothing was saved" the caller ends with. → null when approved. */
 export function notApprovedWords(ref, key, st) {
   if (st.state === "approved") return null;
-  if (st.state === "withdrawn") return `${ref} was withdrawn (ledger #${st.withdrawn.id}) and runs no more — draft a new recipe from a run`;
+  if (st.state === "withdrawn") return `${ref} was withdrawn (History #${st.withdrawn.id}) and runs no more — draft a new recipe from a run`;
   if (st.lapsed.length)
     return `${ref}'s approval #${st.lapsed[0].id} is by someone who is no longer a lead or owner of ${key}; it runs once a lead and an owner who still hold those roles have approved it`;
   if (!st.counting.length) return `${ref} has no approval yet — it runs once a lead and an owner, two different people, have approved it`;

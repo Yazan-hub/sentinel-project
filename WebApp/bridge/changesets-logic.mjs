@@ -1112,7 +1112,7 @@ export function reviewNext(state, action) {
 function reasonOf(r, need, what) {
   // Review amendment C9: blank is blank to the eye (a zero-width space too); one line refuses every control character and line break.
   if (r == null || (typeof r === "string" && r.replace(/[\s\p{Cf}]/gu, "") === "")) {
-    if (need) throw err(400, `${what} needs a reason — the ledger records it and Revit shows it`);
+    if (need) throw err(400, `${what} needs a reason — History records it and Revit shows it`);
     return null;
   }
   if (typeof r !== "string" || r.length > MAX_REVIEW_REASON || /[\p{Cc}\p{Zl}\p{Zp}]/u.test(r)) throw err(400, `a reason is one line of at most ${MAX_REVIEW_REASON} characters`);
@@ -1120,7 +1120,7 @@ function reasonOf(r, need, what) {
 }
 
 const proposedOnly = (cs) => {
-  if (cs.status !== "proposed") throw err(409, `changeset is ${cs.status} — the web desk decides only while it is proposed`);
+  if (cs.status !== "proposed") throw err(409, `proposed changes are ${cs.status} — the web desk decides only while they are proposed`);
 };
 
 /** MA-7-10: the evidence photos a desk decision cites — `evidence: ["ev-000C"]` on an ACCEPT, at most 3 distinct item ids; [] when none. A photo

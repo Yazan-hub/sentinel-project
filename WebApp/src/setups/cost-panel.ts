@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { quantityTakeoff } from "../sentinel-core/adapter/fragments-quantities";
@@ -92,7 +93,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     '<div id="cp-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, color = "#9ca3af") => { el("cp-msg").textContent = t; el("cp-msg").style.color = color; };
+  const msg = (t: string, color = "#9ca3af", detail?: string | null) => { el("cp-msg").replaceChildren(withDetails(t, detail)); el("cp-msg").style.color = color; };
 
   // ── take-off (reads the model once) ──────────────────────────────────────────
   const takeOff = async () => {
@@ -105,7 +106,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
       recompute();
       msg(`Took off ${quantities.length.toLocaleString("en-US")} element(s). Edit a rate to reprice — no re-read needed.`);
     } catch (e) {
-      msg("Take-off failed: " + ((e as Error)?.message ?? String(e)), "#ef4444");
+      msg("Take-off failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e));
     } finally { b.disabled = false; }
   };
 
@@ -180,7 +181,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     const key = pid();
     let list: RevisionMeta[];
     try { list = await fetchRevisions(base, key); }
-    catch (e) { if (pid() === key) msg(`Saved revisions not read — ${(e as Error).message}`, "#ef4444"); return; }
+    catch (e) { if (pid() === key) msg(`Saved revisions not read — ${(e as Error).message}`, "#ef4444", detailOf(e)); return; }
     if (pid() !== key) return; // the previous project's list, answered after a switch
     revisions = list; renderRevOptions();
   };
@@ -193,7 +194,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     const key = pid();
     let snaps: ElementSnapshot[];
     try { snaps = await fetchRevisionSnapshots(base, key, revId); }
-    catch (e) { if (pid() === key) msg(`Baseline not set — ${(e as Error).message}.`, "#ef4444"); return; }
+    catch (e) { if (pid() === key) msg(`Baseline not set — ${(e as Error).message}.`, "#ef4444", detailOf(e)); return; }
     if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total: 0, currency: rates.currency, lines: [], snapshots: snaps, revision_id: revId };
@@ -210,7 +211,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     const key = pid();
     let snaps: ElementSnapshot[];
     try { snaps = await fetchRevisionSnapshots(base, key, revId); }
-    catch (e) { if (pid() === key) msg(`Now side not set — ${(e as Error).message}.`, "#ef4444"); return; }
+    catch (e) { if (pid() === key) msg(`Now side not set — ${(e as Error).message}.`, "#ef4444", detailOf(e)); return; }
     if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     target = { snapshots: snaps, at: rev?.uploaded_at ?? new Date().toISOString(), revision_id: revId };
@@ -226,7 +227,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
     unsavedRates = true;
     bwrite(`${base}/projects/${encodeURIComponent(key)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rate_pack: rates }) })
       .then(() => { if (pid() === key) unsavedRates = false; })
-      .catch((e) => { if (pid() === key) msg(`Rate change not saved — ${(e as Error).message}. It stays here until it is saved.`, "#ef4444"); });
+      .catch((e) => { if (pid() === key) msg(`Rate change not saved — ${(e as Error).message}. It stays here until it is saved.`, "#ef4444", detailOf(e)); });
   };
   let unsavedRates = false; // an edit whose save has not succeeded: a same-scope re-read must not overwrite it
 
@@ -251,7 +252,7 @@ export function costPanel(components: OBC.Components, opts: { baseUrl?: string }
         let usable = true;
         if (bl.revision_id && !(bl.snapshots && bl.snapshots.length)) {
           try { bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id); }
-          catch (e) { if (mine !== seq) return; usable = false; msg(`Saved baseline not used — ${(e as Error).message}.`, "#eab308"); }
+          catch (e) { if (mine !== seq) return; usable = false; msg(`Saved baseline not used — ${(e as Error).message}.`, "#eab308", detailOf(e)); }
           if (mine !== seq) return;
         }
         if (usable) baseline ??= bl;

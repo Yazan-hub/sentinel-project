@@ -149,7 +149,7 @@ export async function changePassword(current: string, next: string, signOutOther
     if (out.error) return { ok: true, message: `Password changed — but your other sessions were not signed out: ${out.error.message}.` };
     // Their refresh is revoked; the access each already holds lasts its lifetime — the fresh check's own, measured.
     const life = check.data?.session?.expires_in;
-    const when = life ? `within ${Math.ceil(life / 60)} minutes` : "at its next token refresh";
+    const when = life ? `within ${Math.ceil(life / 60)} minutes` : "the next time it renews its sign-in";
     return { ok: true, message: `Password changed. Your other sessions (other browsers, Sentinel in Revit) are signed out — each stops ${when}.` };
   } catch (e) {
     return changed

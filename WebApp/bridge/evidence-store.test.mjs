@@ -175,7 +175,7 @@ describe("evidence intake (MA-4a)", () => {
     const made = await makePack("demo", {}, deps());
     await expect(makePack("demo", {}, deps())).rejects.toMatchObject({ status: 409 });
     await expect(readPack("demo", "evp-0002", deps())).rejects.toMatchObject({ status: 404, message: "demo's evidence pack is evp-0001, not evp-0002 — nothing was saved" });
-    await expect(readPack("other", "evp-0001", deps())).rejects.toMatchObject({ status: 404, message: "other has no evidence pack yet — a lead makes it (POST /cde/other/evidence) — nothing was saved" });
+    await expect(readPack("other", "evp-0001", deps())).rejects.toMatchObject({ status: 404, message: "other has no evidence pack yet — ask a project lead to make it — nothing was saved" });
     expect(existsSync(join(root, "demo"))).toBe(true);
     expect(made.folder).toBe(join(root, "demo"));
     expect(made.pack.storage_root).toBe(join(root, "demo"));
@@ -437,7 +437,7 @@ describe("a concept IFC (MA-6-8)", () => {
     const big = await admit({ path: "model/big.ifc", kind: "model" });
     expect(big.verdict).toBe("refused");
     expect(big.sha256).toBe(null);
-    expect(big.reasons[0]).toMatch(/^a \.ifc is read inside the bridge — at most 64 MB \(this one is 65\.0 MB\)/);
+    expect(big.reasons[0]).toMatch(/^a \.ifc is read inside Sentinel — at most 64 MB \(this one is 65\.0 MB\)/);
     expect(rows("evidence:refused").map((r) => r.action)).toEqual(["evidence:refused model/fake.ifc", "evidence:refused model/big.ifc"]);
     expect((await admit({ path: "model/concept.ifc", kind: "scan", registration: REG }).catch((e) => e)).status).toBe(409); // already admitted; a scan needs (c) first
   });
@@ -699,7 +699,7 @@ describe("delete-by, expiry and retire (MA-7-5)", () => {
     expect(n2.text).not.toContain("nope");
     expect(n2).toMatchObject({ tools: 3, credits: 0 });
     const before = audits.length;
-    await expect(noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => { throw new Error("db down"); } })).rejects.toMatchObject({ status: 503, message: "the NOTICE needs the build:run rows and the ledger could not be read \u2014 nothing was made" });
+    await expect(noticeOf("demo", "evp-0001", { ...deps(), auditAll: async () => { throw new Error("db down"); } })).rejects.toMatchObject({ status: 503, message: "the NOTICE needs the build:run rows and History could not be read \u2014 nothing was made" });
     await expect(noticeOf("demo", "evp-0009", { ...deps(), auditAll: async () => [] })).rejects.toMatchObject({ status: 404 });
     expect(audits.length).toBe(before); // a read: no row
   });

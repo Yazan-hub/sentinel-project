@@ -30,7 +30,7 @@ const TAIL = 4000;      // the last stderr characters, for the bridge log only (
 export function notSetUp({ python = pythonPath(), script = SCRIPT } = {}) {
   if (!isAbsolute(python)) return "sentinel-survey is not set up on this PC: SENTINEL_PYTHON must be the absolute path of a python.exe — nothing was saved";
   if (!existsSync(python)) return "sentinel-survey is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved";
-  if (!existsSync(script)) return "sentinel-survey is not set up on this PC: survey/service.py is missing from the bridge's checkout — nothing was saved";
+  if (!existsSync(script)) return "sentinel-survey is not set up on this PC: survey/service.py is missing from this installation — nothing was saved";
   return null;
 }
 

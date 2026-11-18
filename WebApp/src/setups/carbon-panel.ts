@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { installArtefact } from "./active-ruleset";
 import { activePid, onActiveProjectChange } from "./active-project";
 import * as OBF from "@thatopen/components-front";
@@ -72,7 +73,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       `<select id="cb-rev2" title="Now — a saved revision, or leave as the current model (new side of the Δ)" style="display:none;max-width:8rem;background:#2a2a30;color:#eee;border:1px solid #3a3a42;border-radius:.3rem;font:600 11px system-ui;padding:.32rem .3rem;cursor:pointer"></select>` +
       `<button id="cb-cmp" style="${btn};background:#2a2a30;color:#eee" title="Compare the two sides">Δ</button>` +
       `<button id="cb-csv" style="${btn};background:#2a2a30;color:#eee" title="Export CSV">CSV</button>` +
-      `<button id="cb-install" style="${btn};background:#6528d7;color:#fff;display:none" title="Install the factors as edited here as this project's carbon factor pack (a lead's; versioned, on the ledger)">Install factors</button>` +
+      `<button id="cb-install" style="${btn};background:#6528d7;color:#fff;display:none" title="Install the factors as edited here as this project's carbon factor pack (a lead's; versioned, recorded in History)">Install factors</button>` +
     "</div>" +
     '<div id="cb-hero" style="padding:.7rem;border-bottom:1px solid #2a2a30;display:none">' +
       '<div style="display:flex;align-items:baseline;gap:.5rem"><span id="cb-total" style="font:750 24px/1 ui-monospace,Consolas,monospace;color:#4ade80;font-variant-numeric:tabular-nums"></span>' +
@@ -90,7 +91,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     '<div id="cb-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, c = "#9ca3af") => { el("cb-msg").textContent = t; el("cb-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { el("cb-msg").replaceChildren(withDetails(t, detail)); el("cb-msg").style.color = c; };
 
   const takeOff = async () => {
     if (fragments.list.size === 0) { msg("Load a model from Documents ▸ Files ▸ Open 3D first.", "#eab308"); return; }
@@ -101,7 +102,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       if (!quantities.length) { msg("No costable/carbon elements found.", "#eab308"); return; }
       recompute();
       msg(`${report!.priced_count.toLocaleString("en-US")} element(s) assessed. Edit a factor to re-estimate — no re-read.`);
-    } catch (e) { msg("Take-off failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("Take-off failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
 
@@ -121,7 +122,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     // is sent as the snapshot's text rule holds it (at most 300 characters, without < or >), whatever the pack's label.
     if (quantities.length && packRead && !factorsEdited)
       bwrite(`${base}/projects/${encodeURIComponent(pid())}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ snapshot: { carbon_tco2e: Math.round(report.total_kg / 1000), carbon_basis: factorsBasis.replace(/[<>]/g, "").slice(0, 300) } }) })
-        .catch((e) => msg(`The Owner view's carbon figure was not updated — ${(e as Error).message}`, "#eab308"));
+        .catch((e) => msg(`The Owner view's carbon figure was not updated — ${(e as Error).message}`, "#eab308", detailOf(e)));
   };
 
   // The "now" side of a Δ: a picked target revision (repriced at current factors), else the live take-off.
@@ -184,7 +185,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     const key = pid();
     let list: RevisionMeta[];
     try { list = await fetchRevisions(base, key); }
-    catch (e) { if (pid() === key) msg(`Saved revisions not read — ${(e as Error).message}`, "#ef4444"); return; }
+    catch (e) { if (pid() === key) msg(`Saved revisions not read — ${(e as Error).message}`, "#ef4444", detailOf(e)); return; }
     if (pid() !== key) return; // the previous project's list, answered after a switch
     revisions = list; renderRevOptions();
   };
@@ -196,7 +197,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     const key = pid();
     let snaps: ElementSnapshot[];
     try { snaps = await fetchRevisionSnapshots(base, key, revId); }
-    catch (e) { if (pid() === key) msg(`Baseline not set — ${(e as Error).message}.`, "#ef4444"); return; }
+    catch (e) { if (pid() === key) msg(`Baseline not set — ${(e as Error).message}.`, "#ef4444", detailOf(e)); return; }
     if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     baseline = { at: rev?.uploaded_at ?? new Date().toISOString(), total_kg: 0, source: report?.source ?? "", snapshots: snaps, revision_id: revId };
@@ -212,7 +213,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     const key = pid();
     let snaps: ElementSnapshot[];
     try { snaps = await fetchRevisionSnapshots(base, key, revId); }
-    catch (e) { if (pid() === key) msg(`Now side not set — ${(e as Error).message}.`, "#ef4444"); return; }
+    catch (e) { if (pid() === key) msg(`Now side not set — ${(e as Error).message}.`, "#ef4444", detailOf(e)); return; }
     if (pid() !== key) return; // switched project meanwhile: this revision belongs to the old one
     if (!snaps.length) { msg("That revision has no stored snapshots.", "#eab308"); return; }
     target = { snapshots: snaps, at: rev?.uploaded_at ?? new Date().toISOString(), revision_id: revId };
@@ -234,7 +235,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       const j = await r.json().catch(() => null);
       if (mine !== seq) return;
       if (r.status === 404 && j?.reason === "not_installed") { packRead = true; factorsBasis = "indicative reference factors — no factor pack installed"; return; }
-      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+      if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
       factors = { unit_label: j.body.unit_label || "kgCO2e", source: j.body.label, factors: structuredClone(j.body.factors) };
       factorsBasis = `${j.body.label} — ${j.ref} · ${j.source}`;
       packRead = true;
@@ -243,7 +244,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       if (mine !== seq) return;
       packRead = false;
       factorsBasis = "indicative reference factors — the installed pack was not read";
-      msg(`Carbon factor pack not read — ${(e as Error).message}. The reference factors are shown, and nothing is sent to the Owner view.`, "#ef4444");
+      msg(`Carbon factor pack not read — ${(e as Error).message}. The reference factors are shown, and nothing is sent to the Owner view.`, "#ef4444", detailOf(e));
     }
     const lbl = root.querySelector("#cb-basis"); if (lbl) lbl.textContent = `Factors: ${factorsBasis}`;
   };
@@ -254,10 +255,10 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
     try {
       // actor "web": what the bridge recorded for this install before it went through installArtefact
       const a = await installArtefact(base, pid(), "carbon_factors", { label: label.trim(), unit_label: factors.unit_label, factors: factors.factors }, "web");
-      msg(`Installed as carbon_factors@${a?.version ?? "?"} — on the ledger; every carbon figure now names it.`, "#22c55e");
+      msg(`Installed as the carbon factors, version ${a?.version ?? "?"} — recorded in History; every carbon figure now names it.`, "#22c55e");
       await loadFactors(seq);
       return true;
-    } catch (e) { msg(`Factor pack not installed — ${(e as Error).message}`, "#ef4444"); return false; }
+    } catch (e) { msg(`Factor pack not installed — ${(e as Error).message}`, "#ef4444", detailOf(e)); return false; }
   };
 
   const loadProject = async () => {
@@ -277,7 +278,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
         let usable = true;
         if (bl.revision_id && !(bl.snapshots && bl.snapshots.length)) {
           try { bl.snapshots = await fetchRevisionSnapshots(base, pid(), bl.revision_id); }
-          catch (e) { if (mine !== seq) return; usable = false; msg(`Saved baseline not used — ${(e as Error).message}.`, "#eab308"); }
+          catch (e) { if (mine !== seq) return; usable = false; msg(`Saved baseline not used — ${(e as Error).message}.`, "#eab308", detailOf(e)); }
           if (mine !== seq) return;
         }
         if (usable) baseline ??= bl;
@@ -287,7 +288,7 @@ export function carbonPanel(components: OBC.Components, opts: { baseUrl?: string
       if (mine !== seq) return;
       // A refusal is not "no baseline" — say it was not read.
       const m = (e as Error)?.message ?? String(e);
-      msg(`Baseline not read — ${reached ? m : `can't reach the bridge (${m})`}`, "#ef4444");
+      msg(`Baseline not read — ${reached ? m : `Sentinel is not connected (${m})`}`, "#ef4444");
     }
   };
 

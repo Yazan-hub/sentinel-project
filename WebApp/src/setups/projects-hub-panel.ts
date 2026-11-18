@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { withDetails } from "./details";
 import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId, refreshActiveProject } from "./active-project";
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
@@ -68,7 +69,7 @@ export function projectsHubPanel(
   root.innerHTML =
     // The header and the toolbar wrap in a narrow panel (nothing runs past its edge).
     '<div id="ph-head" style="display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
-    '<span style="font-weight:600">◫ Projects</span><span style="color:#9ca3af;font-size:11px">governed CDE dataset</span>' +
+    '<span style="font-weight:600">◫ Projects</span><span style="color:#9ca3af;font-size:11px">your project files</span>' +
     '<span style="flex:1"></span>' +
     `<button id="ph-new" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ New project</button>` +
     `<button id="ph-deleted" style="${btn}" title="Model files in Deleted items across your projects" aria-pressed="false">🗑 Deleted models</button>` +
@@ -80,7 +81,7 @@ export function projectsHubPanel(
     `<select id="ph-f-kind" aria-label="Type" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="all">All types</option><option value="project">Projects</option><option value="office">Offices</option></select>` +
     `<select id="ph-f-office" aria-label="Office" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="all">All offices</option><option value="none">No office</option></select>` +
     `<select id="ph-f-status" aria-label="Status" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>` +
-    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="newest">Sort: Newest</option><option value="oldest">Sort: Oldest</option><option value="name">Sort: Name A–Z</option><option value="containers">Sort: Most containers</option></select>` +
+    `<select id="ph-f-sort" aria-label="Sort" style="${inp};width:auto;flex:0 1 auto;min-width:0;max-width:100%"><option value="newest">Sort: Newest</option><option value="oldest">Sort: Oldest</option><option value="name">Sort: Name A–Z</option><option value="containers">Sort: Most files</option></select>` +
     `<button id="ph-clear" style="${btn};display:none">Clear</button>` +
     "</div>" +
     '<div id="ph-form" style="display:none;padding:.55rem .6rem;border-bottom:1px solid #2a2a30;flex-direction:column;gap:.4rem"></div>' +
@@ -92,9 +93,9 @@ export function projectsHubPanel(
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   // One status line, two views: a line is written only while its own view is shown (a background reload of the grid
   // never overwrites what the Deleted models view said).
-  const status = (t: string, c = "#9ca3af", view: "grid" | "del" = "grid") => {
+  const status = (t: string, c = "#9ca3af", view: "grid" | "del" = "grid", detail?: string) => {
     if ((view === "del") !== delOpen) return;
-    el("ph-status").textContent = t;
+    el("ph-status").replaceChildren(withDetails(t, detail));
     el("ph-status").style.color = c;
   };
 
@@ -143,7 +144,7 @@ export function projectsHubPanel(
         `<div style="font:11px ui-monospace,Consolas,monospace;color:#6b7280;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.key)}</div>` +
         `<span style="flex:1"></span>` +
         `<div style="display:flex;align-items:center;gap:.5rem;font-size:11px;color:#9ca3af">` +
-        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${esc(p.container_count)}</span> container${p.container_count === 1 ? "" : "s"}` +
+        `<span style="color:#e5e7eb;font-variant-numeric:tabular-nums">${esc(p.container_count)}</span> file${p.container_count === 1 ? "" : "s"}` +
         `<span style="flex:1"></span><span>${esc(fmtDate(p.created_at))}</span></div>` +
         `</button>`
       );
@@ -223,7 +224,7 @@ export function projectsHubPanel(
   };
   const SIGN_IN =
     '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
-    "Sign in (top right) to see your projects — the bridge lists them only for a signed-in account.</div>";
+    "Sign in (top right) to see your projects — Sentinel lists them only for a signed-in account.</div>";
 
   const open = (key: string) => {
     setActiveProjectKey(key);
@@ -332,19 +333,19 @@ export function projectsHubPanel(
       if (seq !== delSeq) return;
       if (r.status === 401) {
         el("ph-del").innerHTML = SIGN_IN;
-        status("Not signed in — the bridge answered 401.", "#eab308", "del");
+        status("Your sign-in was not accepted. Sign in again.", "#eab308", "del");
         return;
       }
       const j = (await r.json().catch(() => null)) as (DeletedAcross & { message?: string }) | null;
       if (seq !== delSeq) return;
-      if (!r.ok || !Array.isArray(j?.rows)) throw new Error(j?.message || `HTTP ${r.status}`);
+      if (!r.ok || !Array.isArray(j?.rows)) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
       del = { rows: j!.rows, not_read: Array.isArray(j!.not_read) ? j!.not_read : [], projects: Number(j!.projects) || 0 };
       delTools = true;
       paintTools();
       renderDeleted();
     } catch (e) {
       if (seq !== delSeq) return;
-      const why = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
+      const why = reached ? (e as Error).message : "Sentinel is not connected";
       el("ph-del").innerHTML = `<div style="color:#ef4444;font-size:12px;line-height:1.5;padding:1rem .2rem">Deleted models not read — ${esc(why)}</div>`;
       status(`Deleted models not read — ${why}`, "#ef4444", "del");
     }
@@ -385,10 +386,10 @@ export function projectsHubPanel(
         }
         el("ph-grid").innerHTML =
           '<div style="grid-column:1/-1;color:#eab308;font-size:12px;line-height:1.5;padding:1rem .2rem">' +
-          "The CDE isn’t configured yet. Add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to " +
-          "<code>config/.env</code> and restart the bridge (<code>npm run bcf:serve</code>) to list governed projects." +
+          "Sentinel’s storage is not set up on this installation. <details><summary>Details</summary>For the administrator: add <b>SUPABASE_URL</b> + <b>SUPABASE_SERVICE_KEY</b> to " +
+          "<code>config/.env</code> and restart Sentinel (<code>npm run bcf:serve</code>) to list projects.</details>" +
           "</div>";
-        status("CDE not configured (503).", "#eab308");
+        status("Sentinel’s storage is not set up on this installation.", "#eab308");
         return;
       }
       if (r.status === 401) {
@@ -396,7 +397,7 @@ export function projectsHubPanel(
         projects = [];
         showTools(false);
         el("ph-grid").innerHTML = SIGN_IN;
-        status("Not signed in — the bridge answered 401.", "#eab308");
+        status("Your sign-in was not accepted. Sign in again.", "#eab308");
         return;
       }
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
@@ -420,10 +421,10 @@ export function projectsHubPanel(
       // Never an empty or stale grid for a list that was not read (the new-project form's office list reads it too).
       projects = [];
       showTools(false);
-      const why = reached ? (e as Error).message : `can’t reach the bridge at ${base}`;
+      const why = reached ? (e as Error).message : "Sentinel is not connected";
       el("ph-grid").innerHTML =
         `<div style="grid-column:1/-1;color:#ef4444;font-size:12px;line-height:1.5;padding:1rem .2rem">Projects not read — ${esc(why)}</div>`;
-      status(reached ? `Projects not read — ${why}` : `Can’t reach the bridge at ${base}${/localhost|127\.0\.0\.1/.test(base) ? " — start it with: npm run bcf:serve" : ""}.`, "#ef4444");
+      status(reached ? `Projects not read — ${why}` : "Sentinel is not connected. Ask your administrator to start Sentinel on the office PC.", "#ef4444", "grid", reached ? undefined : `${base}${/localhost|127\.0\.0\.1/.test(base) ? " — start it with: npm run bcf:serve" : ""}`);
     }
   };
 

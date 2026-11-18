@@ -89,7 +89,7 @@ describe("draftRecipe - a lead drafts recipe@n from a verified run", () => {
   it("D-B5-2: the newest published row decides, a second Propose under the same standards is still one recipe, and the share changed is no bar", async () => {
     ledgerRows = [planner(910), planner(930)];
     published = [published[0], { ...published[0], id: 925, new_value: { run: "job#900", numbers: { ...NUMBERS, kept: 1 }, rests_on: RESTS } }]; // 925 is older than 920? no: 925 > 920, but numbers differ
-    await expect(draft()).rejects.toMatchObject({ status: 409, message: "the edit cost changed since ledger #925 was published (an Undo or a decision) — publish it again, then draft; nothing was saved" });
+    await expect(draft()).rejects.toMatchObject({ status: 409, message: "the edit cost changed since History #925 was published (an Undo or a decision) — publish it again, then draft; nothing was saved" });
     published = [published[0]];
     runs[0].share_changed = 0.9; published[0].new_value.numbers.share_changed = 0.9;
     const r = await draft();
@@ -110,18 +110,18 @@ describe("draftRecipe - a lead drafts recipe@n from a verified run", () => {
     await expect(draft(MACHINE)).rejects.toMatchObject({ status: 403, message: "drafting a recipe is a signed-in person's — the machine credential, the MCP agent and scripts never draft; nothing was saved" });
     await expect(draft(THIRD)).rejects.toMatchObject({ status: 403, message: "drafting a recipe requires the lead role on demo (you are contributor) — nothing was saved" });
     await expect(draft((o) => as("u-v", { demo: "viewer" }, o))).rejects.toMatchObject({ status: 403 });
-    await expect(draft(LEAD, { run: "cs-0001", name: "x" })).rejects.toMatchObject({ status: 400, message: "only a job's run is a recipe — a Promote or agent changeset has no reader to repeat; nothing was saved" });
+    await expect(draft(LEAD, { run: "cs-0001", name: "x" })).rejects.toMatchObject({ status: 400, message: "only a job's run is a recipe — a Promote or agent set of proposed changes has no reader to repeat; nothing was saved" });
     for (const name of ["", "a\nb", "x".repeat(81), 5, undefined]) await expect(draft(LEAD, { run: "job#900", name })).rejects.toMatchObject({ status: 400 });
     await expect(draft(LEAD, { run: "job#900", name: "x", scope: "team" })).rejects.toMatchObject({ status: 400 });
     expect(w.docs["project:demo"]).toEqual([]);
   });
   it("the four checks of verified, each in its words and with nothing saved", async () => {
     const no = async (over, status, text, setup) => { setup?.(); await expect(draft(LEAD, undefined, over)).rejects.toMatchObject({ status, message: expect.stringContaining(text) }); };
-    await no({ getAuditEntry: async () => null }, 404, "ledger #900 on demo is not a job's build:run row");
+    await no({ getAuditEntry: async () => null }, 404, "History #900 on demo is not a job's run record");
     await no({ trustedJob: async () => { throw Object.assign(new Error("job-0013's result is not trusted: its result.json is missing"), { status: 409 }); } }, 409, "its result.json is missing — nothing was saved");
-    await no({ trustedJob: async () => ({ row: { ...tj.row, ledger: { id: 777, hash: "x" } } }) }, 409, "job-0013 on this PC is ledger #777, not the run's #900");
+    await no({ trustedJob: async () => ({ row: { ...tj.row, ledger: { id: 777, hash: "x" } } }) }, 409, "job-0013 on this PC is History #777, not the run's #900");
     ledgerRows = [];
-    await no({}, 409, "job#900 was never proposed — a recipe repeats a run whose changesets were reviewed");
+    await no({}, 409, "job#900 was never proposed — a recipe repeats a run whose proposed changes were reviewed");
     ledgerRows = [planner(910, { claimed: true })]; // a reworded receipt from Revit is claimed
     await no({}, 409, "never proposed");
     ledgerRows = [planner(910, { survey_row: { id: 801, hash: "x" } })]; // another job's reader row
@@ -137,7 +137,7 @@ describe("draftRecipe - a lead drafts recipe@n from a verified run", () => {
     runs[0].complete = false; runs[0].pending = 2;
     await no({}, 409, "job#900 is still being reviewed");
     runs[0].complete = true; runs[0].undone = 3; // an Undo since the publish
-    await no({}, 409, "the edit cost changed since ledger #920 was published");
+    await no({}, 409, "the edit cost changed since History #920 was published");
     runs[0].undone = 1; runs[0].kept = 0; published[0].new_value.numbers.kept = 0;
     await no({}, 409, "nothing job#900 filed is kept in a model");
     expect(w.docs["project:demo"]).toEqual([]);
@@ -200,7 +200,7 @@ describe("approveRecipe - two different people, a lead and an owner (D13)", () =
     await expect(approve(LEAD, { ...doc, sha256: canonicalSha256(doc.body) })).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not the body it was installed with") });
     doc.sha256 = canonicalSha256(doc.body);
     await approve(LEAD, doc);
-    await expect(approve(LEAD, doc)).rejects.toMatchObject({ status: 409, message: "you approved recipe@1 already (ledger #1000) — the second approval is another person's; nothing was saved" });
+    await expect(approve(LEAD, doc)).rejects.toMatchObject({ status: 409, message: "you approved recipe@1 already (History #1000) — the second approval is another person's; nothing was saved" });
     const lead2 = (o) => as("u-lead2", { demo: "lead" }, o);
     w.members["pid-demo"].push({ user_id: "u-lead2", role: "lead" });
     await expect(approve(lead2, doc)).rejects.toMatchObject({ status: 409, message: "recipe@1's approval #1000 is a lead's — the second must be an owner's: a lead and an owner, two different people (D13); nothing was saved" });
@@ -238,8 +238,8 @@ describe("approveRecipe - two different people, a lead and an owner (D13)", () =
     const r = await withdrawRecipe("demo", 1, { sha256: doc.sha256 }, "web", OWNER());
     expect(r).toMatchObject({ ref: "recipe@1", withdrawn: true });
     expect(w.ledger[0]).toMatchObject({ action: "recipe:withdrawn recipe@1", entity_type: "recipe", new_value: { sha256: doc.sha256, user_id: "u-owner", role: "owner" } });
-    await expect(withdrawRecipe("demo", 1, { sha256: doc.sha256 }, "web", LEAD())).rejects.toMatchObject({ status: 409, message: "recipe@1 was withdrawn already (ledger #1000) — nothing was saved" });
-    await expect(approve(LEAD, doc)).rejects.toMatchObject({ status: 409, message: "recipe@1 was withdrawn (ledger #1000) — nothing was saved" });
+    await expect(withdrawRecipe("demo", 1, { sha256: doc.sha256 }, "web", LEAD())).rejects.toMatchObject({ status: 409, message: "recipe@1 was withdrawn already (History #1000) — nothing was saved" });
+    await expect(approve(LEAD, doc)).rejects.toMatchObject({ status: 409, message: "recipe@1 was withdrawn (History #1000) — nothing was saved" });
     expect(w.docs["project:demo"]).toHaveLength(1);
   });
   it("an office recipe is approved on the office key with office roles and written to the office's ledger", async () => {
@@ -265,14 +265,14 @@ describe("recipeForRun - a third person runs an approved recipe (D13)", () => {
         approvals: [{ id: 1000, hash: w.ledger[0].hash, role: "lead", user_id: "u-lead" }, { id: 1001, hash: w.ledger[1].hash, role: "owner", user_id: "u-owner" }] } });
   });
   it("the checks in order: the machine credential 403; no such version 404; a body that no longer hashes 409; the runner approved it 403 (before the count)", async () => {
-    await expect(go(MACHINE)).rejects.toMatchObject({ status: 403, message: "a recipe run is a person's — its build:run row names who ran it: sign in. Nothing was saved." });
+    await expect(go(MACHINE)).rejects.toMatchObject({ status: 403, message: "a recipe run is a person's — its run record names who ran it: sign in. Nothing was saved." });
     await expect(go()).rejects.toMatchObject({ status: 404, message: "no recipe@1 on demo — nothing was saved" });
     const doc = install();
     w.docs["project:demo"][0] = { ...doc, sha256: "0".repeat(64) };
     await expect(go()).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not the body it was installed with") });
     w.docs["project:demo"][0] = doc;
     await approve(LEAD, doc);
-    await expect(go(LEAD)).rejects.toMatchObject({ status: 403, message: "you approved recipe@1 (ledger #1000) — a recipe is run by someone who approved neither (D13); nothing was saved" });
+    await expect(go(LEAD)).rejects.toMatchObject({ status: 403, message: "you approved recipe@1 (History #1000) — a recipe is run by someone who approved neither (D13); nothing was saved" });
     // one approval is not enough, and says whose
     await expect(go()).rejects.toMatchObject({ status: 409, message: "recipe@1 has 1 approval (#1000, a lead's) — it runs once a lead and an owner, two different people, have approved it; nothing was saved" });
   });
@@ -280,10 +280,10 @@ describe("recipeForRun - a third person runs an approved recipe (D13)", () => {
     const doc = await approved();
     const bad = { ...doc.body, reader: { name: "laspy", version: "1.0.0" } };
     w.docs["project:demo"][0] = { ...doc, body: bad, sha256: canonicalSha256(bad) };
-    await expect(go()).rejects.toMatchObject({ status: 409, message: expect.stringContaining("is not a recipe this bridge reads") });
+    await expect(go()).rejects.toMatchObject({ status: 409, message: expect.stringContaining("is not a recipe this installation reads") });
     w.docs["project:demo"][0] = doc;
     await withdrawRecipe("demo", 1, { sha256: doc.sha256 }, "web", LEAD());
-    await expect(go()).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^recipe@1 was withdrawn \(ledger #1002\) and runs no more.*nothing was saved$/) });
+    await expect(go()).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^recipe@1 was withdrawn \(History #1002\) and runs no more.*nothing was saved$/) });
   });
   it("amendment 1: an approver who is no longer a lead or owner does not count - removed, or demoted - and the words say so; the replacement approves and it runs", async () => {
     const doc = await approved();
@@ -300,7 +300,7 @@ describe("recipeForRun - a third person runs an approved recipe (D13)", () => {
   it("the planner and the standards must still be the ones it was verified with, each in its words", async () => {
     await approved();
     w.versions = { planner: "0.2.0", reader: null };
-    await expect(go()).rejects.toMatchObject({ status: 409, message: "recipe@1 was verified with survey-planner 0.1.0; this bridge plans with 0.2.0 — draft a new recipe from a run on this bridge; nothing was saved" });
+    await expect(go()).rejects.toMatchObject({ status: 409, message: "recipe@1 was verified with survey-planner 0.1.0; this installation plans with 0.2.0 — draft a new recipe from a run on this installation; nothing was saved" });
     w.versions = { planner: "0.1.0", reader: null };
     w.guideline = "9".repeat(64);
     await expect(go()).rejects.toMatchObject({ status: 409, message: "the guideline in force on demo (guideline@7 · project · 999999999999…) is not the one recipe@1 ran on (guideline@7 · project · 4cb2…); nothing was saved" });
@@ -315,7 +315,7 @@ describe("recipeForRun - a third person runs an approved recipe (D13)", () => {
     w.docs["project:demo"].push(doc);
     await approve(LEAD, doc); await approve(OWNER, doc);
     w.versions = { planner: "0.2.1", reader: "0.2.1" };
-    await expect(go()).rejects.toMatchObject({ status: 409, message: "recipe@1 was verified with sentinel-ifc 0.2.0; this bridge reads with 0.2.1 — draft a new recipe from a run on this bridge; nothing was saved" });
+    await expect(go()).rejects.toMatchObject({ status: 409, message: "recipe@1 was verified with sentinel-ifc 0.2.0; this installation reads with 0.2.1 — draft a new recipe from a run on this installation; nothing was saved" });
     w.versions = { planner: "0.2.1", reader: "0.2.0" };
     expect((await go()).reader).toBe("sentinel-ifc");
   });
@@ -339,7 +339,7 @@ describe("recipeHolds - Propose from a recipe job", () => {
     await expect(recipeHolds("demo", stamp(doc, { same_reader: false }), LEAD())).rejects.toMatchObject({ status: 409, message: "this job ran sentinel-survey at a version other than 0.6.0, the one recipe@1 was verified with — run the recipe again; nothing was saved" });
     await expect(recipeHolds("demo", stamp(doc, { sha256: "d".repeat(64) }), LEAD())).rejects.toMatchObject({ status: 409, message: "recipe@1 on demo is not the body this job ran — nothing was saved" });
     w.versions = { planner: "0.3.0", reader: null };
-    await expect(recipeHolds("demo", stamp(doc), LEAD())).rejects.toMatchObject({ status: 409, message: expect.stringContaining("this bridge plans with 0.3.0") });
+    await expect(recipeHolds("demo", stamp(doc), LEAD())).rejects.toMatchObject({ status: 409, message: expect.stringContaining("this installation plans with 0.3.0") });
     w.versions = { planner: "0.1.0", reader: null }; w.catalog = "7".repeat(64);
     await expect(recipeHolds("demo", stamp(doc), LEAD())).rejects.toMatchObject({ status: 409, message: expect.stringContaining("the type_catalog in force") });
     await expect(recipeHolds("demo", { ref: "nonsense", scope: "project" }, LEAD())).rejects.toMatchObject({ status: 409 });

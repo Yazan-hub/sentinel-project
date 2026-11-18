@@ -18,9 +18,9 @@ export function sheetMidpLine(sheet: SheetProposal, rows: MidpStatusRow[] | null
   if (sheet.proposal_error) return { text: sheet.proposal_error, color: "#fbbf24" };
   const containerName = sheet.verdict ? sheet.container_name : undefined;
   if (!containerName) return { text: "not proposed — exported before Publish Sheets proposed each sheet", color: "#71717a" };
-  if (readErr) return { text: `MIDP not read — ${readErr}`, color: "#fbbf24" };
+  if (readErr) return { text: `Delivery plan not read — ${readErr}`, color: "#fbbf24" };
   const row = (rows ?? []).find((r) => key(r.container_name) === key(containerName));
-  if (!row) return { text: "not in the MIDP", color: "#9ca3af" };
+  if (!row) return { text: "not in the delivery plan", color: "#9ca3af" };
   const [label, color] = LABEL[row.status] ?? [row.status, "#9ca3af"];
-  return { text: `MIDP: ${label}${row.due_date ? ` · due ${row.due_date}` : ""}`, color };
+  return { text: `Delivery plan: ${label}${row.due_date ? ` · due ${row.due_date}` : ""}`, color };
 }

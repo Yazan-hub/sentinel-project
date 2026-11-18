@@ -106,7 +106,7 @@ function validateDocumentChains(kind, docs) {
   if (!isObj(docs)) throw bad(kind, "documents", "must be an object {bep?: {steps}, eir?: {steps}}");
   for (const [type, chain] of Object.entries(docs)) {
     const at = `documents.${type}`;
-    if (type === "readiness" || type === "tidp") throw bad(kind, at, "has no review chain — a READINESS or a TIDP is not published through a round; only bep and eir are");
+    if (type === "readiness" || type === "tidp") throw bad(kind, at, "has no review chain — a READINESS or a team delivery plan is not published through a round; only bep and eir are");
     if (type !== "bep" && type !== "eir") throw bad(kind, at, "is not a document type with a review chain — only bep and eir are");
     if (!isObj(chain) || Object.keys(chain).some((k) => k !== "steps")) throw bad(kind, at, "must be exactly {steps: [...]}");
     if (!Array.isArray(chain.steps) || chain.steps.length === 0) throw bad(kind, `${at}.steps`, "must list the steps — a document chain is never empty (leave the type out for no chain)");
@@ -664,7 +664,7 @@ export async function artefactReply(key, kind, ifNoneMatch, deps) {
   let a;
   try { a = await resolveArtefact(key, kind, deps); }
   catch (e) { if (e?.status === 404) return { status: 404, body: { message: String(e.message), reason: "no_project" } }; throw e; }
-  if (a.source === "none") return { status: 404, body: { message: `no ${kind} artefact installed for ${key} or its office (PUT /cde/${key}/artefacts/${kind})`, reason: "not_installed" } };
+  if (a.source === "none") return { status: 404, body: { message: `no ${kind} standard installed for ${key} or its office — install one in Settings > Standards library`, detail: `PUT /cde/${key}/artefacts/${kind}`, reason: "not_installed" } };
   const etag = `"${a.ref}:${a.source}:${a.sha256}"`;
   // ponytail: exact match only (one ETag, no list, no W/ or *) — the add-in sends back what it was given.
   if (ifNoneMatch === etag) return { status: 304, etag };
@@ -712,7 +712,7 @@ export async function generatedIds(key, deps) {
   const read = async (kind) => {
     const a = await resolveArtefact(key, kind, deps);
     if (a.source === "none") return null;
-    try { validateArtefact(kind, a.body); } catch (e) { broken.push({ from: kind, item: refLabel(a), reason: `did not parse, so nothing of it is in the IDS: ${e.message}` }); return null; }
+    try { validateArtefact(kind, a.body); } catch (e) { broken.push({ from: kind, item: refLabel(a), reason: `did not parse, so nothing of it is in the data requirements: ${e.message}` }); return null; }
     return { body: a.body, label: refLabel(a), sha256: a.sha256 };
   };
   const [contract, ruleset, naming] = [await read("contract"), await read("ruleset"), await read("naming")];
@@ -756,7 +756,7 @@ export async function resolveIdsSpec(key, body = {}, deps) {
   const a = await resolveArtefact(key, "ids", deps);
   if (a.source !== "none") return { spec: a.body, source: a.source, ref: a.ref, sha256: a.sha256, pointer_sha_mismatch: a.pointer_sha_mismatch, client_ids_ignored: clientSent };
   if (clientSent) {
-    if (typeof body.ids === "string") throw err(400, "Submit the IDS as a JSON spec {title, specifications:[…]} — raw .ids XML is parsed browser-side only.");
+    if (typeof body.ids === "string") throw err(400, "Send the data requirements as a JSON spec — an .ids file is read in the browser only.");
     return { spec: body.ids, source: "client", ref: null, sha256: sha256(body.ids), client_ids_ignored: false };
   }
   return { spec: null, source: "none", ref: null, sha256: null, client_ids_ignored: false };

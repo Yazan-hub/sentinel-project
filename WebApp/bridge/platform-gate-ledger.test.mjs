@@ -252,14 +252,14 @@ describe("syncPlatformGate", () => {
     const f = fakes({ runs: [], overrides: { listExecutions: async () => { throw new Error("GET /api/processor/c/progress?accessToken=SECRET123 → 403"); } } });
     const r = await syncPlatformGate(f.deps, opts());
     expect(r).toMatchObject({ written: 0, skipped: 0 });
-    expect(r.reason).toMatch(/^the platform's gate runs were not read — /);
+    expect(r.reason).toMatch(/^the platform check runs were not read — /);
     expect(r.reason).not.toContain("SECRET123");
     expect(names(f.calls, "links")).toEqual([]);
   });
 
   it("a ledger read that fails writes nothing", async () => {
     const f = fakes({ runs: [run("r1", 10)], overrides: { existingExecutionIds: async () => { throw new Error("Supabase 500"); } } });
-    expect(await syncPlatformGate(f.deps, opts())).toEqual({ written: 0, skipped: 0, reason: "the ledger was not read — Supabase 500" });
+    expect(await syncPlatformGate(f.deps, opts())).toEqual({ written: 0, skipped: 0, reason: "History was not read — Supabase 500" });
     expect(names(f.calls, "audit")).toEqual([]);
   });
 

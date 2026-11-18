@@ -12,7 +12,7 @@ const TEAM = { id: "team", label: "Team in place", how: { web: web("Settings ▸
  *  null when no project tab does it) and a real ribbon path from SentinelAddin/App.cs BuildRibbon. */
 export const OFFICE_STEPS = [
   TEAM,
-  { id: "standards", label: "Office standards installed", how: { web: web("Settings ▸ Project", "Standards in force — install on this office: Settings ▸ Standards library ▸ Install; Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
+  { id: "standards", label: "Office standards installed", how: { web: web("Settings ▸ Project", "Standards in force — install on this office: Settings ▸ Standards library ▸ Install; Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Turn into data requirements ▸ Install on this project"), revit: null, who: "lead" } },
   { id: "snapshot", label: "Template snapshot received", how: { web: null, revit: "Sentinel ▸ More ▸ Build Office System ▸ Send office snapshot to Sentinel", who: "member" } },
   { id: "readiness", label: "Readiness assessed", how: { web: web("Documents ▸ Project documents", "+ New document ▸ Create READINESS"), revit: null, who: "lead" } },
   { id: "projects", label: "First project attached", how: { web: web("Settings ▸ Project", "on a project: Office ▸ pick this office"), revit: null, who: "lead" } },
@@ -20,16 +20,16 @@ export const OFFICE_STEPS = [
 
 export const PROJECT_STEPS = [
   TEAM,
-  { id: "standards", label: "Standards in force", how: { web: web("Settings ▸ Project", "Standards in force — inherited from the office, or install here: Settings ▸ Standards library ▸ Install; Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Compile to IDS ▸ Install on this project"), revit: null, who: "lead" } },
+  { id: "standards", label: "Standards in force", how: { web: web("Settings ▸ Project", "Standards in force — inherited from the office, or install here: Settings ▸ Standards library ▸ Install; Documents ▸ Project documents ▸ EIR ▸ Open workspace ▸ Quality ▸ Turn into data requirements ▸ Install on this project"), revit: null, who: "lead" } },
   { id: "bep", label: "BEP drafted", how: { web: web("Documents ▸ Document editor", "the project's BEP; none yet? Documents ▸ Project documents ▸ + New document ▸ Create BEP"), revit: null, who: "lead" } },
   // Paperwork slice 4 (ISO 19650-2 §5.4): each task team's delivery plan is a governed document too.
   // R1c (call 7): measured on the deliverables — every declared task team has at least one, and none names an undeclared team. A TIDP document no longer satisfies it.
-  { id: "tidp", label: "TIDP drafted", how: { web: web("Documents ▸ Delivery plan", "Teams ▸ Declare team, then + Add a deliverable per team"), revit: null, who: "lead" } },
+  { id: "tidp", label: "Team delivery plans drafted", how: { web: web("Documents ▸ Delivery plan", "Teams ▸ Declare team, then + Add a deliverable per team"), revit: null, who: "lead" } },
   { id: "model", label: "Model connected", how: { web: null, revit: "Sentinel ▸ More ▸ Project Setup (bind this project), then Synchronize with Central — the scan report is sent after each sync", who: "member" } },
-  { id: "verdict", label: "First governed verdict", how: { web: null, revit: GOVERNED_PUBLISH, who: "member" } },
+  { id: "verdict", label: "First publish checked", how: { web: null, revit: GOVERNED_PUBLISH, who: "member" } },
   // A2: Governed Publish only registers versions as `wip`; the Published state is set on the web (Coordination ▸ CDE), so how.revit is null here.
   { id: "published", label: "Accepted and published", how: { web: web("Documents ▸ Files", "the live version needs an accepted verdict, then set the Published state on the web (Documents ▸ Folders)"), revit: null, who: "lead" } },
-  { id: "federated", label: "Federated", how: { web: web("Documents ▸ Files", "the live models (one is judged on its own), then Models ▸ Clash ▸ Run gate"), revit: null, who: "member" } },
+  { id: "federated", label: "Federated", how: { web: web("Documents ▸ Files", "the live models (one is judged on its own), then Models ▸ Clash ▸ Run check"), revit: null, who: "member" } },
   // A4: no screen does this yet on either surface — surfaces render "no screen for this step yet".
   { id: "issued", label: "Issued", how: { web: null, revit: null, who: "lead" } },
 ];
@@ -74,7 +74,7 @@ const tidp = (deliverables, teams) => {
   return { evidence: { ref: teams.map((t) => t.code).join(","), label: `${n} deliverable${n === 1 ? "" : "s"} across ${owning} task team${owning === 1 ? "" : "s"}${noneWords}` } };
 };
 const verdict = (rows) => {
-  if (!rows.length) return { reason: "no governed verdict recorded yet" };
+  if (!rows.length) return { reason: "no publish check result recorded yet" };
   const first = rows[rows.length - 1];                                  // rows are newest first
   return { evidence: { ref: first.id == null ? "" : `audit#${first.id}`, label: `verdict ${first.verdict} · audit#${first.id} · version ${first.version_id}` } };
 };
@@ -96,16 +96,16 @@ const federated = (fed) => {
   // One live model is judged by the gate on its own (option B, 2026-09-28); none is nothing to federate.
   if (!live.length) return { not_checkable: "no live model — nothing to federate" };
   const run = fed.latest;
-  if (!run) return { reason: "the Federation Gate has not run" };
-  if (run.result?.verdict !== "pass") return { reason: `latest Federation Gate: ${run.result?.verdict ?? "unknown"}` };
+  if (!run) return { reason: "the coordination check has not run" };
+  if (run.result?.verdict !== "pass") return { reason: `latest coordination check: ${run.result?.verdict ?? "unknown"}` };
   // A pass counts only when it judged every live model (an explicit run over a subset is not the federation).
   if (Array.isArray(run.set)) {
     const seen = new Set(run.set.map((m) => m.container));
     const unjudged = live.filter((l) => l.container && !seen.has(l.container)).length;
-    if (unjudged) return { reason: `the latest pass did not judge ${unjudged} live model(s) — run the Federation Gate on the whole live set` };
+    if (unjudged) return { reason: `the latest pass did not judge ${unjudged} live model(s) — run the coordination check on the whole live set` };
   }
   // A1: a stale pass no longer counts as done — the live set changed since the gate ran.
-  if (fed.stale) return { reason: "latest pass is stale — the live set changed since; re-run the Federation Gate" };
+  if (fed.stale) return { reason: "latest pass is stale — the live set changed since; re-run the coordination check" };
   return { evidence: { ref: run.at ? `federation@${run.at}` : "", label: `federation · pass · ${run.at}` } };
 };
 

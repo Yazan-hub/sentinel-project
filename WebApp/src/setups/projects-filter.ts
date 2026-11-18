@@ -103,5 +103,7 @@ export function filterProjects<T extends FilterableProject>(
 
 /** W-2 (G6): what the hub says for a 503 — the bridge's own words when it sent some (e.g. it does not forward sign-ins);
  *  null when they are the CDE-not-configured answer (bcf-service.mjs GET /cde/projects) or absent, for the setup hint. */
+// The bridge's words for "storage not set up": slice 3's plain sentence, and the old one a bridge not yet restarted sends.
+const NOT_SET_UP = ["Sentinel's storage is not set up", "CDE not configured"];
 export const hub503Words = (said: string | null | undefined): string | null =>
-  said && !said.startsWith("CDE not configured") ? said : null;
+  said && !NOT_SET_UP.some((p) => said.startsWith(p)) ? said : null;

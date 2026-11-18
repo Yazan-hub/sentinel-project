@@ -5,6 +5,7 @@ import { statusLine } from "../sentinel-core/doc-blocks";
 import { canEditRole, canGovernRole } from "../setups/my-role";
 import { pathSegment } from "../setups/escape-html";
 import type { MemberRow } from "../setups/members-people";
+import { withDetails } from "../setups/details";
 
 /** R2c: a comment thread as the bridge folds it (GET …/comments/threads). anchor.section_id null = the whole document. */
 export type Audience = "everyone" | "team";
@@ -22,7 +23,7 @@ export interface WorkspaceDeps {
 }
 export interface WorkspaceState { key: string; doc: DocRow | null; versions: VersionListRow[]; comments: CommentRow[] /* derived: one row per OPEN thread, for the outline */; ex: Executability | null;
   threads: Thread[]; canTeam: boolean; defaultAudience: Audience; members: MemberRow[] | null /* null: the list is for members */; access: MyAccess | null;
-  live: LiveSet | null /* the freeze preview: GET …/live, null when refused */; role: string; me: string; problems: string[]; message: string; viewing: VersionRow | null;
+  live: LiveSet | null /* the freeze preview: GET …/live, null when refused */; role: string; me: string; problems: string[]; message: string; messageDetail?: { for: string; detail: string } /* the bridge's technical cause for exactly that message */; viewing: VersionRow | null;
   respondsTo: { title: string; version_no: number | null; clauses?: Record<string, string> } | null /* the EIR this document answers, loaded by open */;
   round: RoundCurrent | null /* R2d: GET …/rounds/current, null when not read */ }
 /** R2d: the document round on screen (the bridge's roundView) and what the caller may do about it. */
@@ -52,9 +53,17 @@ export const CONFLICT_QUESTION = "Someone changed this document since you opened
 export const STATUS_CHANGED = "This document was published or archived meanwhile, so it cannot be edited here. Nothing was saved.";
 export const REFRESHED = "Saved. Other parts were refreshed with their latest text.";
 const NOT_SAVED_RELOADED = "Nothing was saved. The document was reloaded.";
-const NO_ANSWER = "The bridge did not answer. Nothing was saved.";
+const NO_ANSWER = "Sentinel is not connected. Nothing was saved.";
 
 /** The bridge's two compare-and-swap 409s (a status 409 is not one of them). */
+/** Writes the workspace message into a panel's note: plain text, or — when the bridge sent a technical cause for exactly
+ *  this message — the words with that cause in a closed Details. `fallback` shows when there is no message. */
+export function showMessage(node: HTMLElement, st: WorkspaceState, fallback = ""): void {
+  const detail = st.messageDetail && st.messageDetail.for === st.message ? st.messageDetail.detail : undefined;
+  if (st.message && detail) node.replaceChildren(withDetails(st.message, detail));
+  else node.textContent = st.message || fallback;
+}
+
 export const isStaleConflict = (message: unknown): boolean =>
   typeof message === "string" && /^stale write|changed or was issued meanwhile/.test(message);
 
@@ -64,7 +73,7 @@ export const emptyState = (key: string): WorkspaceState => ({
 
 type Reply = { status: number; body: any };
 const is2xx = (r: Reply) => r.status >= 200 && r.status < 300;
-const words = (r: Reply, tail: string) => String(r.body?.message || "") || `The bridge refused this (HTTP ${r.status}).${tail}`;
+const words = (r: Reply, tail: string) => String(r.body?.message || "") || `${r.status === 403 ? "You do not have permission for this" : "Sentinel could not do this"} (HTTP ${r.status}).${tail}`;
 
 export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState) => void): Workspace {
   let state = emptyState(deps.activePid());
@@ -77,7 +86,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
   const call = (m: "GET" | "POST" | "PUT" | "PATCH", p: string, b?: object): Promise<Reply | null> =>
     (b === undefined ? deps.json(m, p) : deps.json(m, p, b)).catch(() => null);
   const tell = (): void => { try { render(state); } catch (e) { console.error("workspace: the page could not draw the saving state", e); } }; // a page that cannot draw must not stop a write or strand the count
-  const say = (message: string) => { state = { ...state, message }; };
+  const say = (message: string, detail?: string | null) => { state = { ...state, message, messageDetail: detail ? { for: message, detail } : undefined }; };
 
   deps.onProjectChange(() => {
     if (deps.scope() === scopeAt) return; // a plain refresh: open editors keep their text, CAS catches any change
@@ -98,7 +107,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     const r = await call("GET", base);
     if (stale()) return false;
     if (!r || !is2xx(r) || !r.body?.id || !Array.isArray(r.body.sections)) {
-      const why = r?.body?.message || "the bridge did not answer";
+      const why = r?.body?.message || "Sentinel is not connected";
       // A re-read of the document held keeps it (and the open editors on it) when the failure says nothing about access: no answer,
       // a 5xx, or a 401 (sign in again, then save). A 403, 404 or 410 means the access or the document is gone: the page empties.
       const passing = !r || r.status >= 500 || r.status === 401;
@@ -154,7 +163,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     const r = await call("GET", path ?? `/bimdocs/${pathSegment(state.key)}/${pathSegment(state.doc.id)}/versions/${n}`);
     if (mine !== viewTok || sc !== tok) return;
     if (r && is2xx(r) && r.body?.snapshot) state = { ...state, viewing: r.body as VersionRow, message: "" };
-    else say(r ? words(r, "") : "The bridge did not answer.");
+    else say(r ? words(r, "") : "Sentinel is not connected.", r?.body?.detail);
     render(state);
   }
 
@@ -163,8 +172,8 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     if (state.key !== deps.activePid()) return null;
     const r = await call("GET", path);
     if (mine !== tok) return null;
-    if (!r) { say("The bridge did not answer."); return null; }
-    if (!is2xx(r)) { say(words(r, "")); return null; }
+    if (!r) { say("Sentinel is not connected."); return null; }
+    if (!is2xx(r)) { say(words(r, ""), r.body?.detail); return null; }
     return r.body as T;
   }
 
@@ -175,8 +184,8 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
     if (mine !== tok) return null;
     const r = await call("POST", path, { ...body, actor });
     if (mine !== tok) return null;
-    if (!r) { say("The bridge did not answer."); return null; }
-    if (!is2xx(r)) { say(words(r, "")); return null; }
+    if (!r) { say("Sentinel is not connected."); return null; }
+    if (!is2xx(r)) { say(words(r, ""), r.body?.detail); return null; }
     return r.body as T;
   }
 
@@ -217,7 +226,7 @@ export function createWorkspace(deps: WorkspaceDeps, render: (s: WorkspaceState)
       forced = true;
     }
     if (!r) { say(NO_ANSWER); return null; }
-    if (!is2xx(r)) { say(words(r, " Nothing was saved.")); return null; }
+    if (!is2xx(r)) { say(words(r, " Nothing was saved."), r.body?.detail); return null; }
     const row = r.body as DocRow | null;
     const cur = state.doc;
     if (cur && row?.id === cur.id && Array.isArray(row.sections) && typeof row.updated_at === "string" && !(row.updated_at < cur.updated_at)) state = { ...state, doc: row };

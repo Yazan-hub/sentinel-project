@@ -2,6 +2,7 @@ import * as OBC from "@thatopen/components";
 import * as OBF from "@thatopen/components-front";
 import { extractElementProperties, type ElementProperties } from "../sentinel-core/adapter/element-properties";
 import { escapeHtml as esc } from "./escape-html";
+import { detailOf, withDetails } from "./details";
 
 /**
  * Sentinel Properties Palette (Phase 1 — Revit-influenced element data). Click an element in a loaded
@@ -33,7 +34,7 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
     '<div id="pp-body" style="flex:1;overflow:auto;padding:.6rem"></div>' +
     '<div id="pp-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">No selection.</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("pp-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("pp-status").replaceChildren(withDetails(t, detail));
   const body = el("pp-body");
 
   let current: { modelId: string; localId: number } | null = null;
@@ -106,7 +107,7 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
       console.log("[Sentinel] element properties", props);
       render(props);
     } catch (e) {
-      status("Couldn't read properties: " + ((e as Error)?.message ?? String(e)));
+      status("Couldn't read properties: " + ((e as Error)?.message ?? String(e)), detailOf(e));
     }
   }
 
@@ -128,11 +129,11 @@ export function propertiesPanel(components: OBC.Components): HTMLElement {
       await hider.isolate(m);
       await refresh();
       status("Isolated — press “Show all” to restore.");
-    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Isolate failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   });
   el("pp-show").addEventListener("click", async () => {
     try { await hider.set(true); await refresh(); status("Showing all."); }
-    catch (e) { status("Show all failed: " + ((e as Error)?.message ?? String(e))); }
+    catch (e) { status("Show all failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   });
 
   empty();

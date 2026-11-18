@@ -418,7 +418,7 @@ var midpKey = (n) => n.trim().replace(/\.(ifc|ifczip|rvt|nwc|nwd|pdf|dwg|zip)$/i
 function taskInformation(task, rows) {
   return (task.containers ?? []).map((container) => {
     const row = rows.find((r) => midpKey(r.container_name) === midpKey(container));
-    if (!row) return { container, state: "unplanned", words: "not in the MIDP \u2014 nobody is due to deliver it" };
+    if (!row) return { container, state: "unplanned", words: "not in the delivery plan \u2014 nobody is due to deliver it" };
     const published = row.published_at ? String(row.published_at).slice(0, 10) : null;
     if (published) {
       return published <= task.start ? { container, state: "ready", words: `delivered ${published}, before the task starts` } : { container, state: "late", words: `delivered ${published}, after the task started ${task.start}` };

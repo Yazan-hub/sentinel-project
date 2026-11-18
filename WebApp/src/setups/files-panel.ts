@@ -2,6 +2,7 @@ import { askYesNo } from "./ask";
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { getAppManager } from "../app";
 import { currentUser } from "./auth";
 import { activePid, onActiveProjectChange } from "./active-project";
@@ -175,7 +176,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     '<div id="fv-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>' +
     '<input id="fv-file" type="file" accept=".ifc" style="display:none"/>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("fv-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("fv-status").replaceChildren(withDetails(t, detail));
 
   const api = async (path: string, method = "GET", body?: unknown) => {
     const r = await bfetch(`${base}/cde/${path}`, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -237,8 +238,8 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
           }
         }
         const gaps: string[] = [];
-        if (failed) gaps.push(failed === got.length ? `History unavailable — ${why}.` : `History partly read — ${failed} of ${got.length} ledger reads failed: ${why}.`);
-        if (read < total) gaps.push(`History read ${read} of ${total} ledger rows (the newest).`);
+        if (failed) gaps.push(failed === got.length ? `History unavailable — ${why}.` : `History partly read — ${failed} of ${got.length} History reads failed: ${why}.`);
+        if (read < total) gaps.push(`History read ${read} of ${total} History rows (the newest).`);
         historyGap = gaps.join(" ");
       }
       // The Holding Area (spec 2026-09-27 Decision 7) is its own read: a failure there is said, never "none on hold".
@@ -269,7 +270,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       // A sign-in (401) or membership/role (403) refusal is the bridge's answer, not a missing CDE config.
       const refused = [401, 403].includes((e as { status?: number }).status ?? 0);
       el("fv-body").innerHTML = `<div style="color:#a1a1aa;padding:1rem 0">Files not read — ${esc((e as Error).message)}.` +
-        (refused ? "" : `<br><span style="font-size:11px">Needs the bridge running with the CDE configured (SUPABASE_URL + SUPABASE_SERVICE_KEY).</span>`) + `</div>`;
+        (refused ? "" : `<br><span style="font-size:11px">Sentinel's storage is not set up on this installation — ask your administrator.</span>`) + `</div>`;
       status("Unavailable.");
     }
   }
@@ -341,7 +342,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         if (mine !== seq) return;
         if (r.result_error) { status(`Candidates not shown — ${r.result_error}`); return; }
         jobOpen = id; jobCands = r.candidates ?? []; render();
-      } catch (e) { if (mine === seq) status(`Candidates not read — ${(e as Error).message}`); }
+      } catch (e) { if (mine === seq) status(`Candidates not read — ${(e as Error).message}`, detailOf(e)); }
     }));
     root.querySelectorAll<HTMLElement>("[data-evpropose]").forEach((n) => n.addEventListener("click", async () => {
       const id = n.dataset.evpropose!;
@@ -359,7 +360,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         alignView = alignDraft ? { cands: r.candidates ?? [], sizes: Object.fromEntries((r.receipt?.items ?? []).filter((i) => i.size_paper_mm).map((i) => [i.id, i.size_paper_mm!])) } : null;
         alignPick = alignDraft ? "pa" : null;
         render();
-      } catch (e) { if (mine === seq) status(`Not proposed — ${(e as Error).message}`); }
+      } catch (e) { if (mine === seq) status(`Not proposed — ${(e as Error).message}`, detailOf(e)); }
     }));
     // MA-5a-4: a drawing job's Propose — the lead's points, level and height; the bridge computes the alignment and builds the changeset.
     const readAlign = (): AlignDraft => {
@@ -454,7 +455,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       return `✓ ${id} delete by ${date} · ${r.ledger.map(ledgerLine).join(" · ")}`;
     })));
     root.querySelectorAll<HTMLElement>("[data-evretire]").forEach((n) => n.addEventListener("click", async () => {
-      if (!(await askYesNo(`Retire ${n.dataset.evpath} now? No job reads it again; its record and sha256 stay on the pack and the ledger. The office's own file is not deleted. This cannot be undone.`, { ok: "Retire" }))) return;
+      if (!(await askYesNo(`Retire ${n.dataset.evpath} now? No job reads it again; its record and fingerprint stay on the pack and in History. The office's own file is not deleted. This cannot be undone.`, { ok: "Retire" }))) return;
       void evAct(async () => {
         const r = await setDeleteBy(base, pid(), n.dataset.evretire!, new Date().toISOString().slice(0, 10));
         // review: "Retired" only when the item is expired; a bridge clock behind ours, or a busy sweep, leaves the date set
@@ -662,7 +663,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       : '<span style="color:#71717a">a contributor or above uploads the corrected file</span>';
     const dismiss = !canGovernRole(role) ? ""
       : dismissing === i
-        ? `<input id="fv-dismiss-input" maxlength="500" placeholder="Why dismiss it? The ledger records the reason." style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #f59e0b;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+        ? `<input id="fv-dismiss-input" maxlength="500" placeholder="Why dismiss it? History records the reason." style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #f59e0b;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
           `<button data-hdismissok="${i}" style="${act};color:#fbbf24">Dismiss with this reason</button><button data-hcancel="${i}" style="${act}">Cancel</button>`
         : `<button data-hdismiss="${i}" style="${act}">Dismiss…</button>`;
     return `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #4a3a12;border-radius:.4rem;font-size:12px">` +
@@ -670,7 +671,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       `<span style="color:#f59e0b;font-size:10.5px">refused by the ${esc(STAGE_WORDS[h.stage] ?? h.stage)}</span></div>` +
       `<div style="color:#9ca3af;font-size:11px">${esc(SOURCE_WORDS[h.source] ?? h.source)} · ${esc(h.actor || "—")} · ${esc(when(h.at))}${h.refusals > 1 ? ` · refused ${h.refusals} times since it went on hold` : ""}</div>` +
       (h.failures || []).map((f) => `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">✗ ${esc(f.requirement)} — ${esc(f.detail)}</div>`).join("") +
-      ((h.failures_total ?? 0) > (h.failures || []).length ? `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">… and ${(h.failures_total ?? 0) - (h.failures || []).length} more (the ledger row keeps the first 50)</div>` : "") +
+      ((h.failures_total ?? 0) > (h.failures || []).length ? `<div style="color:#fca5a5;font-size:11px;padding-left:.6rem">… and ${(h.failures_total ?? 0) - (h.failures || []).length} more (the History entry keeps the first 50)</div>` : "") +
       (h.naming_note ? `<div style="color:#fbbf24;font-size:11px">${esc(h.naming_note)}</div>` : "") +
       `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(h.ledger)}</div>` +
       `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem">${resubmit}<span style="flex:1"></span>${dismiss}</div></div>`;
@@ -684,7 +685,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const row = await dismissHold(base, pid(), h.container_name, reason);
       await load();
       status(`✓ Dismissed ${h.container_name} from On hold · ${ledgerLine(row)}`);
-    } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
+    } catch (e) { status(`Not dismissed — ${(e as Error).message}`, detailOf(e)); }
   }
 
   // MA-2c "Type gaps (n)" (design §6.4) — built like "On hold (n)": the groups of elements Promote held because the office has no
@@ -693,7 +694,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
   function gapSection(): string {
     if (holdError) return "";
     const g = holding.type_gaps;
-    if (!g) return '<div style="color:#71717a;font-size:11px;padding:.4rem .2rem">Type gaps: not listed — this bridge is older than MA-2c</div>';
+    if (!g) return '<div style="color:#71717a;font-size:11px;padding:.4rem .2rem">Type gaps: not listed — this installation is older than MA-2c</div>';
     if (!g.open.length && !g.closed.length) return "";
     const toggle = `<button id="fv-gaps-toggle" style="border:none;background:transparent;color:#f59e0b;font:11px system-ui;cursor:pointer;padding:.4rem .2rem">${showGaps ? "▾" : "▸"} Type gaps (${g.open.length})</button>`;
     if (!showGaps) return toggle;
@@ -701,14 +702,14 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     const card = (x: TypeGap) => {
       const dismiss = !canGovernRole(role) ? ""
         : gapDismissing === x.id
-          ? `<input id="fv-gap-input" maxlength="500" placeholder="Why dismiss it? The ledger records the reason." style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #f59e0b;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+          ? `<input id="fv-gap-input" maxlength="500" placeholder="Why dismiss it? History records the reason." style="flex:1;min-width:10rem;background:#111;color:#eee;border:1px solid #f59e0b;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
             `<button data-gdismissok="${esc(x.id)}" style="${act};color:#fbbf24">Dismiss with this reason</button><button data-gcancel="${esc(x.id)}" style="${act}">Cancel</button>`
           : `<button data-gdismiss="${esc(x.id)}" style="${act}">Dismiss…</button>`;
       return `<div style="margin-bottom:.45rem;padding:.45rem .55rem;background:#1b1b21;border:1px solid #4a3a12;border-radius:.4rem;font-size:12px">` +
         `<div style="font-weight:600">${esc(typeGapLine(x))}</div>` +
         // C10: who reported it and that its counts are claimed; C5: a group open again after a dismissal says since when.
         `<div style="color:#9ca3af;font-size:11px">${esc(x.labels.slice(0, 5).join(", "))}${x.elements > 5 ? ` … (${x.elements})` : ""} · reported by ${esc(x.actor || "—")} · ${esc(x.source ?? "unknown")}` +
-        `${x.claimed ? " (claimed — counted in Revit, not by the bridge)" : ""}${x.job_id ? ` · from ${x.source === "sentinel-drawing" ? "drawing" : x.source === "sentinel-ifc" ? "IFC" : "survey"} ${esc(x.job_id)}` : ""}${x.evidence?.length ? ` · evidence ${esc(x.evidence.slice(0, 3).join(", "))}` : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
+        `${x.claimed ? " (claimed — counted in Revit, not by Sentinel)" : ""}${x.job_id ? ` · from ${x.source === "sentinel-drawing" ? "drawing" : x.source === "sentinel-ifc" ? "IFC" : "survey"} ${esc(x.job_id)}` : ""}${x.evidence?.length ? ` · evidence ${esc(x.evidence.slice(0, 3).join(", "))}` : ""} · ${esc(when(x.at))}${x.runs > 1 ? ` · reported by ${x.runs} runs` : ""}` +
         `${x.reopened ? ` · reopened — ${x.reopened.more} element(s) since the dismissal of ${esc(when(x.reopened.since))}` : ""}</div>` +
         `<div style="color:#71717a;font-size:10.5px;font-family:ui-monospace,Consolas,monospace">${ledgerLine(x.ledger)}</div>` +
         `<div style="display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.3rem"><span style="color:#9ca3af">Install a catalogue with the type, or dismiss it with a reason.</span><span style="flex:1"></span>${dismiss}</div></div>`;
@@ -726,7 +727,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const row = await dismissTypeGap(base, pid(), id, reason);
       await load();
       status(`✓ Dismissed the type gap ${typeGapLine(x)} · ${ledgerLine(row)}`);
-    } catch (e) { status(`Not dismissed — ${(e as Error).message}`); }
+    } catch (e) { status(`Not dismissed — ${(e as Error).message}`, detailOf(e)); }
   }
 
   /** MA-7-11: show an admitted splat in the 3D world: Spark is probed first (the published view may not start its worker - then it says so and loads nothing), the
@@ -744,7 +745,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       if (loadedScope !== scope) { ctl.dispose(); return; } // the project or person changed while it loaded
       splat = { id, ctl, placed };
       status(`Showing ${id} — ${splatShownLine(placed)}`);
-    } catch (e) { status(`Not shown — ${(e as Error).message}`); }
+    } catch (e) { status(`Not shown — ${(e as Error).message}`, detailOf(e)); }
     finally { splatBusy = null; render(); }
   }
 
@@ -895,15 +896,15 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     // candidates on demand. No poll: ↻ shows a running job's progress.
     const busy = (jobs ?? []).some((j) => j.status === "queued" || j.status === "running");
     const jobColor = (s: string) => (s === "done" ? "#cbd5e1" : s === "failed" ? "#fca5a5" : "#9ca3af");
-    const survey = line("Survey — sentinel-survey reads the admitted LAS, LAZ and E57 scans on this PC: levels, walls, floors, ceilings, doors and windows, LOD 200 as found (never survey grade). A lead proposes a done job: the bridge types walls, floors and ceilings exactly and doors and windows by size (within 100 mm) from the office's catalogue into one changeset per storey for review, and holds the rest as type gaps.", "#9ca3af") +
+    const survey = line("Survey — sentinel-survey reads the admitted LAS, LAZ and E57 scans on this PC: levels, walls, floors, ceilings, doors and windows, LOD 200 as found (never survey grade). A lead proposes a done job: Sentinel types walls, floors and ceilings exactly and doors and windows by size (within 100 mm) from the office's catalogue into one set of proposed changes per storey for review, and holds the rest as type gaps.", "#9ca3af") +
       (jobsError ? line(`Survey: ${esc(jobsError)}`, "#fbbf24")
         : (jobs ?? []).map((j) => line(esc(jobLine(j)), jobColor(j.status)) +
             (j.status === "done" && j.candidates_total ? `<div style="padding:.1rem .2rem"><button data-evjob="${esc(j.id)}" style="${act}">${jobOpen === j.id ? "Hide candidates" : "Candidates"}</button></div>` : "") +
             (j.status === "done" && j.candidates_total && can.propose ? `<div style="padding:.1rem .2rem"><button data-evpropose="${esc(j.id)}" style="${act}">${proposing === j.id ? "Cancel proposal" : "Propose…"}</button></div>` : "") +
             (proposing === j.id ? (isDrawingJob(j) ? alignForm(j) : proposeForm(proposeLevels ?? [], isIfcJob(j) ? "IFC" : "scan")) : "") +
             (jobOpen === j.id ? (jobCands ?? []).map((c) => line(esc(candidateLine(c)), "#cbd5e1")).join("") : "")).join("") || line("no survey yet")) +
-      line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): the bridge types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af") +
-      line("IFC — sentinel-ifc reads an admitted .ifc inside the bridge (the newest, or the one you pick; at most 64 MB; a third party's model carries its provider and licence): levels, straight walls, floors, wall and floor openings, doors and windows in their openings, rectangular and round columns, and curtain walls, in the IFC's own millimetres (structural columns, columns not square to the model, and curtain walls whose outside cannot be told from the storey's walls are read but held for a person when proposed); what it does not read (roofs, curved walls, proxies, members, plates, railings) it lists by GlobalId; a stair is boxed and flagged for a person (Propose a stair… in Revit). A lead proposes a done IFC job with a frame — the IFC's own world position is a hint, never applied. Nothing is pre-ticked: a concept is what someone modelled, not what was built.", "#9ca3af") +
+      line("Drawings — sentinel-drawing reads page 1 of the admitted vector PDF plans on this PC: walls (two faces in the page's heaviest line weight), doors (swing arcs, with any W x H tag) and room labels (a name, and its number when one is written), in paper millimetres. A lead proposes a done drawing job by two marks (a 2-point alignment): Sentinel types its walls exactly and its doors by size, as a scan's, every ghost inferred and unticked; a room is placed where its label stands, and only when the walls round it close; a DWG is Ghost Builder's, in Revit.", "#9ca3af") +
+      line("IFC — sentinel-ifc reads an admitted .ifc inside Sentinel (the newest, or the one you pick; at most 64 MB; a third party's model carries its provider and licence): levels, straight walls, floors, wall and floor openings, doors and windows in their openings, rectangular and round columns, and curtain walls, in the IFC's own millimetres (structural columns, columns not square to the model, and curtain walls whose outside cannot be told from the storey's walls are read but held for a person when proposed); what it does not read (roofs, curved walls, proxies, members, plates, railings) it lists by GlobalId; a stair is boxed and flagged for a person (Propose a stair… in Revit). A lead proposes a done IFC job with a frame — the IFC's own world position is a hint, never applied. Nothing is pre-ticked: a concept is what someone modelled, not what was built.", "#9ca3af") +
       // MA-5a-3: one slot for all readers — no button while a job runs
       (can.survey && !busy && (surveyableScans(pack).length || readableDrawings(pack).length || readableIfc(pack).length)
         ? `<div style="margin-top:.35rem;display:flex;gap:.4rem">${surveyableScans(pack).length ? `<button id="fv-ev-survey" style="${act}">Run survey</button>` : ""}` +
@@ -919,7 +920,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       line(`Admitted (${pack.items.length})`, "#9ca3af") + items +
       line(`In the folder, not yet admitted (${folder.files_not_admitted.length}${folder.truncated ? ", the list stops at 1000" : ""}) — put files there on the office PC`, "#9ca3af") + files +
       `<div style="margin-top:.35rem"><button id="fv-ev-notice" style="${act}" title="Save the credits text for this project's evidence and tools (NOTICE.txt)">NOTICE</button></div>` + // MA-7-6: any member
-      (edit ? `<div style="margin-top:.35rem"><button id="fv-ev-recheck" style="${act}" title="Re-hash every admitted file; a changed one goes on hold">Re-check</button></div>`
+      (edit ? `<div style="margin-top:.35rem"><button id="fv-ev-recheck" style="${act}" title="Compare every admitted file with its record; a changed one goes on hold">Re-check</button></div>`
         : line(`A contributor or above admits and re-checks — ${esc(roleSaid)}.`)) + survey + "</div>";
   }
 
@@ -948,7 +949,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const r = await restoreDeleted(base, pid(), d, await whoami());
       await load();
       status(restoredLine(r));
-    } catch (e) { status(`Not restored — ${(e as Error).message}`); }
+    } catch (e) { status(`Not restored — ${(e as Error).message}`, detailOf(e)); }
   }
 
   function fileCard(f: FileRec, isLink = false): string {
@@ -970,7 +971,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
         `<div style="display:flex;flex-direction:column;gap:.3rem;padding:.35rem .55rem;border-top:1px solid #23232a;background:#141418">` +
         `<span style="color:#fca5a5;font-size:10.5px">${esc(unarchiveAsk.message)}</span>` +
         `<div style="display:flex;gap:.35rem;align-items:center">` +
-        `<input id="fv-unarchive-reason" placeholder="Your reason — recorded on the ledger" style="flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
+        `<input id="fv-unarchive-reason" placeholder="Your reason — recorded in History" style="flex:1;background:#111;color:#eee;border:1px solid #6528d7;border-radius:.25rem;padding:.2rem .4rem;font:12px system-ui"/>` +
         `<button data-funarchiveok="${esc(f.id)}" style="${act};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">Restore with this reason</button>` +
         `<button data-fcancel="${esc(f.id)}" style="${act}">Cancel</button>` +
         `</div></div>`;
@@ -1104,7 +1105,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     if (!r) return "";
     const map = { accepted: ["#22c55e", "✓", "accepted"], rejected: ["#f87171", "✗", "rejected"], recorded: ["#a1a1aa", "◦", "recorded"] } as const;
     const [col, mark, label] = map[r.verdict] ?? map.recorded;
-    const scope = r.in_scope != null ? `IDS ${r.ids ?? ""} — ${r.passing}/${r.in_scope} passed${r.failing ? `, ${r.failing} failed` : ""}` : "governed verdict";
+    const scope = r.in_scope != null ? `Data requirements — ${r.passing}/${r.in_scope} passed${r.failing ? `, ${r.failing} failed` : ""}` : "check result";
     const tip = `${scope} · click for the immutable audit entry`;
     return `<span data-hist="${esc(v.id)}" title="${esc(tip)}" style="color:${col};font-size:10px;font-weight:700;border:1px solid ${col}66;border-radius:.25rem;padding:0 .3rem;white-space:nowrap;cursor:pointer">${mark} ${label}</span>`;
   }
@@ -1116,7 +1117,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       const r = await api(`${encodeURIComponent(pid())}/files/${path}`, "POST", { ...body, actor: await whoami() });
       await load(); // first: load() writes its own summary line, which would hide what the action did
       status(typeof okMsg === "function" ? okMsg(r) : okMsg);
-    } catch (e) { status(`${path} failed: ${(e as Error).message}`); }
+    } catch (e) { status(`${path} failed: ${(e as Error).message}`, detailOf(e)); }
   }
 
   async function renameFile(fileId: string) {
@@ -1145,10 +1146,10 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     try {
       const r = await unarchiveFile(base, pid(), f.id, { actor: await whoami(), override: reason });
       // load() first, in both answers below: a refusal after some versions were restored changed the list (the bridge says how many).
-      if ("needsReason" in r) { unarchiveAsk = { id: f.id, message: r.needsReason }; await load(); status("Not restored — a lead can restore it with a reason, which the ledger records."); return; }
+      if ("needsReason" in r) { unarchiveAsk = { id: f.id, message: r.needsReason }; await load(); status("Not restored — a lead can restore it with a reason, which History records."); return; }
       await load(); // first: load() writes its own summary line, which would hide what the action did
       status(`✓ Restored ${f.iso_name} from the archive.`);
-    } catch (e) { await load(); status(`unarchive failed: ${(e as Error).message}`); }
+    } catch (e) { await load(); status(`unarchive failed: ${(e as Error).message}`, detailOf(e)); }
   }
 
   async function deleteFile(fileId: string) {
@@ -1162,7 +1163,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     try {
       await api(`${encodeURIComponent(pid())}/files/set-live`, "POST", { version_id: versionId, actor: await whoami() });
       await load();
-    } catch (e) { status(`Set-live failed: ${(e as Error).message}`); }
+    } catch (e) { status(`Set-live failed: ${(e as Error).message}`, detailOf(e)); }
   }
 
   // Load a specific past version's geometry into the 3D viewer (Forma-style "open this version"). Downloads the
@@ -1183,7 +1184,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
     let link: GeometryLinkRow | null;
     try {
       link = ((await api(`${encodeURIComponent(pid())}/audit?entity_type=file_version&entity_id=${v.id}&action_prefix=geometry%20linked&limit=1`)) as { rows?: GeometryLinkRow[] }).rows?.[0] ?? null;
-    } catch (e) { status(`${f.iso_name} ${v.revision}: the ledger's geometry link could not be read (${(e as Error).message}) — nothing was loaded.`); return; }
+    } catch (e) { status(`${f.iso_name} ${v.revision}: the geometry link in History could not be read (${(e as Error).message}) — nothing was loaded.`, detailOf(e)); return; }
     // A link that recorded no hash (made before SEC-5): the item's first platform version, when it has more than one.
     let first: string | null = null;
     if (linkedHash(link) === null && client.listVersions) first = firstTag(await client.listVersions(v.platform_item_id).catch(() => null));
@@ -1234,7 +1235,7 @@ export function filesPanel(_components: OBC.Components, opts: { baseUrl?: string
       await core.update(true);
       render();
       status(nowHidden ? `Hid ${modelId} (still loaded — Show restores it instantly).` : `Showing ${modelId}.`);
-    } catch (e) { status("Visibility toggle failed: " + ((e as Error)?.message ?? String(e))); }
+    } catch (e) { status("Visibility toggle failed: " + ((e as Error)?.message ?? String(e)), detailOf(e)); }
   }
 
   // ── compare two versions via their element snapshots (reuses the verified sentinel-core diff) ──

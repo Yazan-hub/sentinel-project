@@ -285,10 +285,10 @@ const keptFacets = (kept) => {
   return already;
 };
 const RULE_ELSEWHERE = {
-  type: "a type's name is written on the IFC type object, and Sentinel's IDS judges placed elements",
-  grid: "a grid line is not an element Sentinel's IDS judges",
+  type: "a type's name is written on the IFC type object, and Sentinel's data requirements judge placed elements",
+  grid: "a grid line is not an element Sentinel's data requirements judge",
   sheet: "sheets are not in an IFC model", view: "views are not in an IFC model",
-  workset: "worksets are not in an IFC model", family: "a family's name is not an IFC attribute Sentinel's IDS judges",
+  workset: "worksets are not in an IFC model", family: "a family's name is not an IFC attribute Sentinel's data requirements judge",
 };
 
 /**
@@ -307,7 +307,7 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
   const add = (origin, id, cls, list, facet, from, item) => {
     const entity = classEntity(cls);
     const dup = already.get(facetKey(entity, list === "attributes" ? { ...facet, pset: undefined } : facet));
-    if (dup) return say(from, item, `already required by the IDS in force ('${dup}')`, "the IDS in force");
+    if (dup) return say(from, item, `already required by the data requirements in force ('${dup}')`, "the data requirements in force");
     const k = `${origin}|${id}|${cls}`;
     if (!made.has(k)) made.set(k, { name: `${ENTITY_LABEL[cls] ?? cls} · ${origin === "contract" ? `contract ${id}` : `naming ${id}`}`, origin, applicability: { entity }, requirements: { properties: [], attributes: [] } });
     const reqs = made.get(k).requirements[list];
@@ -315,24 +315,24 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
   };
 
   if (contract) {
-    const c = contract.body, by = "the contract's delivery gate (upload and publish)";
-    const whole = "a whole-file rule — Sentinel's IDS judges each element, so it stays a contract rule";
+    const c = contract.body, by = "the pre-publish check (upload and publish)";
+    const whole = "a whole-file rule — Sentinel's data requirements judge each element, so it stays a pre-publish check rule";
     for (const p of c.required_properties) {
       const dot = p.indexOf(".");
-      if (!(dot > 0 && dot < p.length - 1)) { say("contract", p, `names no property set: the contract checks it on whichever classes carry it, and an IDS must name the class — write it as Pset_WallCommon.${p}`, by); continue; }
+      if (!(dot > 0 && dot < p.length - 1)) { say("contract", p, `names no property set: the pre-publish check rules check it on whichever classes carry it, and data requirements must name the class — write it as Pset_WallCommon.${p}`, by); continue; }
       const pset = p.slice(0, dot), name = p.slice(dot + 1), entity = commonSetClass(pset);
-      if (!entity) { say("contract", p, `${pset} is not a buildingSMART common set (Pset_<Class>Common), so it names no class: the contract checks it on whichever classes carry it`, by); continue; }
-      if (!IDS_CLASSES.has(entity)) { say("contract", p, `${pset} names ${entity}, which is not a class Sentinel's IDS targets — the contract checks it on whichever classes carry it`, by); continue; }
+      if (!entity) { say("contract", p, `${pset} is not a buildingSMART common set (Pset_<Class>Common), so it names no class: the pre-publish check rules check it on whichever classes carry it`, by); continue; }
+      if (!IDS_CLASSES.has(entity)) { say("contract", p, `${pset} names ${entity}, which is not a class Sentinel's data requirements target — the pre-publish check rules check it on whichever classes carry it`, by); continue; }
       add("contract", c.contract_key, entity, "properties", { pset, name, cardinality: "required" }, "contract", p);
     }
-    for (const p of c.required_psets) say("contract", p, `a property set with no property named — Sentinel's IDS checks named properties; name the ones you need (e.g. ${p}.Reference) under required properties`, by);
+    for (const p of c.required_psets) say("contract", p, `a property set with no property named — Sentinel's data requirements check named properties; name the ones you need (e.g. ${p}.Reference) under required properties`, by);
     say("contract", `IFC schema ${c.ifc_schema}`, whole, by);
     for (const e of c.required_entities) say("contract", `${e.entity}: at least ${e.min_count}`, whole, by);
     // 2147483647 is the forms' "no count limit" (a C# int's top): only the share is said then.
     for (const e of c.forbidden_entities) say("contract", `${e.entity}: ${e.max_count < 2147483647 ? `at most ${e.max_count}, ` : ""}at most ${Math.round(e.max_ratio * 100)}% of building elements`, whole, by);
     if (c.require_georeference) say("contract", "georeference", whole, by);
     if (c.min_coverage != null && c.min_coverage < 1 && c.required_properties.length)
-      say("contract", `coverage ${Math.round(c.min_coverage * 100)}%`, "the contract passes a class when that share of its elements carry each property; an IDS asks it of every element, so the IDS is stricter", by);
+      say("contract", `coverage ${Math.round(c.min_coverage * 100)}%`, "the pre-publish check rules pass a class when that share of its elements carry each property; data requirements ask it of every element, so the data requirements are stricter", by);
   }
 
   if (ruleset) {
@@ -342,20 +342,20 @@ export function standardsToIds({ contract = null, ruleset = null, naming = null 
       if (r.target === "level") {
         const pattern = rulePatternOf(r);
         if (!pattern) { say("ruleset", item, "has no tokens or names to check", by); continue; }
-        if (pattern.includes("{org}")) { say("ruleset", item, "uses {org}, which Revit fills with the office's code at check time — an IDS needs the name written out", by); continue; }
+        if (pattern.includes("{org}")) { say("ruleset", item, "uses {org}, which Revit fills with the office's code at check time — data requirements need the name written out", by); continue; }
         add("ruleset", r.id, "IFCBUILDINGSTOREY", "attributes", { name: "Name", pattern, cardinality: "required" }, "ruleset", item);
-        if (r.exclusions?.length) say("ruleset", `${item} exclusions`, "the names a rule skips cannot be said in an IDS — the IDS checks every level, so it is stricter", by);
+        if (r.exclusions?.length) say("ruleset", `${item} exclusions`, "the names a rule skips cannot be said in data requirements — the data requirements check every level, so they are stricter", by);
       } else if (r.target === "parameter") {
         const cats = r.categories ?? [], ents = cats.map((x) => CATEGORY_ENTITY[x]);
-        if (!r.parameter_name || r.parameter_name.includes("{org}")) { say("ruleset", item, "the parameter is named with {org}, which Revit fills with the office's code at check time — an IDS needs the name written out", by); continue; }
-        if (!cats.length || ents.some((e) => !e)) { say("ruleset", item, `applies to ${cats.length ? cats.filter((x, i) => !ents[i]).join(", ") : "views or items"} — not a category Sentinel's IDS judges (${Object.keys(CATEGORY_ENTITY).join(", ")})`, by); continue; }
+        if (!r.parameter_name || r.parameter_name.includes("{org}")) { say("ruleset", item, "the parameter is named with {org}, which Revit fills with the office's code at check time — data requirements need the name written out", by); continue; }
+        if (!cats.length || ents.some((e) => !e)) { say("ruleset", item, `applies to ${cats.length ? cats.filter((x, i) => !ents[i]).join(", ") : "views or items"} — not a category Sentinel's data requirements judge (${Object.keys(CATEGORY_ENTITY).join(", ")})`, by); continue; }
         for (const e of ents) add("ruleset", r.id, e, "properties", { pset: null, name: r.parameter_name, cardinality: "required" }, "ruleset", item);
-        if (r.exclusions?.length) say("ruleset", `${item} exclusions`, "the elements a rule skips by name cannot be said in an IDS — the IDS checks every one, so it is stricter", by);
+        if (r.exclusions?.length) say("ruleset", `${item} exclusions`, "the elements a rule skips by name cannot be said in data requirements — the data requirements check every one, so they are stricter", by);
       } else say("ruleset", item, RULE_ELSEWHERE[r.target] ?? `target '${r.target}' is not in an IFC model`, by);
     }
   }
 
-  if (naming) say("naming", naming.body.title ?? naming.label, "names files (containers), not what is inside them — an IDS checks a file's contents", "the naming check at upload and publish");
+  if (naming) say("naming", naming.body.title ?? naming.label, "names files, not what is inside them — data requirements check a file's contents", "the naming check at upload and publish");
 
   const generated = [...made.values()].filter((s) => s.requirements.properties.length || s.requirements.attributes.length);
   const from = (s) => (s ? { label: s.label, sha256: s.sha256 } : null);

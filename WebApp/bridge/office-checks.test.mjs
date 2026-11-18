@@ -157,7 +157,7 @@ describe("office.model_health — 0 block, warn ≤ 25, fresh scan", () => {
   it("a scan that names no ruleset (absent or none) is not_checkable, never met", () => {
     for (const ruleset_ref of [undefined, null, "", "none"]) {
       const r = classifyModelHealth({ ...scan([]), ruleset_ref }, NOW);
-      expect(r).toMatchObject({ status: "not_checkable", reason: expect.stringContaining("names no ruleset") });
+      expect(r).toMatchObject({ status: "not_checkable", reason: expect.stringContaining("names no rules") });
     }
   });
   it("met within limits and says which ruleset judged; violation with counts by rule when over", () => {
@@ -221,14 +221,14 @@ describe("office.naming_standard — judged by the naming artefact (project → 
     resolveArtefact.mockResolvedValueOnce({ body: { title: "T" }, source: "office", ref: "naming@1", sha256: "3f07376abcdef0123456789", pointer_sha_mismatch: false });
     const r = await check().run("aster-villa");
     expect(resolveArtefact).toHaveBeenCalledWith("aster-villa", "naming");
-    expect(r).toMatchObject({ id: "office.naming_standard", label: "Container naming standard installed", status: "met" });
+    expect(r).toMatchObject({ id: "office.naming_standard", label: "File naming standard installed", status: "met" });
     expect(r.evidence[0].detail).toContain("naming@1 · office · 3f07376abcde");
   });
   it("violations naming the install route when nothing is installed", async () => {
     resolveArtefact.mockResolvedValueOnce({ body: null, source: "none", ref: null, sha256: null, pointer_sha_mismatch: false });
     const r = await check().run("aster-villa");
     expect(r.status).toBe("violations");
-    expect(r.evidence[0].detail).toBe("not installed — PUT /cde/:key/artefacts/naming");
+    expect(r.evidence[0].detail).toBe("not installed — install one in Settings > Standards library");
   });
 });
 

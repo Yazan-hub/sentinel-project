@@ -318,8 +318,8 @@ export async function runStageGate(key, stage, actor) {
   await requireMinRole(key, "lead");
   const proj = await ensureProject(key);
   const current = stageOf(await gateRows(proj.id));
-  if (stage !== current) throw Object.assign(new Error(`the gate to run is the current stage's: ${current}`), { status: 409 });
-  if (stage === STAGES[STAGES.length - 1]) throw Object.assign(new Error(`${stage} is the final stage — there is no gate to run`), { status: 409 });
+  if (stage !== current) throw Object.assign(new Error(`the stage check to run is the current stage's: ${current}`), { status: 409 });
+  if (stage === STAGES[STAGES.length - 1]) throw Object.assign(new Error(`${stage} is the final stage — there is no stage check to run`), { status: 409 });
   const { measureGate, readGateInputs } = await import("./stage-gate.mjs");
   const result = measureGate(stage, await readGateInputs(key));
   const row = await audit(proj.id, "stage_gate", proj.id, `gate:${result.status} ${stage}`, actor || "web", null,
@@ -1164,7 +1164,7 @@ export function mirrorStateSafe(version_id) {
     return Promise.race([import("./platform-state.mjs").then((m) => m.mirrorState(version_id)), timeout])
       .catch((e) => {
         console.warn(`[platform-state] version ${version_id}: not mirrored — ${String(e?.message || e).replace(/accessToken=[^&\s"']+/gi, "accessToken=…")}`);
-        return { mirrored: false, reason: "the mirror failed (the bridge log has the cause)" };
+        return { mirrored: false, reason: "the mirror failed (the cause is in Sentinel's log on the office PC)" };
       })
       .finally(() => clearTimeout(t)); // a mirror that settled first never also logs a timeout
   };
@@ -1448,7 +1448,7 @@ export async function recordNote(key, b = {}) {
     throw Object.assign(new Error('build: rows are receipts (entity_type "build") — nothing was saved'), { status: 400 });
   if (role === "service") return recordAudit(key, b);
   if (REVIT_REPORT_TYPES.includes(type)) return recordRevitReport(key, role, type, b);
-  if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note on the ledger is a lead's (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
+  if ((ROLE_RANK[role] || 0) < ROLE_RANK.lead) throw Object.assign(new Error(`a note in History is a lead's (you are ${role || "not a member"}) — nothing was saved`), { status: 403 });
   const bad = (status, message) => Object.assign(new Error(message), { status });
   if (type !== "note") throw bad(400, 'a signed-in caller writes notes only (entity_type "note") — Sentinel writes its other rows itself; nothing was saved');
   const text = typeof b.action === "string" ? b.action.trim() : "";
@@ -1594,7 +1594,7 @@ export async function readHolding(key) {
   } catch (e) {
     if (e?.status) throw e;
     console.error(`[holding] ${key}: ${e?.message || e}`);
-    throw Object.assign(new Error("not read — the hold rows or the file list could not be read (the bridge log has the cause)"), { status: 502 });
+    throw Object.assign(new Error("not read — the hold rows or the file list could not be read (the cause is in Sentinel's log on the office PC)"), { status: 502 });
   }
   const verdictOf = new Map();
   for (const r of verdicts) if (!verdictOf.has(r.version_id)) verdictOf.set(r.version_id, r.verdict); // newest first
@@ -1668,7 +1668,7 @@ export async function dismissHold(key, b = {}) {
 // review_decide records each signed-in person's decision (review:approve <k> | review:reject <k>) and publishes on the
 // last approval or sends the version back to wip on a rejection. The bridge only reads the chain and forwards a decision.
 
-const REVIEW_NO_FORWARDING = "this bridge does not forward the session (SUPABASE_ANON_KEY is not set) — no review decision can be recorded here";
+const REVIEW_NO_FORWARDING = "this installation cannot accept sign-ins yet — no review decision can be recorded here";
 
 /** GET /cde/:key/reviews (spec 2026-09-27 Decisions 13-14): the open review chains, derived — {items} from
  *  review-logic.mjs over every review row and every state:shared->wip row of the project (auditAll), its versions with
@@ -1689,7 +1689,7 @@ export async function readReviews(key, { all = false } = {}) { // all: every cha
   } catch (e) {
     if (e?.status) throw e;
     console.error(`[reviews] ${key}: ${e?.message || e}`);
-    throw Object.assign(new Error("not read — the review rows or the file list could not be read (the bridge log has the cause)"), { status: 502 });
+    throw Object.assign(new Error("not read — the review rows or the file list could not be read (the cause is in Sentinel's log on the office PC)"), { status: 502 });
   }
   const versions = files.flatMap((f) => f.versions.map((v) => ({ id: v.id, container_name: f.iso_name, revision: v.revision, state: v.state })));
   if (all) return { items: allChains(reviewRows, backRows, versions) };
@@ -1708,7 +1708,7 @@ export async function readReviews(key, { all = false } = {}) { // all: every cha
  *  container's name (the rejection topic's). */
 export async function reviewDecide(key, version_id, { decision, note } = {}) {
   const refuse = (status, m) => Object.assign(new Error(m), { status });
-  if (!currentUserToken() || !forwardingConfigured()) throw refuse(403, "a review decision is a signed-in person's — sign in (and the bridge must forward the session: SUPABASE_ANON_KEY)");
+  if (!currentUserToken() || !forwardingConfigured()) throw Object.assign(refuse(403, "a review decision is a signed-in person's — sign in; if you are signed in, ask your administrator to finish the sign-in set-up"), { detail: "SUPABASE_ANON_KEY is not set, so Sentinel does not forward the session" });
   if (decision !== "approve" && decision !== "reject") throw refuse(400, "decision must be approve or reject");
   if (note != null && !(typeof note === "string" && note.length <= 500)) throw refuse(400, "note must be a string of at most 500 characters — the reviewer's words");
   const { version } = await versionOnKey(key, version_id);
@@ -1935,7 +1935,7 @@ export async function pruneEvents(olderThanMs = 600000) {
 let _core = null;
 const core = async () => (_core ??= await import("./sentinel-core.mjs"));
 
-/** The one sentence every naming judge gives when nothing is installed — the install route included. */
+/** The one sentence every naming judge gives when nothing is installed (stored in the History row as naming_reason — do not reword). */
 export const NO_NAMING_REASON = "no naming standard installed for this project or its office (PUT /cde/:key/artefacts/naming)";
 
 /**
@@ -2417,11 +2417,11 @@ export async function createTransmittal(key, b = {}) {
 }
 
 // ── the no-toll data feed (0044, spec 2026-10-19-work-alongside-connectors §2) ──
-const feedErr = (status, message) => Object.assign(new Error(message), { status });
+const feedErr = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
 /** A feed function, called with the anon key and no sign-in: the database hashes the key, checks it is live and that its owner
  *  is a member, and answers — the bridge decides nothing about who may read. Its refusals come back in words. */
 export async function feedRpc(fn, args) {
-  if (!URL || !ANON) throw feedErr(503, "the data feed is not set up on this bridge (SUPABASE_URL + SUPABASE_ANON_KEY) — nothing was read");
+  if (!URL || !ANON) throw feedErr(503, "the data feed is not set up on this installation — nothing was read", "SUPABASE_URL + SUPABASE_ANON_KEY are not set in config/.env");
   const ask = async () => {
     const r = await fetch(`${URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: ANON, Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" }, body: JSON.stringify(args) });
     return { r, data: await r.json().catch(() => null) };

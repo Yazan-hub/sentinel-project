@@ -47,58 +47,58 @@ describe("uploadThroughIntake — POST /cde/:key/intake", () => {
 
   it("an upload that threw is 'Not uploaded' only on an answer given before anything is stored; else not confirmed", () => {
     for (const status of [400, 401, 403, 404, 408, 413, 429, 503]) expect(uploadFailedLine(Object.assign(new Error("refused"), { status }))).toBe("Not uploaded — refused");
-    const unsure = "Not confirmed — HTTP 500 (the bridge may have stored it; ↻ to check)";
+    const unsure = "Not confirmed — HTTP 500 (Sentinel may have stored it; ↻ to check)";
     expect(uploadFailedLine(Object.assign(new Error("HTTP 500"), { status: 500 }))).toBe(unsure);
     expect(uploadFailedLine(Object.assign(new Error("HTTP 500"), { status: 200 }))).toBe(unsure);
-    expect(uploadFailedLine(new TypeError("Failed to fetch"))).toBe("Not confirmed — Failed to fetch (the bridge may have stored it; ↻ to check)");
+    expect(uploadFailedLine(new TypeError("Failed to fetch"))).toBe("Not confirmed — Failed to fetch (Sentinel may have stored it; ↻ to check)");
   });
 });
 
 describe("intakeLine — what the upload did", () => {
   it("accepted: uploaded and registered, the IDS that judged, the proposal row", () => {
-    expect(intakeLine("B12-W.ifc", reply())).toBe("Uploaded B12-W.ifc v2 — accepted (ids@1: 3/3 passed) · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+    expect(intakeLine("B12-W.ifc", reply())).toBe("Uploaded B12-W.ifc v2 — accepted (ids@1: 3/3 passed) · History #812 · receipt 6e7f8091a2b3c4d5…");
   });
 
   it("F-RUN-5: accepted under an IDS set to warn says the failing checks were kept as warnings", () => {
     expect(intakeLine("B12-W.ifc", reply({ warned: true, ids_ref: "ids@3", summary: { in_scope: 2, passing: 0 } })))
-      .toContain("accepted · IDS ids@3: 0 of 2 checks passed, kept as warnings (the IDS is set to warn)");
+      .toContain("accepted · data requirements ids@3: 0 of 2 checks passed, kept as warnings (the data requirements are set to warn)");
   });
 
   it("recorded: says the IDS did not judge it and carries the bridge's note", () => {
     const r = reply({ verdict: "recorded", ids_ref: null, version: { revision: "v1" }, note: "No contract and no IDS installed for b12-hold or its office — nothing was judged." });
-    expect(intakeLine("B12-R.ifc", r)).toBe("Uploaded B12-R.ifc v1 — recorded (the IDS did not judge it) · No contract and no IDS installed for b12-hold or its office — nothing was judged. · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+    expect(intakeLine("B12-R.ifc", r)).toBe("Uploaded B12-R.ifc v1 — recorded (the data requirements did not judge it) · No contract and no IDS installed for b12-hold or its office — nothing was judged. · History #812 · receipt 6e7f8091a2b3c4d5…");
   });
 
   it("a gate FAIL uploads nothing and is held, with the hold row's line", () => {
     const r = rejected({ stage: "gate", gate: { failures: ["Schema IFC2X3 — the contract asks IFC4", "Proxy ratio 12% — the cap is 5%"] }, audit_id: null, receipt: null });
-    expect(intakeLine("B12-G.ifc", r)).toBe("Not uploaded — the delivery gate refused B12-G.ifc (2 failure(s)) · On hold · ledger #915 · receipt a1b2c3d4e5f60718…");
+    expect(intakeLine("B12-G.ifc", r)).toBe("Not uploaded — the pre-publish check refused B12-G.ifc (2 failure(s)) · On hold · History #915 · receipt a1b2c3d4e5f60718…");
   });
 
   it("a naming reject is the naming standard's (rejected under enforce reject) — intake's stage naming", () => {
     const r = rejected({ stage: "naming", naming: { ok: false, enforce: "reject", failures: [{ field: "*", reason: "expected 11 '-'-separated fields" }] }, failures: [{}, {}] });
-    expect(intakeLine("B12-N.ifc", r)).toBe("Not uploaded — the naming standard refused B12-N.ifc (1 failure(s)) · On hold · ledger #915 · receipt a1b2c3d4e5f60718…");
+    expect(intakeLine("B12-N.ifc", r)).toBe("Not uploaded — the naming standard refused B12-N.ifc (1 failure(s)) · On hold · History #915 · receipt a1b2c3d4e5f60718…");
   });
 
   it("an IDS reject names the IDS and counts its failures; a naming warning does not make it a naming refusal", () => {
     const r = rejected({ naming: { ok: false, enforce: "warn", failures: [{}] }, failures: [{}, {}, {}, {}] });
-    expect(intakeLine("B12-W.ifc", r)).toBe("Not uploaded — the IDS refused B12-W.ifc (4 failure(s)) · On hold · ledger #915 · receipt a1b2c3d4e5f60718…");
+    expect(intakeLine("B12-W.ifc", r)).toBe("Not uploaded — the data requirements refused B12-W.ifc (4 failure(s)) · On hold · History #915 · receipt a1b2c3d4e5f60718…");
     // the referee cuts its list at 200: the count is its failures_total, never the list's length
-    expect(intakeLine("B12-W.ifc", { ...r, failures_total: 250 })).toBe("Not uploaded — the IDS refused B12-W.ifc (250 failure(s)) · On hold · ledger #915 · receipt a1b2c3d4e5f60718…");
+    expect(intakeLine("B12-W.ifc", { ...r, failures_total: 250 })).toBe("Not uploaded — the data requirements refused B12-W.ifc (250 failure(s)) · On hold · History #915 · receipt a1b2c3d4e5f60718…");
   });
 
   it("a refusal the bridge did not hold says so; a hold row without a chain hash is not confirmed", () => {
-    expect(intakeLine("B12-W.ifc", rejected({ failures: [{}], hold: null }))).toBe("Not uploaded — the IDS refused B12-W.ifc (1 failure(s)) · not on hold — the bridge returned no hold row");
-    expect(intakeLine("B12-W.ifc", rejected({ failures: [{}], hold: { id: 915, hash: null } }))).toBe("Not uploaded — the IDS refused B12-W.ifc (1 failure(s)) · On hold · not confirmed — the bridge returned no chain hash");
+    expect(intakeLine("B12-W.ifc", rejected({ failures: [{}], hold: null }))).toBe("Not uploaded — the data requirements refused B12-W.ifc (1 failure(s)) · not on hold — Sentinel returned no hold entry");
+    expect(intakeLine("B12-W.ifc", rejected({ failures: [{}], hold: { id: 915, hash: null } }))).toBe("Not uploaded — the data requirements refused B12-W.ifc (1 failure(s)) · On hold · not confirmed — Sentinel returned no receipt");
   });
 
   it("an upload that failed after the verdict: judged, not uploaded, nothing registered", () => {
     expect(intakeLine("B12-W.ifc", reply({ stage: "upload_failed", version: null, error: "platform upload HTTP 503" })))
-      .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Nothing was registered · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+      .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Nothing was registered · History #812 · receipt 6e7f8091a2b3c4d5…");
   });
 
   it("SEC-4 (review C14): an upload that failed after the bridge registered the version says it is registered without geometry", () => {
     expect(intakeLine("B12-W.ifc", reply({ stage: "upload_failed", version: { revision: "P02" }, error: "platform upload HTTP 503" })))
-      .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Registered as P02 without geometry · ledger #812 · receipt 6e7f8091a2b3c4d5…");
+      .toBe("B12-W.ifc accepted (ids@1: 3/3 passed) — not uploaded: platform upload HTTP 503. Registered as P02 without geometry · History #812 · receipt 6e7f8091a2b3c4d5…");
   });
 });
 
@@ -133,7 +133,7 @@ describe("readHolding — GET /cde/:key/holding", () => {
     bfetch.mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(readHolding("http://b", "k")).rejects.toThrow(/^not read — Failed to fetch$/);
     bfetch.mockResolvedValue(res(200, { rows: [] }));
-    await expect(readHolding("http://b", "k")).rejects.toThrow(/^not read — the bridge answered without a list$/);
+    await expect(readHolding("http://b", "k")).rejects.toThrow(/^not read — Sentinel could not answer$/);
   });
 });
 
@@ -148,7 +148,7 @@ describe("dismissHold — POST /cde/:key/holding/dismiss", () => {
   });
 
   it("a blank reason is never sent", async () => {
-    await expect(dismissHold("http://b", "k", "B12-N.ifc", "   ")).rejects.toThrow("a dismissal needs a reason — the ledger records it");
+    await expect(dismissHold("http://b", "k", "B12-N.ifc", "   ")).rejects.toThrow("a dismissal needs a reason — History records it");
     expect(bfetch).not.toHaveBeenCalled();
   });
 
@@ -185,7 +185,7 @@ describe("type gaps — the Holding Area's own section (MA-2c)", () => {
     expect(bfetch).toHaveBeenCalledWith(`http://b/cde/ma2c/holding/type-gaps/${GAP.id}/dismiss`, expect.objectContaining({ method: "POST" }));
     expect(JSON.parse(bfetch.mock.calls[0][1].body)).toEqual({ reason: "a template sample" });
     bfetch.mockReset();
-    await expect(dismissTypeGap("http://b", "ma2c", GAP.id, " ")).rejects.toThrow("a dismissal needs a reason — the ledger records it");
+    await expect(dismissTypeGap("http://b", "ma2c", GAP.id, " ")).rejects.toThrow("a dismissal needs a reason — History records it");
     expect(bfetch).not.toHaveBeenCalled();
     bfetch.mockResolvedValue(res(409, { message: `type-gap group ${GAP.id} is not open on ma2c` }));
     await expect(dismissTypeGap("http://b", "ma2c", GAP.id, "why")).rejects.toThrow(`type-gap group ${GAP.id} is not open on ma2c`);

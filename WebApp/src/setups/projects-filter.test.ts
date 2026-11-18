@@ -272,11 +272,12 @@ describe("hub503Words (W-2 G6): a 503 shows the bridge's own words; the setup hi
     const fwd = "this bridge does not forward sign-ins (SUPABASE_ANON_KEY) — a signed-in user cannot be served; nothing was read or saved";
     expect(hub503Words(fwd)).toBe(fwd);
     expect(hub503Words("CDE not configured — set SUPABASE_URL + SUPABASE_SERVICE_KEY in config/.env, then restart the service.")).toBeNull();
+    expect(hub503Words("Sentinel's storage is not set up on this installation. Ask your administrator to finish the set-up.")).toBeNull();
     expect(hub503Words(undefined)).toBeNull();
     expect(hub503Words("")).toBeNull();
   });
   it("the prefix it looks for is the one the bridge sends on GET /cde/projects", () => {
     const bridge = readFileSync(new URL("../../bridge/bcf-service.mjs", import.meta.url), "utf8");
-    expect(bridge).toContain('send(res, 503, { message: "CDE not configured — set SUPABASE_URL');
+    expect(bridge).toContain('send(res, 503, { message: "Sentinel\'s storage is not set up on this installation.');
   });
 });

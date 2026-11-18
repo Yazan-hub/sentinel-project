@@ -46,13 +46,13 @@ export function firstTag(versions: ReadonlyArray<{ tag?: string; createdAt?: str
 export function geometryCheck(got: string, item: string, row: GeometryLinkRow | null, first: string | null = null): GeometryCheck {
   const nv = row?.new_value ?? null;
   if (nv?.platform_item_id && nv.platform_item_id !== item)
-    return { load: false, line: "the ledger links another platform item to this version — not shown as this version's geometry" };
+    return { load: false, line: "History links another platform item to this version — not shown as this version's geometry" };
   const want = linkedHash(row);
   if (want !== null) {
-    if (want !== "" && got.toLowerCase() === want) return { load: true, checked: true, line: "geometry checked against the ledger's link" };
+    if (want !== "" && got.toLowerCase() === want) return { load: true, checked: true, line: "geometry checked against its record in History" };
     return { load: false, line: "the downloaded bytes are not the ones linked to this version (the item changed on the platform, or the download was cut) — not shown" };
   }
-  if (first) return { load: true, checked: false, line: "geometry not hash-checked — the item's first platform version" };
-  if (!row) return { load: true, checked: false, line: "geometry not hash-checked — the ledger holds no geometry link for this version" };
-  return { load: true, checked: false, line: "geometry not hash-checked — this version was linked before Sentinel recorded the geometry's hash" };
+  if (first) return { load: true, checked: false, line: "geometry not compared with its record — the item's first platform version" };
+  if (!row) return { load: true, checked: false, line: "geometry not compared with its record — History holds no geometry link for this version" };
+  return { load: true, checked: false, line: "geometry not compared with its record — this version was linked before Sentinel recorded the geometry's fingerprint" };
 }

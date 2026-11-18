@@ -1,3 +1,4 @@
+import { withDetails } from "./details";
 import * as THREE from "three";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
@@ -35,8 +36,8 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
     '<span style="font-weight:600">◱ Visibility</span><span style="color:#9ca3af;font-size:11px">graphics overrides</span>' +
     '<span style="flex:1"></span>' +
-    `<button id="vg-ids" style="${btn};background:#22303a;border-color:#2f6d8a;color:#bfe3f2" title="Validate the model against an IDS (results in console)">IDS ✓</button>` +
-    `<label style="${btn}" title="Load an .ids file (else the built-in demo IDS is used)">.ids<input id="vg-idsfile" type="file" accept=".ids,.xml,application/xml,text/xml" style="display:none"></label>` +
+    `<button id="vg-ids" style="${btn};background:#22303a;border-color:#2f6d8a;color:#bfe3f2" title="Check the model against the data requirements (results in console)">Check data</button>` +
+    `<label style="${btn}" title="Load an .ids file (else the built-in demo data requirements are used)">.ids<input id="vg-idsfile" type="file" accept=".ids,.xml,application/xml,text/xml" style="display:none"></label>` +
     `<button id="vg-showall" style="${btn}" title="Show everything, clear ghosts/colours">Show all</button>` +
     `<button id="vg-refresh" style="${btn}" title="Rebuild category list">↻</button>` +
     "</div>" +
@@ -44,7 +45,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     '<div id="vg-list" style="flex:1;overflow:auto;padding:.35rem"></div>' +
     '<div id="vg-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("vg-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("vg-status").replaceChildren(withDetails(t, detail));
 
   let tree: TreeCategory[] = [];
   const hidden = new Set<string>(); // category keys currently hidden
@@ -131,7 +132,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     } catch { /* */ }
     el("vg-ids-results").style.display = "none";
     renderList();
-    status("All visible · ghosts + IDS colours cleared.");
+    status("All visible · ghosts + data-check colours cleared.");
   }
 
   async function refresh() {
@@ -147,31 +148,32 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
 
   // ── B1: IDS validation (logic only — logs to console; colour-coding is B2) ──
   let idsSpec: IdsSpec = DEMO_IDS;
-  let idsFrom = "built-in demo IDS";
+  let idsFrom = "built-in demo data requirements";
+  let idsVer = ""; // the installed version (ids@n), shown only in a closed Details
   /** The project's installed IDS (artefact ids@n) outranks the demo spec; a hand-loaded .ids outranks both.
    *  Re-resolved on every run (not cached at panel creation) so a project switch or a fresh Install is
    *  picked up, and so a slow fetch here can never race ahead of / overwrite a hand-loaded file (T7). */
   async function loadProjectIds() {
     // A failed read falls back to the demo spec and says so — never a previous project's IDS under "Using project ids@n".
-    const notRead = (why: string) => { idsSpec = DEMO_IDS; idsFrom = `built-in demo IDS (project IDS not read — ${why})`; };
+    const notRead = (why: string) => { idsVer = ""; idsSpec = DEMO_IDS; idsFrom = `built-in demo data requirements (project data requirements not read — ${why})`; };
     let reached = false;
     try {
       const r = await bfetch(`${base}/cde/${encodeURIComponent(pid())}/artefacts/ids`);
       reached = true;
       if (r.ok) {
         const a = await r.json();
-        if (Array.isArray(a?.body?.specifications)) { idsSpec = a.body as IdsSpec; idsFrom = `project ids@${a.version}`; return; }
+        if (Array.isArray(a?.body?.specifications)) { idsSpec = a.body as IdsSpec; idsFrom = "project data requirements"; idsVer = `ids@${a.version}`; return; }
       } else if (r.status === 404) {
-        idsSpec = DEMO_IDS; idsFrom = "built-in demo IDS"; // no project IDS installed — don't keep a stale one from a prior project
+        idsVer = ""; idsSpec = DEMO_IDS; idsFrom = "built-in demo data requirements"; // no project IDS installed — don't keep a stale one from a prior project
       } else notRead((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
-    } catch (e) { const m = (e as Error)?.message ?? String(e); notRead(reached ? m : `can't reach the bridge (${m})`); }
+    } catch (e) { const m = (e as Error)?.message ?? String(e); notRead(reached ? m : `Sentinel is not connected (${m})`); }
   }
   let lastRes: ModelValidation[] = [];
 
   async function runIds() {
     if (fragments.list.size === 0) { status("Load a model first."); return; }
     if (!idsFrom.startsWith("file ")) await loadProjectIds(); // a hand-loaded file always wins; otherwise re-resolve per project
-    status(`Using ${idsFrom} · Running IDS “${idsSpec.title}”…`);
+    status(`Using ${idsFrom} · Checking data against “${idsSpec.title}”…`, idsVer);
     try {
       lastRes = await validateModels(fragments, idsSpec);
       // eslint-disable-next-line no-console
@@ -182,9 +184,9 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
       await colourResults(lastRes);
       renderIdsResults(compliant, total, failing);
       status(total === 0
-        ? `IDS “${idsSpec.title}”: no in-scope elements in the loaded model(s).`
-        : `IDS “${idsSpec.title}”: ${compliant}/${total} compliant (green), ${failing} failing (red). Click a requirement above to isolate.`);
-    } catch (e) { status("IDS failed: " + ((e as Error)?.message ?? String(e))); }
+        ? `Data requirements “${idsSpec.title}”: no in-scope elements in the loaded model(s).`
+        : `Data requirements “${idsSpec.title}”: ${compliant}/${total} compliant (green), ${failing} failing (red). Click a requirement above to isolate.`, idsVer);
+    } catch (e) { status("Data check failed: " + ((e as Error)?.message ?? String(e)), (e as { detail?: string }).detail); }
   }
 
   // B2 — colour compliant green / failing red via Highlighter styles (FRAGS.MaterialDefinition).
@@ -213,7 +215,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     for (const m of lastRes) for (const [k, v] of Object.entries(m.failuresByRequirement)) byReq[k] = (byReq[k] ?? 0) + v;
     const rows = Object.entries(byReq).sort((a, b) => b[1] - a[1]);
     const pct = total ? Math.round((compliant / total) * 100) : 100;
-    let html = `<div style="font-weight:600;margin-bottom:.4rem">IDS “${esc(idsSpec.title)}” — <span style="color:#22c55e">${compliant}</span>/${total} (${pct}%) · <span style="color:#ef4444">${failing} failing</span></div>`;
+    let html = `<div style="font-weight:600;margin-bottom:.4rem">Data requirements “${esc(idsSpec.title)}” — <span style="color:#22c55e">${compliant}</span>/${total} (${pct}%) · <span style="color:#ef4444">${failing} failing</span></div>`;
     // IDS 1.0: a required specification nothing in a model matches fails that model; what Sentinel cannot judge is said here.
     for (const m of lastRes) for (const f of m.specFailures) html += `<div style="color:#ef4444;font-size:12px;margin-bottom:.2rem">✗ ${esc(f.specification)}: ${esc(f.reason)}${lastRes.length > 1 ? ` (${esc(m.modelId)})` : ""}</div>`;
     const notChecked = [...new Set([...(idsSpec.unsupported ?? []), ...lastRes.flatMap((m) => m.notChecked)])];
@@ -222,7 +224,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     if (notes.length) html += `<div style="color:#9ca3af;font-size:12px;margin-bottom:.35rem">Note: ${notes.map(esc).join("; ")}</div>`;
     if (!rows.length && !lastRes.some((m) => m.specFailures.length)) html += '<div style="color:#22c55e;font-size:12px">All in-scope elements compliant ✓</div>';
     else {
-      html += `<button id="vg-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5;margin-bottom:.45rem" title="Create a BCF issue per requirement + an immutable CDE audit record">⚑ Raise ${rows.length} BCF issue(s) + record in CDE</button>`;
+      html += `<button id="vg-raise" style="${btn};background:#3a1f1f;border-color:#7f1d1d;color:#fca5a5;margin-bottom:.45rem" title="Create an issue per requirement and record it in History">⚑ Raise ${rows.length} issue(s) + record in History</button>`;
       html += '<div style="color:#9ca3af;font-size:11px;margin-bottom:.3rem">Click a requirement to isolate its failing elements:</div>';
     }
     host.innerHTML = html + rows.map(([req, n], i) =>
@@ -247,7 +249,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     return out;
   }
   async function raiseValidationIssues() {
-    if (!lastRes.length) { status("Run IDS first."); return; }
+    if (!lastRes.length) { status("Run the data check first."); return; }
     const reqs = Object.entries(groupFailures(lastRes));
     if (!reqs.length) { status("Nothing to raise — all compliant."); return; }
     const post = (path: string, body: unknown) =>
@@ -266,7 +268,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     );
     const todo = reqs.filter(([req]) => !openReqs.has(req));
     const skipped = reqs.length - todo.length;
-    if (!todo.length) { status(`All ${reqs.length} requirement(s) already have open BCF issues — nothing new to raise.`); return; }
+    if (!todo.length) { status(`All ${reqs.length} requirement(s) already have open issues — nothing new to raise.`); return; }
     status(`Raising ${todo.length} new issue(s)${skipped ? ` (${skipped} already tracked)` : ""}…`);
     let raised = 0, refusal: string | null = null;
     for (const [req, info] of todo) {
@@ -287,7 +289,7 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
       } catch (e) { refusal ??= (e as Error).message; /* keep going */ }
     }
     if (!raised && refusal) { status(`Nothing raised — ${refusal}`); return; }
-    status(`Raised ${raised} new BCF issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in the CDE audit (hash-chained).` +
+    status(`Raised ${raised} new issue(s)${skipped ? `, skipped ${skipped} already tracked` : ""} → Issues + Revit; recorded in History.` +
       (refusal ? ` ${todo.length - raised} not raised — ${refusal}` : ""));
   }
 
@@ -309,11 +311,11 @@ export function visibilityPanel(components: OBC.Components, opts: { baseUrl?: st
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
     try {
-      idsSpec = parseIds(await f.text()); idsFrom = `file ${f.name}`;
+      idsSpec = parseIds(await f.text()); idsFrom = `file ${f.name}`; idsVer = "";
       const n = idsSpec.unsupported?.length ?? 0;
-      status(`Loaded IDS “${idsSpec.title}” (${idsSpec.specifications.length} spec)${n ? ` — ${n} part(s) Sentinel cannot check, listed with the results` : ""}. Press “IDS ✓” to run.`);
+      status(`Loaded data requirements “${idsSpec.title}” (${idsSpec.specifications.length} spec)${n ? ` — ${n} part(s) Sentinel cannot check, listed with the results` : ""}. Press “Check data” to run.`);
     }
-    catch (err) { status("IDS parse failed: " + ((err as Error)?.message ?? String(err))); }
+    catch (err) { status("Could not read the .ids file: " + ((err as Error)?.message ?? String(err))); }
   });
 
   el("vg-refresh").addEventListener("click", refresh);

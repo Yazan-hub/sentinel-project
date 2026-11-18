@@ -17,11 +17,11 @@ export function packWords(pack: PackSummary, filename: string): { text: string; 
   const count = (name: string, p: unknown, f: (x: never) => number): string => { if (p == null) return `0 ${name}`; const why = notRead(p); if (why) { gaps.push(`${name} (${why})`); return `${name} not read`; } return `${f(p as never)} ${name}`; };
   const std = count("standard(s)", pack.standards, (s: Record<string, unknown>) => Object.values(s).filter(Boolean).length);
   const docs = count("document(s)", pack.documents, (d: unknown[]) => d.length);
-  const cont = count("container(s)", pack.containers, (c: { versions?: unknown[] }[]) => c.length);
+  const cont = count("file(s)", pack.containers, (c: { versions?: unknown[] }[]) => c.length);
   // F-RUN-18: the pack holds every chain; one from before that held only the open ones carries no `open` and reads as before
   const openN = Array.isArray(pack.reviews) && pack.reviews.some((r) => typeof (r as { open?: unknown })?.open === "boolean") ? ` (${pack.reviews.filter((r) => (r as { open?: boolean }).open).length} open)` : "";
   const rev = count("review chain(s)", pack.reviews, (r: unknown[]) => r.length) + openN;
-  const led = notRead(pack.ledger) ? count("ledger", pack.ledger, () => 0) : `${(pack.ledger as { rows?: unknown[] })?.rows?.length ?? 0} of ${(pack.ledger as { total?: number })?.total ?? 0} ledger row(s)${(pack.ledger as { truncated?: boolean })?.truncated ? " (cut at the cap)" : ""}`;
+  const led = notRead(pack.ledger) ? count("History", pack.ledger, () => 0) : `${(pack.ledger as { rows?: unknown[] })?.rows?.length ?? 0} of ${(pack.ledger as { total?: number })?.total ?? 0} History row(s)${(pack.ledger as { truncated?: boolean })?.truncated ? " (cut at the cap)" : ""}`;
   // v2 (ledger verification): the project's own hash chain, checked offline by the verifier
   const chain = pack.chain === undefined ? "" : `, ${count("project chain row(s)", pack.chain, (c: { rows?: unknown[] }) => c.rows?.length ?? 0)}`;
   const seal = pack.bundle_sha256 ? `sealed ${pack.bundle_sha256.slice(0, 12)}…` : "not sealed";
@@ -43,8 +43,8 @@ export interface AnchorStatus { configured: boolean; tsa: string | null; head: {
 /** The Settings line for external timestamps, in words. Pure. */
 export function anchorWords(s: AnchorStatus): { text: string; bad: boolean } {
   const when = (t: string | null) => t ? `${t.slice(0, 10)} ${t.slice(11, 16)} UTC` : "an unknown time";
-  if (!s.last) return { text: s.configured ? "No external timestamp yet — press Timestamp now, or wait for the daily one." : "External timestamps are not switched on for this bridge — no hash has been sent to a timestamp service.", bad: false };
+  if (!s.last) return { text: s.configured ? "No external timestamp yet — press Timestamp now, or wait for the daily one." : "External timestamps are not switched on for this installation — no hash has been sent to a timestamp service.", bad: false };
   if (!s.last.verified) return { text: `Last external timestamp: ${when(s.last.gen_time)} — NOT verified: ${s.last.problems.join("; ")}.`, bad: true };
   const newer = s.head ? s.head.project_seq - s.last.project_seq - 1 : 0;
-  return { text: `Last external timestamp: ${when(s.last.gen_time)}, verified${s.last.tsa ? ` (${s.last.tsa})` : ""}. ${newer > 0 ? `${newer} newer ledger row(s) not yet fixed in time.` : "Nothing newer since."}`, bad: false };
+  return { text: `Last external timestamp: ${when(s.last.gen_time)}, verified${s.last.tsa ? ` (${s.last.tsa})` : ""}. ${newer > 0 ? `${newer} newer History row(s) not yet fixed in time.` : "Nothing newer since."}`, bad: false };
 }

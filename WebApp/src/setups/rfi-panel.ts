@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { loadScope } from "./load-scope";
 import * as OBF from "@thatopen/components-front";
@@ -80,7 +81,7 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const val = (id: string) => (el(id) as HTMLInputElement).value;
-  const msg = (t: string, c = "#9ca3af") => { el("rf-msg").textContent = t; el("rf-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { el("rf-msg").replaceChildren(withDetails(t, detail)); el("rf-msg").style.color = c; };
   type Mode = "list" | "create" | "detail";
   const setMode = (m: Mode) => { el("rf-filter").style.display = m === "list" ? "block" : "none"; el("rf-list").style.display = m === "list" ? "block" : "none"; el("rf-create").style.display = m === "create" ? "block" : "none"; el("rf-detail").style.display = m === "detail" ? "block" : "none"; };
 
@@ -141,12 +142,12 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const list = await r.json();
       if (mine !== seq) return;
-      if (!Array.isArray(list)) throw new Error("the bridge answered without a list");
+      if (!Array.isArray(list)) throw new Error("Sentinel could not answer");
       rfis = list; readErr = null; renderList();
     } catch (e) {
       if (mine !== seq) return;
       rfis = [];
-      readErr = e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message;
+      readErr = e instanceof TypeError ? `Sentinel is not connected (${e.message})` : (e as Error).message;
       renderList();
     }
   };
@@ -154,7 +155,7 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
   const update = async (guid: string, body: Record<string, unknown>) => {
     const scope = loadScope(projectId());
     try { await bwrite(`${base}/rfis/${encodeURIComponent(projectId())}/${guid}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, author: "Web coordinator" }) }); await fetchAll(); const r = rfis.find((x) => x.guid === guid); if (r && loadScope(projectId()) === scope) showDetail(guid); msg("Updated."); }
-    catch (e) { msg("Update failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    catch (e) { msg("Update failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
   };
 
   // wiring
@@ -173,7 +174,7 @@ export function rfiPanel(components: OBC.Components, opts: { baseUrl?: string } 
       for (const id of ["rf-subject", "rf-assignee", "rf-question", "rf-due"]) (el(id) as HTMLInputElement).value = "";
       msg(`✅ RFI raised${ids.length ? ` · ${ids.length} element(s) linked` : ""}.`, "#22c55e");
       await fetchAll(); setMode("list");
-    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   });
 

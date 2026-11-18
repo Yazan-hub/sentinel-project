@@ -130,7 +130,7 @@ describe("survey jobs (MA-4c)", () => {
 
   it("(c) one job at a time on this bridge — a second is a 409 with nothing made; after it ends the next is job-0002", async () => {
     await start();
-    await expect(start()).rejects.toMatchObject({ status: 409, message: "a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a survey job is already running on this installation (one at a time) — try again when it ends; nothing was saved" });
     expect(existsSync(join(root, "demo", "job-0002"))).toBe(false);
     await finish({ status: "refused", stage: "done", pct: 100, refused: [{ id: "ev-0001", reason: "changed since admitted (its sha256 is not the pack's) — Re-check flags it" }], tools: TOOLS, version: "0.1.0" });
     expect(audits[0].action).toBe("build:run job-0001 · sentinel-survey 0.1.0 · refused");
@@ -207,14 +207,14 @@ describe("survey jobs (MA-4c)", () => {
     const one = await readJob("demo", "job-0001", deps());
     expect(one).toMatchObject({ job: { id: "job-0001", status: "done" }, candidates: RESULT.candidates, derived: [], receipt: RESULT.receipt });
     writeFileSync(join(root, "demo", "job-0001", "result.json"), JSON.stringify({ ...RESULT, candidates: [] }));
-    expect(await readJob("demo", "job-0001", deps())).toEqual({ job: rec(), result_error: "its result.json does not match the sha256 on its record — it changed after the job; its candidates are not shown" });
+    expect(await readJob("demo", "job-0001", deps())).toEqual({ job: rec(), result_error: "its result file does not match its record — it changed after the job; its candidates are not shown" });
     for (const id of ["job-0002", "job-10000"]) { // a job left running by an earlier bridge; past job-9999 the ids go on, newest first by number
       mkdirSync(join(root, "demo", id));
       writeFileSync(join(root, "demo", id, "job.json"), JSON.stringify({ id, status: "running", stage: "walls", pct: 60, items: [], refused: [] }));
     }
     const { jobs } = await listJobs("demo", deps());
     expect(jobs.map((j) => [j.id, j.status])).toEqual([["job-10000", "failed"], ["job-0002", "failed"], ["job-0001", "done"]]);
-    expect(jobs[1].error).toBe("the bridge stopped while it ran — nothing it found was kept; run it again");
+    expect(jobs[1].error).toBe("Sentinel stopped while it ran — nothing it found was kept; run it again");
     await start();
     expect(runs.at(-1).job.job_id).toBe("job-10001");
     await expect(readJob("demo", "nope", deps())).rejects.toMatchObject({ status: 400, message: "a survey job is named job-NNNN — nothing was saved" });
@@ -264,8 +264,8 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the pack's admitted PDF
   it("(b) one slot: a survey or a measure meanwhile is a 409 naming the drawing job; its end writes result.json and ONE build:run row naming sentinel-drawing (claimed false)", async () => {
     drawings();
     await startD();
-    await expect(start()).rejects.toMatchObject({ status: 409, message: "a drawing job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
-    await expect(measureJob("demo", "job-0001", { job_id: "m" }, deps())).rejects.toMatchObject({ status: 409, message: "a drawing job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a drawing job is already running on this installation (one at a time) — try again when it ends; nothing was saved" });
+    await expect(measureJob("demo", "job-0001", { job_id: "m" }, deps())).rejects.toMatchObject({ status: 409, message: "a drawing job is already running on this installation (one at a time) — try again when it ends; nothing was saved" });
     await finish({ status: "done", stage: "done", pct: 100, refused: [], result: DRESULT, tools: DTOOLS, version: "0.1.0" });
     const bytes = readFileSync(join(root, "demo", "job-0001", "result.json"));
     expect(rec()).toMatchObject({ status: "done", read: ["ev-0011"], counts: { wall: 1, door: 1 }, candidates_total: 2, result_sha256: sha(bytes),
@@ -287,7 +287,7 @@ describe("drawing jobs (MA-5a-3) — sentinel-drawing on the pack's admitted PDF
     writeFileSync(join(ev, "drawings", "A-101.pdf"), "x");
     PACK.items.push(drawingItem("ev-0011", "drawings/A-101.pdf"));
     await expect(startD({ notSetUpDrawing: () => "sentinel-drawing is not set up on this PC: build it … — nothing was saved", notSetUp: () => "never asked" }))
-      .rejects.toMatchObject({ status: 503, message: "sentinel-drawing is not set up on this PC: build it … — nothing was saved" });
+      .rejects.toMatchObject({ status: 503, message: "sentinel-drawing is not set up on this PC — nothing was saved", detail: "build it …" });
     expect(existsSync(join(root, "demo"))).toBe(false);
     expect(resultRefusal(DRESULT, ["ev-0011"], "sentinel-drawing")).toBeNull();
     expect(resultRefusal({ ...DRESULT, candidates: [{ ...DRESULT.candidates[0], geometry: { ...DRESULT.candidates[0].geometry, units: undefined } }] }, ["ev-0011"], "sentinel-drawing"))
@@ -337,8 +337,8 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
   // deps() per call (review): the file's root is set in beforeEach, after this describe is collected. The caller (proposeFromJob) checks the role.
   const trust = (row) => trustedJob("demo", "job-0001", deps({ getAuditEntry: async (key, id) => (key === "demo" && id === 2201 ? row : null) }));
   const untrusted = (why) => ({ status: 409, message: `job-0001's result is not trusted: ${why} — run the survey again; nothing was saved` });
-  const NOT_OWN = "ledger #2201 is not job-0001's own build:run row (the bridge's: build:run job-0001 · sentinel-survey, sentinel-drawing or sentinel-ifc … · done, claimed false)";
-  const CHANGED = "its result.json does not hash to the sha256 on ledger #2201 — it changed after the job";
+  const NOT_OWN = "History #2201 is not job-0001's own run record";
+  const CHANGED = "its result file does not match History #2201 — it changed after the job";
 
   it("(a) the job's own row: the result, the row's pack, items and read, its id and hash — the pack id is the ROW's, not job.json's", async () => {
     lay({ pack_id: "evp-9999" });
@@ -363,14 +363,14 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
     lay({ result_sha256: sha(edited) }, edited);
     await expect(trust(ROW())).rejects.toMatchObject(untrusted(CHANGED));
     lay({ ledger: { id: null, hash: null } });
-    await expect(trust(ROW())).rejects.toMatchObject(untrusted("its build:run row was never written (the ledger write failed when it ran)"));
+    await expect(trust(ROW())).rejects.toMatchObject(untrusted("its build:run row was never written (the History write failed when it ran)"));
     // each element's trust record is bound to it by cid: a cid twice would stamp one candidate's measurement on another's geometry
     const twice = Buffer.from(JSON.stringify({ ...RESULT, candidates: [...RESULT.candidates, RESULT.candidates[1]] }));
     lay({ result_sha256: sha(twice) }, twice);
     await expect(trust(ROW({}, { result_sha256: sha(twice) }))).rejects.toMatchObject(untrusted("its result names one cid twice"));
     // the result is held to what the ROW says was read, never to the items sent (decision 3; final review)
     lay();
-    const OFF_READ = untrusted("its result is not the contract's shape over what ledger #2201 says was read (candidates[0].evidence)");
+    const OFF_READ = untrusted("its result is not in the survey result format expected over what History #2201 says was read");
     await expect(trust(ROW({}, { read: ["ev-0002"] }))).rejects.toMatchObject(OFF_READ);
     await expect(trust(ROW({}, { items: [{ id: "ev-0001", sha256: "1".repeat(64) }, { id: "ev-0002", sha256: "2".repeat(64) }], read: ["ev-0002"] }))).rejects.toMatchObject(OFF_READ);
   });
@@ -383,7 +383,7 @@ describe("trustedJob (MA-4d) — decision 11: the row job.ledger.id names, the j
     await expect(trust(DROW({ action: "build:run job-0001 · sentinel-drawingx 0.1.0 · done" }))).rejects.toMatchObject(untrusted(NOT_OWN));
     lay(); // a survey's result under a drawing's row: a level is not a drawing's
     await expect(trust(DROW({}, { result_sha256: SHA, read: ["ev-0001"] }))).rejects.toMatchObject(
-      untrusted("its result is not the contract's shape over what ledger #2201 says was read (candidates[0].kind)"));
+      untrusted("its result is not in the survey result format expected over what History #2201 says was read"));
     lay();
     expect((await trust(ROW({}, { reader: undefined }))).row.reader).toBe("sentinel-survey"); // a row from before MA-5a-3 names no reader: the survey's
   });
@@ -410,24 +410,24 @@ describe("stillAdmitted and measureJob (MA-4e)", () => {
     const r = measureJob("demo", "job-0001", P, deps());
     await vi.waitFor(() => expect(runs).toHaveLength(1));
     expect([runs[0].job, runs[0].opts]).toEqual([P, { cwd: join(root, "demo", "job-0001"), path: "/measure" }]);
-    await expect(start()).rejects.toMatchObject({ status: 409, message: "a measure is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a measure is already running on this installation (one at a time) — try again when it ends; nothing was saved" });
     runs[0].ok({ status: "done", result: { elements: [] } }); runs.pop();
     expect(await r).toMatchObject({ status: "done" });
     await expect(start()).resolves.toMatchObject({ job: { id: "job-0001" } });
   });
   it("a job running is a 409 for a measure; sentinel-survey not set up is a 503 — neither starts anything", async () => {
     await start();
-    await expect(measureJob("demo", "job-0001", P, deps())).rejects.toMatchObject({ status: 409, message: "a survey job is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await expect(measureJob("demo", "job-0001", P, deps())).rejects.toMatchObject({ status: 409, message: "a survey job is already running on this installation (one at a time) — try again when it ends; nothing was saved" });
     await finish({ status: "failed", stage: "stopped", pct: 0, error: "the test" });
     await expect(measureJob("demo", "job-0001", P, deps({ notSetUp: () => "sentinel-survey is not set up on this PC: … — nothing was saved" })))
-      .rejects.toMatchObject({ status: 503, message: "sentinel-survey is not set up on this PC: … — nothing was saved" });
+      .rejects.toMatchObject({ status: 503, message: "sentinel-survey is not set up on this PC — nothing was saved", detail: "…" });
     expect(runs).toHaveLength(0);
   });
   it("MA-4f: the scan overlay takes the same slot — /cloud in the job's folder, and its own words to a job started meanwhile", async () => {
     const r = measureJob("demo", "job-0001", { job_id: "scan-c1", items: [], params: {}, seed: 1, cloud: {} }, deps(), { path: "/cloud", what: "a scan overlay" });
     await vi.waitFor(() => expect(runs).toHaveLength(1));
     expect(runs[0].opts).toEqual({ cwd: join(root, "demo", "job-0001"), path: "/cloud" });
-    await expect(start()).rejects.toMatchObject({ status: 409, message: "a scan overlay is already running on this bridge (one at a time) — try again when it ends; nothing was saved" });
+    await expect(start()).rejects.toMatchObject({ status: 409, message: "a scan overlay is already running on this installation (one at a time) — try again when it ends; nothing was saved" });
     runs[0].ok({ status: "done", result: { points: [] } }); runs.pop();
     expect(await r).toMatchObject({ status: "done" });
   });

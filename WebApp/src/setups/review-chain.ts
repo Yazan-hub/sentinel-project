@@ -46,7 +46,7 @@ export async function readReviews(baseUrl: string, key: string): Promise<ReviewI
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as { items?: ReviewItem[]; message?: string } | null;
   if (!r.ok || !j || !Array.isArray(j.items)) {
-    const why = !r.ok || !j ? j?.message || `HTTP ${r.status}` : "the bridge answered without a list";
+    const why = !r.ok || !j ? j?.message || `HTTP ${r.status}` : "Sentinel could not answer";
     throw new Error(why.startsWith("not read — ") ? why : `not read — ${why}`);
   }
   return j.items;
@@ -57,7 +57,7 @@ export async function readReviews(baseUrl: string, key: string): Promise<ReviewI
  *  status (decideFailedLine words it). */
 export async function decideReview(baseUrl: string, key: string, versionId: string, decision: "approve" | "reject", note: string): Promise<ReviewDecision> {
   const why = note.trim();
-  if (decision === "reject" && !why) throw Object.assign(new Error("a rejection says why — the ledger records it"), { sent: false });
+  if (decision === "reject" && !why) throw Object.assign(new Error("a rejection says why — History records it"), { sent: false });
   const r = await bfetch(at(baseUrl, key, `versions/${encodeURIComponent(versionId)}/review`), {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision, note: why || null }),
   });
@@ -76,7 +76,7 @@ export function decideFailedLine(e: unknown): string {
   const { message, status, sent } = e as { message?: string; status?: number; sent?: boolean };
   return sent === false || (status !== undefined && NOT_WRITTEN.includes(status))
     ? `Not recorded — ${message}`
-    : `Not confirmed — ${message} (the decision may be on the ledger; ↻ to check)`;
+    : `Not confirmed — ${message} (the decision may be in History; ↻ to check)`;
 }
 
 /** The card's review line: `Review: step k of n — <name> (<role>)`. */
@@ -89,8 +89,8 @@ export const approvalLine = (a: ReviewApproval): string => `✓ step ${a.step} �
  *  ledger line, and on a reject the BCF topic the bridge raised (or why not). */
 export function decisionLine(container: string, r: ReviewDecision): string {
   const what = r.decision === "approve" ? `Approved step ${r.step} of ${r.of}` : `Rejected at step ${r.step} of ${r.of}`;
-  const moved = r.published ? ` · ${container} published` : r.decision === "reject" && r.state === "wip" ? ` · ${container} back to WIP` : "";
-  const bcf = r.bcf?.guid ? ` · BCF topic ${r.bcf.guid}` : r.bcf?.error ? ` · BCF topic not raised — ${r.bcf.error}` : "";
+  const moved = r.published ? ` · ${container} published` : r.decision === "reject" && r.state === "wip" ? ` · ${container} back to Work in progress` : "";
+  const bcf = r.bcf?.guid ? ` · Issue ${r.bcf.guid}` : r.bcf?.error ? ` · Issue not raised — ${r.bcf.error}` : "";
   return `${what} — ${r.name}${moved} · ${ledgerLine({ id: r.id, hash: r.hash })}${bcf}`;
 }
 

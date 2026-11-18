@@ -22,7 +22,7 @@ const TAIL = 4000;                // the last stderr characters, for the bridge 
 /** Why sentinel-drawing cannot start on this PC (a 503's words), or null. Checked before a job folder is made. */
 export function notSetUp({ exe = exePath() } = {}) {
   if (!isAbsolute(exe)) return "sentinel-drawing is not set up on this PC: SENTINEL_DRAWING_EXE must be the absolute path of sentinel-drawing.exe — nothing was saved";
-  if (!existsSync(exe)) return "sentinel-drawing is not set up on this PC: build it in the bridge's checkout (dotnet build drawing -c Release) — nothing was saved";
+  if (!existsSync(exe)) return "sentinel-drawing is not set up on this PC: build it in this installation's folder (dotnet build drawing -c Release) — nothing was saved";
   return null;
 }
 

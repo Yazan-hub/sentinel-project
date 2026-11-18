@@ -7,8 +7,9 @@ import { pathSegment } from "../setups/escape-html";
 import { askText, askYesNo } from "../setups/ask";
 import { canGovernRole } from "../setups/my-role";
 import { incorporatedWords } from "./versions-view";
-import type { RoundView } from "./workspace-state";
+import { showMessage, type RoundView } from "./workspace-state";
 import type { PaneCtx } from "./workspace-page";
+import { setLine } from "../setups/details";
 
 /** What each decision is called on a button and in the list. Copy of DECISION_WORDS in bridge/rounds-logic.mjs (pinned by a test). */
 export const DECISION_WORDS: Record<string, string> = {
@@ -47,9 +48,9 @@ const when = (at: string): string => String(at ?? "").slice(0, 16).replace("T", 
 /** One decision on a line: who, their party, the decision in words, the note, when, ledger #n. */
 export const decisionLine = (x: RoundView["steps"][number]["decisions"][number]): string =>
   // "Accepted outside Sentinel on 3 November 2026 by Jane Client; recorded in Sentinel by ...", then the reason of a rejection or where it is kept (F-R2d-11)
-  x.outside && x.words ? `${x.words}${x.note ? `: ${x.note}` : x.evidence ? ` (${x.evidence})` : ""} · ${when(x.at)} · ledger #${x.ledger_id}`
-  : x.words ? `${x.who} · ${x.words} · ${when(x.at)} · ledger #${x.ledger_id}` // a skipped step: the skipper is not of the skipped team or party (F-R2d-8)
-  : `${x.who} (${x.party_words}) · ${DECISION_WORDS[x.decision] ?? x.decision}${x.note ? `: ${x.note}` : ""} · ${when(x.at)} · ledger #${x.ledger_id}`;
+  x.outside && x.words ? `${x.words}${x.note ? `: ${x.note}` : x.evidence ? ` (${x.evidence})` : ""} · ${when(x.at)} · History #${x.ledger_id}`
+  : x.words ? `${x.who} · ${x.words} · ${when(x.at)} · History #${x.ledger_id}` // a skipped step: the skipper is not of the skipped team or party (F-R2d-8)
+  : `${x.who} (${x.party_words}) · ${DECISION_WORDS[x.decision] ?? x.decision}${x.note ? `: ${x.note}` : ""} · ${when(x.at)} · History #${x.ledger_id}`;
 
 export function reviewTab(ctx: PaneCtx): HTMLElement {
   const d = ctx.doc, st = ctx.st, doc = st.doc, cur = st.round, box = h(d, "div");
@@ -59,7 +60,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
   // Every action: send through the controller, then read everything again (which redraws this tab); a refusal says the bridge's words here.
   const act = async <T,>(sent: Promise<T | null>): Promise<void> => {
     if (await sent) await ctx.ws.reload();
-    else note.textContent = ctx.ws.state().message;
+    else showMessage(note, ctx.ws.state());
   };
   const noteBox = (placeholder = "A note (optional)"): HTMLTextAreaElement => { const t = h(d, "textarea", `${FIELD};min-height:3.2rem;margin:.3rem 0`); t.setAttribute("placeholder", placeholder); t.value = ""; return t; };
   const round = cur.round;
@@ -111,7 +112,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
       box.append(h(d, "div", MUTED, `Who must decide: ${s.party_words}`));
       for (const o of s.owed ?? []) box.append(h(d, "div", SOFT, `Team ${o.team}: ${o.decided_by ? `decided by ${o.decided_by}` : o.outside ? "decided outside Sentinel" : o.skipped ? "skipped"
         : o.not_in_sentinel ? "waiting, not in Sentinel: a lead who did not send the round records what the team decided" : "waiting"}`));
-      for (const x of s.decisions) box.append(h(d, "div", SOFT, decisionLine(x)));
+      for (const x of s.decisions) { const row = h(d, "div", SOFT); setLine(row, decisionLine(x), d); box.append(row); };
     }
     if (round.status === "open") {
       if (round.can_decide && round.choices.length) {
@@ -147,7 +148,7 @@ export function reviewTab(ctx: PaneCtx): HTMLElement {
       const readSent = btn(d, "Read what was sent");
       readSent.addEventListener("click", () => void (async () => {
         await ctx.ws.viewVersion(0, `/bimdocs/${pathSegment(st.key)}/rounds/${pathSegment(round.round_id)}/render`); // the frozen render, as the Read view of a version
-        if (ctx.ws.state().viewing?.version_no === 0) ctx.show("read"); else note.textContent = ctx.ws.state().message;
+        if (ctx.ws.state().viewing?.version_no === 0) ctx.show("read"); else showMessage(note, ctx.ws.state());
       })());
       box.append(readSent);
       if (round.can_withdraw) {

@@ -475,7 +475,7 @@ export function sizeRefusal(format, size, kind) {
   const mb = max / 1048576, is = (size / 1048576).toFixed(1) === mb.toFixed(1) ? `${Math.ceil(size / 1024)} KB` : `${(size / 1048576).toFixed(1)} MB`;
   if (kind === "splat") return `a .${format} splat is at most ${mb} MB (this one is ${is}) — it is not admitted; reduce it (fewer gaussians, SH degree 0)`;
   return kind === "photo" ? `a .${format} photo is at most ${mb} MB (this one is ${is}) — it is not admitted; a camera's own file is smaller`
-    : `a .${format} is read inside the bridge — at most ${mb} MB (this one is ${is}); export it without its site, links and furniture`;
+    : `a .${format} is read inside Sentinel — at most ${mb} MB (this one is ${is}); export it without its site, links and furniture`;
 }
 
 /** null when the file's first bytes are the format's; else the refusal's words. `head`: a Buffer of the file's first 16 bytes. */

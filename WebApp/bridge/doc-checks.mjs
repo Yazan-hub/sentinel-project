@@ -128,6 +128,6 @@ export function classifyLoin(beps) {
   }
   if (!total) return result(id, label, "not_checkable", { reason: "No level of information need table has rows yet." });
   return bad.length
-    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${total} level-of-information-need ${plural(total, "row", "rows")} incomplete or not mappable to IDS.` })
-    : result(id, label, "met", { summary: `${total} ${plural(total, "row", "rows")}, complete and mapped to IDS.` });
+    ? result(id, label, "violations", { count: bad.length, evidence: bad, summary: `${bad.length} of ${total} level-of-information-need ${plural(total, "row", "rows")} incomplete or not mappable to a data requirement.` })
+    : result(id, label, "met", { summary: `${total} ${plural(total, "row", "rows")}, complete and mapped to data requirements.` });
 }

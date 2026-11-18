@@ -29,7 +29,7 @@ describe("changePassword", () => {
     const auth = fakeAuth();
     expect(await run(auth)).toEqual({ ok: true, message: "Password changed. Your other sessions (other browsers, Sentinel in Revit) are signed out — each stops within 60 minutes." });
     // No lifetime in the answer: nothing is claimed about when.
-    expect((await run(fakeAuth({ life: null }))).message).toMatch(/each stops at its next token refresh\.$/);
+    expect((await run(fakeAuth({ life: null }))).message).toMatch(/each stops the next time it renews its sign-in\.$/);
     expect(auth.signInWithPassword).toHaveBeenCalledWith({ email: "a@firm.com", password: "old-pass-1" });
     expect(auth.updateUser).toHaveBeenCalledWith({ password: "new-pass-12" });
     expect(auth.signOut).toHaveBeenCalledWith({ scope: "others" });

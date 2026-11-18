@@ -212,7 +212,7 @@ export async function publishDoc(key, docId, { label, actor } = {}) {
   const doc = await getDoc(key, docId);
   await requireDocAccess(key, doc, "govern"); // publish/transition/bindings govern the record — lead and above
   await requireUnlocked(doc);
-  if (String(doc.doc_type).toLowerCase() === "tidp") throw err(409, "A TIDP is never published; its rows live in Documents ▸ Delivery plan.");
+  if (String(doc.doc_type).toLowerCase() === "tidp") throw err(409, "A team delivery plan is never published; its rows live in Documents ▸ Delivery plan.");
   if (await chainFor(doc)) throw err(409, THROUGH_ROUND);
   if (doc.status !== "shared") throw err(400, `only shared documents can be published (current: ${doc.status})`);
   // R1c: what the preview showed is frozen into the version. Resolved BEFORE the status write: a source that cannot be read refuses the publish with nothing written.
@@ -562,7 +562,7 @@ export async function removeSection(key, docId, sectionId, { confirm_bound, upda
   const i = findSection(doc, sectionId);
   if (doc.sections.length <= 1) throw err(422, "A document keeps at least one section. Nothing was saved.");
   const ids = checkIds(doc.sections[i].bindings).filter((id) => id != null);
-  if (ids.length && confirm_bound !== true) throw err(422, `This section is bound to checks (${ids.join(", ")}); confirm to remove it. Nothing was saved.`);
+  if (ids.length && confirm_bound !== true) throw Object.assign(err(422, "This section is tied to checks; confirm to remove it. Nothing was saved."), { detail: `Checks: ${ids.join(", ")}` });
   const sections = doc.sections.filter((_, j) => j !== i);
   const row = await patchSections(doc, sections);
   await auditStructure(doc, sections, { op: "remove", section_id: sectionId, ...(ids.length && { checks_removed: ids }) }, actor);

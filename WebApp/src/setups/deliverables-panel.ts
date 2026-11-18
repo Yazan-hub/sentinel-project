@@ -103,7 +103,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     refresh.onclick = () => showList();
     bar.append(title);
     const tidpBtn = btn("By task team");
-    tidpBtn.title = "The MIDP as ISO 19650 defines it — an aggregation of task-team TIDPs";
+    tidpBtn.title = "The delivery plan as ISO 19650 defines it — an aggregation of each task team's delivery plan";
     tidpBtn.onclick = () => showTidp();
     const teamsBtn = btn("Teams");
     teamsBtn.title = "The responsibility matrix: who the task teams are and who is accountable for each";
@@ -149,7 +149,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     if (!report.rows.length) {
       const empty = document.createElement("div");
       empty.style.cssText = "color:#71717a;padding:1rem;line-height:1.6";
-      empty.textContent = "No deliverables planned yet. Add rows, or paste a delivery schedule — each row names the container expected, who owes it, and when.";
+      empty.textContent = "No deliverables planned yet. Add rows, or paste a delivery schedule — each row names the file expected, who owes it, and when.";
       body.append(empty);
       return;
     }
@@ -170,7 +170,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     // Honesty note: the team column is the PLAN's expectation, not a verified attribution.
     const note = document.createElement("div");
-    note.textContent = "Team is the planned owner — Sentinel records who published a container but cannot verify it was that team.";
+    note.textContent = "Team is the planned owner — Sentinel records who published a file but cannot verify it was that team.";
     note.style.cssText = "color:#71717a;font:10.5px system-ui;margin-bottom:.5rem";
     body.append(note);
 
@@ -237,7 +237,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       const box = document.createElement("div");
       box.style.cssText = "margin:.4rem 0 .6rem;border:1px solid #2a2a30;border-radius:.35rem;padding:.4rem .5rem;background:#17171c;color:#cbd5e1";
       const h = document.createElement("div");
-      h.textContent = `Issued, never planned (${report.unplanned.length}) — in the CDE, named by no deliverable`;
+      h.textContent = `Issued, never planned (${report.unplanned.length}) — in the project's files, named by no deliverable`;
       h.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.25rem";
       box.append(h);
       for (const u of report.unplanned) {
@@ -329,7 +329,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     body.replaceChildren();
     const form = document.createElement("div");
     form.style.cssText = "display:flex;flex-direction:column;gap:.5rem;max-width:34rem";
-    const nameI = field("Expected container name (required)", "100%", existing?.container_name || "");
+    const nameI = field("Expected file name (required)", "100%", existing?.container_name || "");
     const titleI = field("Title, e.g. Stage 3 architectural model", "100%", existing?.title || "");
     const teamI = field("Responsible team (planned owner)", "100%", existing?.responsible_team || "");
     const dueI = field("Due date YYYY-MM-DD", "100%", existing?.due_date || "");
@@ -350,7 +350,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       return w;
     };
     form.append(
-      label("Expected container name — how this deliverable is matched to what arrives", nameI),
+      label("Expected file name — how this deliverable is matched to what arrives", nameI),
       label("Title", titleI),
       label("Responsible team (the plan's expectation; not verified)", teamI),
       label("Due date", dueI),
@@ -394,7 +394,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     body.replaceChildren();
     const help = document.createElement("div");
-    help.textContent = "One row per line: container name, title, team, due date (YYYY-MM-DD), stage, expected revision, expected suitability. Tab- or comma-separated; the last two are optional. Nothing is saved until you confirm the preview.";
+    help.textContent = "One row per line: file name, title, team, due date (YYYY-MM-DD), stage, expected revision, expected suitability. Tab- or comma-separated; the last two are optional. Nothing is saved until you confirm the preview.";
     help.style.cssText = "color:#9ca3af;font:10.5px system-ui;margin-bottom:.4rem";
     const ta = document.createElement("textarea");
     ta.style.cssText = "width:100%;min-height:9rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.35rem;padding:.5rem;font:11px ui-monospace,Consolas,monospace";
@@ -475,7 +475,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
   async function showTidp() {
     bar.replaceChildren();
     const title = document.createElement("span");
-    title.textContent = "MIDP — by task team";
+    title.textContent = "Delivery plan — by task team";
     title.style.cssText = "font:600 13px system-ui;color:#eee;flex:1";
     const back = btn("← All deliverables");
     back.onclick = () => showList();
@@ -493,13 +493,13 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     let rep: TidpReport;
     try { rep = await api(`/${encodeURIComponent(pid())}/tidp`); }
-    catch (e) { notRead(`TIDP not read — ${(e as Error).message}`); return; }
+    catch (e) { notRead(`Team delivery plan not read — ${(e as Error).message}`); return; }
 
     body.replaceChildren();
     const head = document.createElement("div");
     head.style.cssText = "border:1px solid #2a2a30;background:#17171c;border-radius:.35rem;padding:.5rem;margin-bottom:.6rem";
     const ht = document.createElement("div");
-    ht.textContent = `MIDP · ${rep.midp.total} deliverable(s) across ${rep.midp.task_teams_declared} declared task team(s)`;
+    ht.textContent = `Delivery plan · ${rep.midp.total} deliverable(s) across ${rep.midp.task_teams_declared} declared task team(s)`;
     ht.style.cssText = "font:600 12px system-ui;color:#eee;margin-bottom:.35rem";
     head.append(ht, statusChips(rep.midp));
     body.append(head);
@@ -511,7 +511,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       body.append(d);
     };
     if (rep.midp.empty_tidps.length)
-      warn(`${rep.midp.empty_tidps.length} declared team(s) have planned nothing at all: ${rep.midp.empty_tidps.join(", ")} — an empty TIDP, not a finished one.`);
+      warn(`${rep.midp.empty_tidps.length} declared team(s) have planned nothing at all: ${rep.midp.empty_tidps.join(", ")} — an empty team delivery plan, not a finished one.`);
     if (rep.midp.task_teams_undeclared)
       warn(`${rep.midp.task_teams_undeclared} team(s) are named by the plan but not declared in the responsibility matrix — nobody is accountable for them.`, "#f87171");
     if (rep.midp.unassigned)
@@ -558,7 +558,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
       card.append(top, statusChips(t.summary));
       if (!t.rows.length) {
         const none = document.createElement("div");
-        none.textContent = "This TIDP is empty — the team has planned no deliverables.";
+        none.textContent = "This team delivery plan is empty — the team has planned no deliverables.";
         none.style.cssText = "color:#eab308;font:10.5px system-ui;margin-top:.25rem";
         card.append(none);
       }
@@ -648,7 +648,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         label("Position in the appointment chain", apptI),
         label("Notes", notesI),
         label("Not in Sentinel: nobody of this team signs in here, so a lead records what the team decided on a plan sent for review", outI),
-        label("Owns no container: works inside another team's model", noCI),
+        label("Owns no file: works inside another team's model", noCI),
       );
       const save = btn(editing.id ? "Save" : "Declare", true);
       const cancel = btn("Cancel");
@@ -695,7 +695,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
     } catch (e) { msg(`Couldn't load task teams: ${(e as Error).message}`, true); return; }
 
     const help = document.createElement("div");
-    help.textContent = "A task team is the ISO 19650 unit of production — it owns a TIDP and names one accountable person. A deliverable pointing at a team that is not declared here is a responsibility gap, and roles.responsibility reports it.";
+    help.textContent = "A task team is the ISO 19650 unit of production — it owns a team delivery plan and names one accountable person. A deliverable pointing at a team that is not declared here is a responsibility gap, and roles.responsibility reports it.";
     help.style.cssText = "color:#9ca3af;font:10.5px system-ui;margin-bottom:.5rem;line-height:1.5";
     body.append(help);
 
@@ -788,7 +788,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
 
     body.replaceChildren();
     const help = document.createElement("div");
-    help.textContent = "One row per line: container name, then the new due date (YYYY-MM-DD). Tab- or comma-separated. Nothing is written until you confirm — the preview shows what the move does to every deliverable's status first.";
+    help.textContent = "One row per line: file name, then the new due date (YYYY-MM-DD). Tab- or comma-separated. Nothing is written until you confirm — the preview shows what the move does to every deliverable's status first.";
     help.style.cssText = "color:#9ca3af;font:10.5px system-ui;margin-bottom:.4rem;line-height:1.5";
     const ta = document.createElement("textarea");
     ta.style.cssText = "width:100%;min-height:9rem;box-sizing:border-box;background:#111;color:#e5e7eb;border:1px solid #2c2c34;border-radius:.35rem;padding:.5rem;font:11px ui-monospace,Consolas,monospace";
@@ -845,7 +845,7 @@ export function deliverablesPanel(_components: OBC.Components, opts: { baseUrl?:
         confirm.disabled = true;
         try {
           const done = await api(`/${encodeURIComponent(pid())}/rebaseline`, { method: "POST", body: JSON.stringify({ rows, apply: true, actor: await actor() }) }) as Rebaseline;
-          msg(`Rebaselined ${done.applied} deliverable(s) — each change is on the ledger.`);
+          msg(`Rebaselined ${done.applied} deliverable(s) — each change is recorded in History.`);
           await showList();
         } catch (e) { confirm.disabled = false; msg((e as Error).message, true); }
       };

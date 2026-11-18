@@ -11,6 +11,7 @@ import { unlockAndVerify, isUnlocked, lockProject, passphraseIssue, rotateProjec
 import { putEncryptedFile, downloadDecrypted, resealFiles, type StoredFile } from "./secure-store";
 import { mountPlatformDeliveries, readGateLedger } from "./platform-deliveries-panel";
 import { escapeHtml as esc } from "./escape-html";
+import { withDetails, detailOf } from "./details";
 
 /**
  * Sentinel CDE panel (C3) — the ISO 19650 information-container board: WIP → Shared → Published →
@@ -29,7 +30,7 @@ import { escapeHtml as esc } from "./escape-html";
 
 const STATES = ["wip", "shared", "published", "archived"] as const;
 type State = (typeof STATES)[number];
-const STATE_LABEL: Record<State, string> = { wip: "WIP", shared: "Shared", published: "Published", archived: "Archived" };
+const STATE_LABEL: Record<State, string> = { wip: "Work in progress", shared: "Shared", published: "Published", archived: "Archived" };
 const STATE_COLOR: Record<State, string> = { wip: "#a1a1aa", shared: "#3b82f6", published: "#22c55e", archived: "#71717a" };
 const NEXT: Record<State, { label: string; state: State }[]> = {
   wip: [{ label: "Share →", state: "shared" }],
@@ -54,12 +55,12 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
   const btn = "border:1px solid #2c2c34;background:#1f1f27;color:#e5e7eb;border-radius:.35rem;padding:.35rem .55rem;font:600 12px system-ui;cursor:pointer";
   root.innerHTML =
     '<div style="display:flex;align-items:center;gap:.4rem;padding:.55rem .6rem;border-bottom:1px solid #2a2a30">' +
-    '<span style="font-weight:600">▤ CDE</span><span style="color:#9ca3af;font-size:11px">ISO 19650 · folders</span>' +
+    '<span style="font-weight:600">▤ Project files</span><span style="color:#9ca3af;font-size:11px">ISO 19650 · folders</span>' +
     '<span style="flex:1"></span>' +
     `<button id="cde-lock" style="${btn}" title="Unlock encrypted files (project passphrase)">🔒</button>` +
     '<span id="cde-role" style="display:none;color:#9ca3af;font-size:11px"></span>' +
     `<button id="cde-rotate" style="${btn};display:none" title="Rotate the project's encryption key: every encrypted file is re-sealed under a new key">Rotate key…</button>` +
-    `<button id="cde-new" style="${btn};display:none;background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ Container</button>` +
+    `<button id="cde-new" style="${btn};display:none;background:#2a1e4d;border-color:#6528d7;color:#c4b5fd">+ New file</button>` +
     `<button id="cde-refresh" style="${btn}" title="Reload">↻</button>` +
     "</div>" +
     '<div id="cde-unlock" style="display:none;padding:.5rem .6rem;border-bottom:1px solid #2a2a30;gap:.4rem;align-items:center"></div>' +
@@ -79,7 +80,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     '<div id="cde-audit" style="border-top:1px solid #2a2a30;max-height:8rem;overflow:auto;padding:.5rem .6rem;font:11px ui-monospace,Consolas,monospace;color:#9ca3af"></div>' +
     '<div id="cde-status" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:11px">…</div>';
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const status = (t: string) => (el("cde-status").textContent = t);
+  const status = (t: string, detail?: string | null) => el("cde-status").replaceChildren(withDetails(t, detail));
 
   const api = async (path: string, method = "GET", body?: unknown) => {
     const r = await bfetch(`${base}/cde/${path}`, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -224,7 +225,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     renderReviewBar(inFolder(selected));
     renderBoard(inFolder(selected));
     const f = folderById(selected);
-    status(f ? `“${f.name}” · ${inFolder(selected).length} container(s).` : `All files · ${containers.length} container(s).`);
+    status(f ? `“${f.name}” · ${inFolder(selected).length} file(s).` : `All files · ${containers.length} file(s).`);
   }
 
   function addFolder() {
@@ -245,7 +246,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       await loadFolders();
       selected = created.id;
       refreshView();
-    } catch (e) { status(`New folder failed: ${(e as Error).message}`); renderTree(); }
+    } catch (e) { status(`New folder failed: ${(e as Error).message}`, detailOf(e)); renderTree(); }
   }
 
   async function commitRename(id: string, name: string) {
@@ -255,7 +256,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     const f = folderById(id);
     if (!clean || !f || clean === f.name) { renderTree(); return; }
     try { await api(`folders/${id}`, "PUT", { name: clean, actor: "web" }); await loadFolders(); refreshView(); }
-    catch (e) { status(`Rename failed: ${(e as Error).message}`); renderTree(); }
+    catch (e) { status(`Rename failed: ${(e as Error).message}`, detailOf(e)); renderTree(); }
   }
 
   async function delFolder() {
@@ -266,12 +267,12 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       await api(`folders/${selected}`, "DELETE", { actor: "web" });
       selected = null;
       await loadAll();
-    } catch (e) { status(`Delete failed: ${(e as Error).message}`); }
+    } catch (e) { status(`Delete failed: ${(e as Error).message}`, detailOf(e)); }
   }
 
   async function moveContainer(cid: string, folderId: string) {
     try { await api(`containers/${cid}/folder`, "PUT", { folder_id: folderId || null, actor: "web" }); await loadContainers(); refreshView(); }
-    catch (e) { status(`Move failed: ${(e as Error).message}`); }
+    catch (e) { status(`Move failed: ${(e as Error).message}`, detailOf(e)); }
   }
 
   // `mine`: the loadAll this read belongs to — an answer for a superseded one (the previous project or person) is dropped.
@@ -305,10 +306,11 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       if (mine !== seq) return;
       // api() rethrows fetch's own TypeError when the bridge never answered; any other failure is the bridge's words.
       const down = e instanceof TypeError;
-      const why = down ? `can't reach the bridge (${(e as Error).message})` : (e as Error).message;
+      const why = down ? "Sentinel is not connected" : (e as Error).message;
       containers = []; folders = []; reviews = new Map(); reviewsError = `not read — ${why}`;
       renderTree(); renderBoard([]); renderReviewBar([]);
-      status(`CDE not read — ${why}${down ? ". Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set." : ""}`);
+      status(`Files not read — ${why}${down ? ". Ask your administrator to start Sentinel on the office PC." : ""}`);
+      if (down) el("cde-status").append(withDetails("", `${(e as Error).message}. Start the bridge with SUPABASE_URL + SUPABASE_SERVICE_KEY set.`));
     }
     // The ledger is read on its own: a failure says so in the strip and never wipes a board that rendered.
     try {
@@ -317,7 +319,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       renderAudit(page);
     } catch (e) {
       if (mine !== seq) return;
-      el("cde-audit").textContent = `Ledger: not read — ${e instanceof TypeError ? `can't reach the bridge (${e.message})` : (e as Error).message}`;
+      el("cde-audit").textContent = `History: not read — ${e instanceof TypeError ? `Sentinel is not connected (${e.message})` : (e as Error).message}`;
     }
   }
 
@@ -388,7 +390,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
           why.style.cssText = "font-size:10.5px;color:#fca5a5";
           why.textContent = needsReason.message;
           const reason = document.createElement("input");
-          reason.placeholder = "Your reason — recorded on the ledger";
+          reason.placeholder = "Your reason — recorded in History";
           reason.style.cssText = "background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .35rem;font:11px system-ui";
           const move = needsReason.state;
           const go = document.createElement("button");
@@ -447,7 +449,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     for (const a of chain.approvals) line(approvalLine(a), "color:#86efac;font-family:ui-monospace,Consolas,monospace;word-break:break-all");
     if (!chain.can_decide) { line(chain.why_not ?? "", "color:#71717a"); return box; }
     const note = document.createElement("input");
-    note.placeholder = "Note — a rejection needs one; the ledger records it";
+    note.placeholder = "Note — a rejection needs one; History records it";
     note.maxLength = 500; // the bridge refuses a longer note (reviewDecide)
     note.style.cssText = "background:#111;color:#eee;border:1px solid #333;border-radius:.25rem;padding:.2rem .35rem;font:11px system-ui";
     const approve = document.createElement("button");
@@ -485,7 +487,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
 
   function renderAudit({ rows, total }: AuditPage) {
     el("cde-audit").innerHTML =
-      `<div style="color:#71717a;margin-bottom:.2rem">Ledger (append-only · one hash chain across all projects) — newest ${rows.length} of ${total}</div>` +
+      `<div style="color:#71717a;margin-bottom:.2rem">History (append-only) — newest ${rows.length} of ${total}</div>` +
       (rows.length
         ? rows.map((a) => {
             const when = esc(a.at.replace("T", " ").slice(0, 19));
@@ -513,14 +515,14 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         needsReason = { versionId, state, message: r.needsReason };
         renderBoard(inFolder(selected));
         status(state === "shared"
-          ? "Not shared — a lead can share it for review with a reason, which the ledger records."
-          : "Not published — a lead can publish it with a reason, which the ledger records.");
+          ? "Not shared — a lead can share it for review with a reason, which History records."
+          : "Not published — a lead can publish it with a reason, which History records.");
         return;
       }
       await loadAll();
     } catch (e) {
       renderBoard(inFolder(selected)); // needsReason is already cleared: drop a stale reason field and its red line
-      status(`Transition rejected: ${(e as Error).message}`);
+      status(`Transition rejected: ${(e as Error).message}`, detailOf(e));
     }
   }
 
@@ -531,17 +533,17 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
     form.style.display = "flex";
     const where = folderById(selected);
     form.innerHTML =
-      `<div style="font-size:11px;color:#9ca3af">New container in <b style="color:#c4b5fd">${where ? esc(where.name) : "Unfiled"}</b></div>` +
+      `<div style="font-size:11px;color:#9ca3af">New file in <b style="color:#c4b5fd">${where ? esc(where.name) : "Unfiled"}</b></div>` +
       `<input id="cde-iso" placeholder="ISO name — e.g. PRJ-ARC-XX-00-M3-A-0001" style="background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px ui-monospace,Consolas,monospace"/>` +
       `<input id="cde-title" placeholder="Title (e.g. Architecture model)" style="background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px system-ui"/>` +
       '<div style="display:flex;gap:.35rem">' +
       `<input id="cde-disc" placeholder="Discipline" style="flex:1;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px system-ui"/>` +
       `<input id="cde-suit" placeholder="Suitability (S0)" value="S0" style="width:6rem;background:#111;color:#eee;border:1px solid #333;border-radius:.3rem;padding:.35rem .5rem;font:12px system-ui"/>` +
       "</div>" +
-      `<button id="cde-create" style="${btn};background:#6528d7;color:#fff;border-color:#6528d7">Create (WIP)</button>`;
+      `<button id="cde-create" style="${btn};background:#6528d7;color:#fff;border-color:#6528d7">Create (Work in progress)</button>`;
     (form.querySelector("#cde-create") as HTMLButtonElement).addEventListener("click", async () => {
       const iso = (form.querySelector("#cde-iso") as HTMLInputElement).value.trim();
-      if (!iso) { status("Enter an ISO container name."); return; }
+      if (!iso) { status("Enter an ISO file name."); return; }
       try {
         await api(`${encodeURIComponent(pid())}/containers`, "POST", {
           iso_name: iso,
@@ -553,7 +555,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         });
         form.style.display = "none";
         await loadAll();
-      } catch (e) { status(`Create failed: ${(e as Error).message}`); }
+      } catch (e) { status(`Create failed: ${(e as Error).message}`, detailOf(e)); }
     });
   });
 
@@ -592,7 +594,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         syncLock();
         refreshView();
         status(firstUse ? "Unlocked — passphrase set for this project (team-wide)." : "Unlocked. Encrypted files available.");
-      } catch (e) { status(`Unlock failed: ${(e as Error).message}`); }
+      } catch (e) { status(`Unlock failed: ${(e as Error).message}`, detailOf(e)); }
     };
     (bar.querySelector("#cde-pass-go") as HTMLButtonElement).addEventListener("click", go);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") void go(); });
@@ -615,7 +617,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
         });
         status(`Attached ${file.name} — encrypted client-side.`);
         await loadAll();
-      } catch (e) { status(`Attach failed: ${(e as Error).message}`); }
+      } catch (e) { status(`Attach failed: ${(e as Error).message}`, detailOf(e)); }
     });
     document.body.appendChild(input);
     input.click();
@@ -626,7 +628,7 @@ export function cdePanel(_components: OBC.Components, opts: { baseUrl?: string }
       status(`Decrypting ${stored.name}…`);
       await downloadDecrypted(base, pid(), stored);
       status(`Downloaded ${stored.name}.`);
-    } catch (e) { status(`Download failed: ${(e as Error).message}`); }
+    } catch (e) { status(`Download failed: ${(e as Error).message}`, detailOf(e)); }
   };
 
   // SEC-8 (S38): Rotate key… asks the old and the new passphrase (used for this rotation and kept nowhere), stores the new key

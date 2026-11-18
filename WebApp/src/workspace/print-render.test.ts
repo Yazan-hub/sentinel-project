@@ -11,12 +11,12 @@ const input = (o: Partial<PrintInput>): PrintInput => ({ row: row("live text"), 
 
 describe("export (spec section 9)", () => {
   it("the cover of a draft says Draft, live data", () =>
-    expect(coverLines(input({}), "2026-10-25")).toEqual(["SNW Pre-appointment BEP", "Project: snowdon-lifecycle", "Container ID: not assigned", "Stage: Pre-appointment (tender)", "Revision: —", "Suitability: S0", "Version: Draft", "Date: 2026-10-25", "Draft, live data"]));
+    expect(coverLines(input({}), "2026-10-25")).toEqual(["SNW Pre-appointment BEP", "Project: snowdon-lifecycle", "File ID: not assigned", "Stage: Pre-appointment (tender)", "Revision: —", "Suitability: S0", "Version: Draft", "Date: 2026-10-25", "Draft, live data"]));
   it("the cover of a version names it", () =>
-    expect(coverLines(input({ version: v(2), containerId: "SNW_ARC_ZZ_XX_BP_A_0001" }), "2026-10-25")).toEqual(["SNW Pre-appointment BEP", "Project: snowdon-lifecycle", "Container ID: SNW_ARC_ZZ_XX_BP_A_0001", "Stage: Pre-appointment (tender)", "Revision: P02", "Suitability: S1", "Version: v2, Pre-appointment (tender)", "Date: 2026-10-22"]));
+    expect(coverLines(input({ version: v(2), containerId: "SNW_ARC_ZZ_XX_BP_A_0001" }), "2026-10-25")).toEqual(["SNW Pre-appointment BEP", "Project: snowdon-lifecycle", "File ID: SNW_ARC_ZZ_XX_BP_A_0001", "Stage: Pre-appointment (tender)", "Revision: P02", "Suitability: S1", "Version: v2, Pre-appointment (tender)", "Date: 2026-10-22"]));
   it("F-R2d-10: an EIR's cover has no Stage line, as a draft and as a version", () => {
     const eir = row("live text", { doc_type: "EIR", title: "SNW EIR" });
-    expect(coverLines(input({ row: eir }), "2026-10-25")).toEqual(["SNW EIR", "Project: snowdon-lifecycle", "Container ID: not assigned", "Revision: —", "Suitability: S0", "Version: Draft", "Date: 2026-10-25", "Draft, live data"]);
+    expect(coverLines(input({ row: eir }), "2026-10-25")).toEqual(["SNW EIR", "Project: snowdon-lifecycle", "File ID: not assigned", "Revision: —", "Suitability: S0", "Version: Draft", "Date: 2026-10-25", "Draft, live data"]);
     expect(coverLines(input({ row: eir, version: v(2) }), "2026-10-25").some((l) => l.startsWith("Stage:"))).toBe(false);
   });
   it("a version recorded before 0049 (no stage or suitability anywhere) prints a dash, never 'undefined'", () => {
@@ -61,10 +61,10 @@ describe("export (spec section 9)", () => {
   it("the print stylesheet: 2 cm margins, page breaks, the running header", () => {
     for (const s of ["@page { margin: 2cm }", "[data-page-break]", "[data-running-header]"]) expect(PRINT_CSS).toContain(s);
   });
-  it("a container ID is checked against the naming rule in force", () => {
+  it("a file ID is checked against the naming rule in force", () => {
     const rs = { title: "SNW", separator: "_", enforce: "reject" as const, fields: [{ key: "project", label: "Project", enum: ["SNW"] }, { key: "number", label: "Number", pattern: "^[0-9]{4}$" }] };
     expect(containerIdProblem("SNW_0001", rs)).toBeNull(); expect(containerIdProblem("anything", null)).toBeNull();
-    expect(containerIdProblem("SNW", rs)).toMatch(/^This container ID does not follow the naming rule in force: .+\. Nothing was printed\.$/);
+    expect(containerIdProblem("SNW", rs)).toMatch(/^This file ID does not follow the naming rule in force: .+\. Nothing was printed\.$/);
   });
 });
 

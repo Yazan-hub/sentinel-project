@@ -68,7 +68,7 @@ describe("words", () => {
     const terrain = { proposal_guid: "g", kind: "terrain", validate: { identity: { Name: "Terrain · L00" } },
       place: { LevelName: "L00", FamilyName: "Toposolid", TypeName: "Site Ground 300", Points: [[0, 0, -300], [1, 2, -300], [3, 4, -300]] } } as Ghost;
     // review round 3: one plain sentence for the shape, and Toposolid and the level said once (the type and the name)
-    expect(ghostLine(terrain)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · 3 ground points, filed by a signed-in member from the survey changeset this was proposed from (the bridge checked its level, footprint and height band, not the points; not re-measured); " +
+    expect(ghostLine(terrain)).toBe("Terrain · L00 · Toposolid : Site Ground 300 · 3 ground points, filed by a signed-in member from the survey's proposed changes this was proposed from (Sentinel checked its level, footprint and height band, not the points; not re-measured); " +
       "the hole is the box of all the storey's scanned walls plus 1 m (typed or not; a notch or courtyard inside it gets no ground); Sentinel adds points along the outer edge and the hole's edge, each at the nearest ground point's height — check it against the site survey");   // review round 2: the shape said, as Revit's row
     expect(ghostLine({ ...terrain, place: { ...terrain.place, Points: undefined } } as Ghost)).toBe("Terrain · L00 · Toposolid : Site Ground 300");
   });
@@ -91,8 +91,8 @@ describe("words", () => {
   it("only a signed-in contributor or above decides, only a lead or owner re-opens; the machine credential never", () => {
     expect(["owner", "lead", "contributor"].every(canDecide) && !canDecide("viewer") && !canDecide("service")).toBe(true);
     expect(canReopen("lead") && canReopen("owner") && !canReopen("contributor") && !canReopen("service")).toBe(true);
-    expect(rowWords({ ledger: { id: 1201, hash: "ab" } })).toBe("ledger #1201");
-    expect(rowWords({ ledger: null })).toBe("the bridge named no ledger row");
+    expect(rowWords({ ledger: { id: 1201, hash: "ab" } })).toBe("History #1201");
+    expect(rowWords({ ledger: null })).toBe("Sentinel named no History entry");
   });
 
   it("one post per changeset; a ghost already in the decision's state is not sent, and counted (C6: a repeat would refuse the whole post)", () => {
@@ -119,7 +119,7 @@ describe("the bridge calls", () => {
   });
 
   it("postReview sends one decisions[] for the ticked ghosts; a decline without a reason is never sent", async () => {
-    await expect(postReview("http://b", "demo", "cs-ma3a", "decline", ["g-1"], "  ")).rejects.toThrow("a decline needs a reason — the ledger records it and Revit shows it");
+    await expect(postReview("http://b", "demo", "cs-ma3a", "decline", ["g-1"], "  ")).rejects.toThrow("a decline needs a reason — History records it and Revit shows it");
     await expect(postReview("http://b", "demo", "cs-ma3a", "accept", [], "")).rejects.toThrow("tick a ghost first");
     expect(bwrite).not.toHaveBeenCalled();
     bwrite.mockResolvedValueOnce({ ledger: { id: 9, hash: "h" } });
@@ -139,7 +139,7 @@ describe("the bridge calls", () => {
   });
 
   it("postReopen needs a reason and names the ghost", async () => {
-    await expect(postReopen("http://b", "demo", "cs-ma3a", "g-1", "")).rejects.toThrow("a re-open needs a reason — the ledger records it");
+    await expect(postReopen("http://b", "demo", "cs-ma3a", "g-1", "")).rejects.toThrow("a re-open needs a reason — History records it");
     bwrite.mockResolvedValueOnce({ ledger: { id: 10, hash: "h" } });
     await postReopen("http://b", "demo", "cs-ma3a", "g-1", "confirmed external");
     expect(bwrite.mock.calls[0][0]).toBe("http://b/changesets/demo/cs-ma3a/reopen");
@@ -167,7 +167,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
 
   it("a reported changeset in words: who, when, the counts, the ledger row, the note, and each ghost not applied with Revit's reason and the web's", () => {
     const v = decidedView(cs, row(1811));
-    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by modeller@example.com · 2026-10-04 13:44 UTC · 1 applied, 3 not applied · ledger #1811 · not yet seen saved");
+    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by modeller@example.com · 2026-10-04 13:44 UTC · 1 applied, 3 not applied · History #1811 · not yet seen saved");
     expect(v.note).toBe("GR-FFL reviewed in Revit");
     expect(v.declined).toEqual([
       { line: "W 1 · Generic - 200mm → BDS_EXT_ARC_CMU_200 mm", why: ["Revit: a party wall, as the web desk said", "web, reviewer@example.com (contributor): wrong type: W 1 is a party wall"] },
@@ -178,19 +178,19 @@ describe("recently decided in Revit (MA-3b2b)", () => {
 
   it("revert + saved check (drill REV): a revert is said with who and why; the saved check in Revit's words, 'as applied:' once reverted", () => {
     const saved = { ...cs, persisted: { state: "confirmed", how: "saved", at: "2026-10-19T18:23:10Z", missing: 0 } } as PendingChangeset;
-    expect(decidedView(saved, row(5)).head).toMatch(/ · ledger #5 · saved in the model$/);
+    expect(decidedView(saved, row(5)).head).toMatch(/ · History #5 · saved in the model$/);
     const reverted: LedgerRows = { row: 5, reverted: { id: 9, op: "undo", revert: { by: "lead@example.test", reason: "not wanted", kept: 1 } } };
-    expect(decidedView(saved, reverted).head).toMatch(/ · reverted in Revit by lead@example.test: "not wanted" \(ledger #9\) — 1 row\(s\) kept as they stood · as applied: saved in the model$/);
+    expect(decidedView(saved, reverted).head).toMatch(/ · undone in Revit by lead@example.test: "not wanted" \(History #9\) — 1 row\(s\) kept as they stood · as applied: saved in the model$/);
     const lost = { ...cs, persisted: { state: "lost", how: "reopened", at: "2026-10-19T18:26:11Z", missing: 1 } } as PendingChangeset;
     expect(decidedView(lost, row(6)).head).toMatch(/ · NOT in the saved model — closed without saving, or Revit stopped \(1 row\(s\)\)$/);
     expect(decidedView({ ...cs, persisted: { state: "confirmed", how: "synced", at: "", missing: 0 } } as PendingChangeset, row(7)).head).toMatch(/ · synchronised with central$/);
   });
 
-  it("claimed vs verified: a ledger row that was not found or not read is said, never a made-up id; a ghost with no reason says so", () => {
-    expect(decidedView(cs, null).head).toMatch(/ · no ledger row found for it · not yet seen saved$/);
-    expect(decidedView(cs, new Error("not read — HTTP 500")).head).toMatch(/ · ledger row not read — HTTP 500 · not yet seen saved$/);
+  it("claimed vs verified: a History entry that was not found or not read is said, never a made-up id; a ghost with no reason says so", () => {
+    expect(decidedView(cs, null).head).toMatch(/ · no History entry found for it · not yet seen saved$/);
+    expect(decidedView(cs, new Error("not read — HTTP 500")).head).toMatch(/ · History entry not read — HTTP 500 · not yet seen saved$/);
     const bare = decidedView({ ...cs, status: "declined", result: { ...cs.result!, applied: [], rejected: ["g-2", "constructor"], note: null, reported_at: "", declined_on_web: undefined, reasons: undefined } }, row(7));
-    expect(bare.head).toBe("Promote (DD) · GR-FFL — declined in Revit by modeller@example.com · an unknown time · 0 applied, 2 not applied · ledger #7");
+    expect(bare.head).toBe("Promote (DD) · GR-FFL — declined in Revit by modeller@example.com · an unknown time · 0 applied, 2 not applied · History #7");
     expect(bare.note).toBeNull();
     expect(bare.declined).toEqual([{ line: "W 1 · GR-FFL → top 01-FFL", why: ["no reason given for this ghost"] }, { line: "constructor", why: ["no reason given for this ghost"] }]);
   });
@@ -198,7 +198,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
   it("MA-5b-5: a report that applied a rehost counts it — the unhosted instance removed", () => {
     const rh = { ...cs, status: "applied", elements: [...cs.elements, { kind: "door", op: "rehost", proposal_guid: "g-r", target: { unique_id: "u-9" } } as Ghost],
       result: { ...cs.result!, applied: [{ proposal_guid: "g-r" }], rejected: [] } };
-    expect(decidedView(rh, row(9)).head).toContain(" · 1 applied (1 rehosted — the unhosted instance removed), 0 not applied · ledger #9");
+    expect(decidedView(rh, row(9)).head).toContain(" · 1 applied (1 rehosted — the unhosted instance removed), 0 not applied · History #9");
     const kept = { ...rh, status: "declined", result: { ...rh.result!, applied: [], rejected: ["g-r"], note: "kept as they stand: 1 door/window(s) not rehosted — the unhosted instance stays — PH1 was moved by hand", reasons: undefined, declined_on_web: undefined } };
     expect(decidedView(kept, row(10)).declined[0].why).toEqual(["Revit kept it as it stands — its reason is in the note above"]);
   });
@@ -209,7 +209,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(ghostLine(rp)).toBe("WALL-DS · re-creates u-ds (DirectShape or Generic Model, 6000 x 300 x 3000 mm) as BDS_EXT_ARC_CMU_300 mm on Level 1; the original and any tags on it are removed in the same Undo (one Undo in Revit brings it back and removes the new element)");
     expect(ghostLine({ ...rp, replaces: undefined })).toBe("WALL-DS · BDS_EXT_ARC_CMU_300 mm · Level 1"); // a plain create is as before
     const done = { ...cs, status: "applied", elements: [...cs.elements, rp], result: { ...cs.result!, applied: [{ proposal_guid: "g-p", removed_unique_id: "U-DS" }], rejected: [] } };
-    expect(decidedView(done, row(11)).head).toContain(" · 1 applied (1 re-created — the original removed), 0 not applied · ledger #11");
+    expect(decidedView(done, row(11)).head).toContain(" · 1 applied (1 re-created — the original removed), 0 not applied · History #11");
     // review: the header repeats only what Revit reported; a replacing create applied without the matching removed_unique_id is said apart
     const rp2 = { ...rp, proposal_guid: "g-q", replaces: { ...rp.replaces!, unique_id: "u-ds" } } as Ghost;
     const mixed = { ...done, elements: [...cs.elements, rp2, { ...rp, replaces: { unique_id: "u-other", kind: "generic" as const } }], result: { ...done.result!, applied: [{ proposal_guid: "g-q", removed_unique_id: "U-DS" }, { proposal_guid: "g-p" }] } };
@@ -226,21 +226,21 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(decidedView(kept, row(12)).declined[0].why).toEqual(["Revit kept it as it stands — its reason is in the note above"]);
   });
 
-  it("review C3: a report undone in Revit says so, with the ledger row that says it — never 'applied' alone", () => {
+  it("review C3: a report undone in Revit says so, with the History entry that says it — never 'applied' alone", () => {
     const done = { ...cs, status: "applied" };
-    expect(decidedView(done, { row: 1813, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · ledger #1813 · undone in Revit after the report \(ledger #1814\) · not yet seen saved$/);
-    expect(decidedView(done, { row: 1813, reverted: { id: 1816, op: "redo" } }).head).toMatch(/ · ledger #1813 · undone, then redone in Revit \(ledger #1816\) · not yet seen saved$/);
-    expect(decidedView(done, { row: 1813, reverted: { id: 1817, op: "" } }).head).toMatch(/ · ledger #1813 · a changeset_reverted row follows the report \(ledger #1817\) · not yet seen saved$/);
-    expect(decidedView(done, { row: null, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · no ledger row found for it · undone in Revit after the report \(ledger #1814\) · not yet seen saved$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · History #1813 · undone in Revit after the report \(History #1814\) · not yet seen saved$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1816, op: "redo" } }).head).toMatch(/ · History #1813 · undone, then redone in Revit \(History #1816\) · not yet seen saved$/);
+    expect(decidedView(done, { row: 1813, reverted: { id: 1817, op: "" } }).head).toMatch(/ · History #1813 · an undo is recorded after the report \(History #1817\) · not yet seen saved$/);
+    expect(decidedView(done, { row: null, reverted: { id: 1814, op: "undo" } }).head).toMatch(/ · no History entry found for it · undone in Revit after the report \(History #1814\) · not yet seen saved$/);
     // final verification round 2: an undo recorded on a person's word (basis absent) is said apart - never "undone in Revit"
     const said = decidedView(done, { row: 1813, reverted: { id: 1818, op: "undo", on_word: "yazan" } }).head;
-    expect(said).toMatch(/ · ledger #1813 · recorded as gone on yazan's word after the report, not an Undo seen in Revit \(ledger #1818\) · not yet seen saved$/);
+    expect(said).toMatch(/ · History #1813 · recorded as gone on yazan's word after the report, not an Undo seen in Revit \(History #1818\) · not yet seen saved$/);
     expect(said).not.toMatch(/undone in Revit/);
   });
 
   it("review C4: an old or hand-written result (no lists, no reporter) is still said — the view never throws", () => {
     const v = decidedView({ ...cs, result: { note: null } as never }, null);
-    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by an unknown account · an unknown time · 0 applied, 0 not applied · no ledger row found for it · not yet seen saved");
+    expect(v.head).toBe("Promote (DD) · GR-FFL — partially applied in Revit by an unknown account · an unknown time · 0 applied, 0 not applied · no History entry found for it · not yet seen saved");
     expect(v.note).toBeNull();
     expect(v.declined).toEqual([]);
   });
@@ -255,7 +255,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
   it("the heading says how many reports are shown", () => {
     expect(DECIDED_MAX).toBe(10);
     expect(decidedCount(3)).toBe("3 report(s), newest first.");
-    expect(decidedCount(14)).toBe("The newest 10 of 14 reports — the older ones are on the ledger.");
+    expect(decidedCount(14)).toBe("The newest 10 of 14 reports — the older ones are in History.");
   });
 
   it("readDecided reads every changeset and keeps the reported ones, newest report first; a failure is 'not read — …'", async () => {
@@ -281,11 +281,11 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     bfetch.mockResolvedValueOnce(res(200, { rows: [{ id: 1820, entity_id: A, action: "changeset_reverted", actor: "yazan", new_value: { op: "undo", guids: ["g"], count: 1, basis: "absent" } }], total: 1 }));
     expect((await readLedger("http://b", "demo", [A])).get(A)).toEqual({ row: null, reverted: { id: 1820, op: "undo", on_word: "yazan" } });
     bfetch.mockResolvedValueOnce(res(200, { rows: [{ id: 1811, entity_id: A, action: "changeset_applied" }], total: 1200 }));
-    await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — the ledger holds more rows for these reports (1200) than one read returns");
+    await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — History holds more rows for these reports (1200) than one read returns");
     bfetch.mockResolvedValueOnce(res(400, { message: "entity_id must be a uuid or a comma list of uuids" }));
     await expect(readLedger("http://b", "demo", ["x"])).rejects.toThrow("not read — entity_id must be a uuid or a comma list of uuids");
     bfetch.mockResolvedValueOnce(res(200, { total: 0 }));
-    await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — the bridge answered without rows");
+    await expect(readLedger("http://b", "demo", [A])).rejects.toThrow("not read — Sentinel could not answer");
   });
 
   it("the desk reads the decided list beside the proposed one, Refresh re-reads both, and the section shows when nothing waits (source scan)", () => {
@@ -293,7 +293,7 @@ describe("recently decided in Revit (MA-3b2b)", () => {
     expect(src).toContain("const [role, pending, decided] = await Promise.all([myRoleRead(base, key), readPending(base, key).catch((e: Error) => e), readDecided(base, key).catch((e: Error) => e)]);");
     // Review C4: the section is built once, and a throw in it is said — it never takes the proposed list with it.
     expect(src).toContain('try { tail = recent(decided, ledger, role.role, verified); } catch (e) { tail = el("div", `Reports not shown — ${(e as Error).message}`, "color:#fca5a5"); }');
-    expect(src).toContain('if (pending instanceof Error) { body.replaceChildren(el("div", `Proposals ${pending.message}`, "color:#fca5a5"), tail); return; }');
+    expect(src).toContain('if (pending instanceof Error) { body.replaceChildren(errDiv(`Proposals ${pending.message}`, pending, "color:#fca5a5"), tail); return; }');
     expect(src).toContain('if (!pending.length) { body.replaceChildren(el("div", "Nothing waits for review in Revit on this project."), tail); return; }');
     expect(src).toContain("    body.append(tail);");
     expect(src.split("recent(decided, ledger, role.role, verified)").length - 1).toBe(1);
@@ -325,10 +325,10 @@ describe("MA-3b3 — a carried decline on the desk", () => {
 
   it("says where the decline was made, by whom, in which changeset, and that the bridge carried it; it binds as any decline", () => {
     const [n1, n2, n3] = carried.elements;
-    expect(reviewWords(n1)).toBe('declined on the web by reviewer@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by the bridge: wrong type: W 1 is a party wall — binds: Revit shows it unticked and refuses the tick');
-    expect(reviewWords(n2)).toBe('declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by the bridge: W 2 is demolished in the next package — binds: Revit shows it unticked and refuses the tick');
+    expect(reviewWords(n1)).toBe('declined on the web by reviewer@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by Sentinel: wrong type: W 1 is a party wall — binds: Revit shows it unticked and refuses the tick');
+    expect(reviewWords(n2)).toBe('declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by Sentinel: W 2 is demolished in the next package — binds: Revit shows it unticked and refuses the tick');
     expect(reviewWords(n3)).toBe("waiting — nobody decided on the web");
-    expect(declinedBy({ by: "x", role: null, carried_from: { changeset: "c", name: "N", proposal_guid: "g", origin: "a script" } })).toBe('declined before by x in "N", carried here by the bridge');
+    expect(declinedBy({ by: "x", role: null, carried_from: { changeset: "c", name: "N", proposal_guid: "g", origin: "a script" } })).toBe('declined before by x in "N", carried here by Sentinel');
     expect(declinedBy(after.elements[0].review!)).toBe("declined by reviewer@example.com (contributor)");
   });
 
@@ -336,12 +336,12 @@ describe("MA-3b3 — a carried decline on the desk", () => {
     const r = carried.elements[1].review!;
     const v = decidedView({ ...carried, status: "declined", result: { applied: [], rejected: ["n-2"], note: "x", reported_at: "2026-10-04T14:00:00.000Z", reported_by: "modeller@example.com",
       declined_on_web: [{ proposal_guid: "n-2", by: r.by, role: r.role, reason: r.reason!, carried_from: r.carried_from }] } }, null);
-    expect(v.declined[0].why).toEqual(['declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by the bridge: W 2 is demolished in the next package']);
+    expect(v.declined[0].why).toEqual(['declined in Revit by modeller@example.com (contributor) in "Promote (DD) · GR-FFL", carried here by Sentinel: W 2 is demolished in the next package']);
   });
 
   it("the desk's intro says a decline is carried (source scan)", () => {
     const src = readFileSync(new URL("./review-desk.ts", import.meta.url), "utf8");
-    expect(src).toContain("a decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its changeset is still proposed.");
+    expect(src).toContain("a decline is carried: the next proposed changes that propose the same change files the ghost already declined (a web decline, or a Revit decline with a reason); a lead re-opens it here while its proposed changes are still proposed.");
     expect(src).not.toContain("a new Promote run proposes a declined ghost again, undecided");
   });
 });
@@ -400,7 +400,7 @@ describe("MA-3d — Highlight in 3D: the plan and its words", () => {
 });
 
 describe("MA-3d2 — the proposal model's words", () => {
-  const head = (d: number, c: number) => `Showing ${d} of ${c} proposed create(s) as a proposal model in orange — walls as boxes on their lines, floors, roofs and ceilings as their outlines, doors and windows as their openings' boxes turned to the wall under them (a thickness not sent is sketched at 200 mm, a door with no size in its type name at 915 x 2134, a window at 1000 x 1000 on a 900 sill; a level no element of this changeset stands on sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.`;
+  const head = (d: number, c: number) => `Showing ${d} of ${c} proposed create(s) as a proposal model in orange — walls as boxes on their lines, floors, roofs and ceilings as their outlines, doors and windows as their openings' boxes turned to the wall under them (a thickness not sent is sketched at 200 mm, a door with no size in its type name at 915 x 2134, a window at 1000 x 1000 on a 900 sill; a level no element of these proposed changes stands on sits at elevation 0 here); the executor places the real shapes at Apply. Not part of any published version — Hide creates removes it.`;
   const door = "D1: a door — not drawn (the proposal model draws walls, floors, roofs and ceilings as boxes)";
   it("one changeset with a skipped create", () => {
     expect(proposalWords([{ creates: 3, drawn: 2, skipped: [door] }], [], false)).toBe(`${head(2, 3)} Not drawn: ${door}.`);
@@ -441,9 +441,9 @@ describe("survey ghosts (MA-4d)", () => {
   it("sourceWords: the job, its row, the frame and who stated it, the storey's level and whether its height was checked", () => {
     const cs = { id: "c", name: "Survey job-0002 · GR-FFL", source: "sentinel-survey 0.1.0", claimed: false, status: "proposed", created_at: "", elements: [G],
       job: { id: "job-0002", ledger_id: 2201, frame: { dx_mm: 40000, dy_mm: 0, dz_mm: 0, rotation_deg: 0, stated_by: "lead@example.test" }, storey: { level: "GR-FFL", how: "named", checked: false } } } as PendingChangeset;
-    expect(sourceWords(cs)).toBe("from survey job-0002 (ledger #2201) · the scan moved 40000, 0, 0 mm, turned 0°, stated by lead@example.test · storey GR-FFL (named — its height not checked: nothing here is pre-ticked)");
+    expect(sourceWords(cs)).toBe("from survey job-0002 (History #2201) · the scan moved 40000, 0, 0 mm, turned 0°, stated by lead@example.test · storey GR-FFL (named — its height not checked: nothing here is pre-ticked)");
     expect(sourceWords({ ...cs, job: { id: "job-0002", ledger_id: 2201, frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0 }, storey: { level: "Scan L01 job-0002", how: "created", checked: true } } }))
-      .toBe("from survey job-0002 (ledger #2201) · the scan at the model's internal origin · storey Scan L01 job-0002 (created)");
+      .toBe("from survey job-0002 (History #2201) · the scan at the model's internal origin · storey Scan L01 job-0002 (created)");
     expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Survey job-0001 · GR-FFL", job_id: "job-0001", evidence: ["ev-0001"] }] } }))
       .toMatch(/ · the same scan ev-0001 was placed before by Survey job-0001 · GR-FFL$/);
     expect(sourceWords({ ...cs, job: null })).toBe("");
@@ -458,11 +458,11 @@ describe("survey ghosts (MA-4d)", () => {
     expect(trustWords(I)).toBe("modelled — from job-0009 (IFC) · 300 mm thick as modelled · inferred (what a concept says, not what was built) · not pre-ticked · evidence ev-0021#2VExwC6xrF6u4NaChOdioP");
     const cs = { id: "c", name: "IFC job-0009 · L02", source: "sentinel-ifc 0.1.0", claimed: false, status: "applied", created_at: "", elements: [I],
       job: { id: "job-0009", ledger_id: 3301, reader: "sentinel-ifc 0.1.0", frame: { dx_mm: 0, dy_mm: 0, dz_mm: 0, rotation_deg: 0, stated_by: "lead@example.test" }, storey: { level: "IFC L02 job-0009", how: "created", checked: true } } } as PendingChangeset;
-    expect(sourceWords(cs)).toBe("from IFC job-0009 (ledger #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
+    expect(sourceWords(cs)).toBe("from IFC job-0009 (History #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
     expect([isDrawn(cs), canMeasure(cs, "lead", null)]).toEqual([true, false]);
     // MA-8-3: a third party's IFC says whose it is and the order it was bought under; an own model reads as before
     const bought = { ...cs, job: { ...cs.job!, evidence: [{ id: "ev-0021", sha256: "ab", provider: "acme scans", licence: "commercial", licence_ref: "PO-2026-114" }] } } as PendingChangeset;
-    expect(sourceWords(bought)).toBe("from IFC job-0009 by acme scans (commercial, ref PO-2026-114, ledger #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
+    expect(sourceWords(bought)).toBe("from IFC job-0009 by acme scans (commercial, ref PO-2026-114, History #3301) · the concept at the model's internal origin, stated by lead@example.test · storey IFC L02 job-0009 (created) · nothing from an IFC is pre-ticked");
     expect(sourceWords({ ...cs, job: { ...cs.job!, evidence: [{ id: "ev-0021", sha256: "ab", provider: "own", licence: "owner-supplied" }] } } as PendingChangeset)).toBe(sourceWords(cs));
   });
   it("MA-5a-4: a drawing's ghost and changeset in words — drawn at the alignment's scale, inferred, never pre-ticked; no Measure", () => {
@@ -473,7 +473,7 @@ describe("survey ghosts (MA-4d)", () => {
     const cs = { id: "c", name: "Drawing job-0005 · ev-0007 · Drawing ev-0007 job-0005", source: "sentinel-drawing 0.1.0", claimed: false, status: "applied", created_at: "", elements: [D],
       job: { id: "job-0005", ledger_id: 3001, reader: "sentinel-drawing 0.1.0", storey: { level: "Drawing ev-0007 job-0005", how: "created", checked: true },
         alignment: { item: "ev-0007", scale: 50, rotation_deg: 0, dx_mm: 37000, dy_mm: -2000, dz_mm: 0, check_mm: 0, confirmed_by: "lead@example.test" } } } as PendingChangeset;
-    expect(sourceWords(cs)).toBe("from drawing job-0005 (ledger #3001) · ev-0007 at 1:50, turned 0°, its paper corner at 37000, -2000 mm, level at 0 mm, stated by lead@example.test · checked to 0 mm by a third point · storey Drawing ev-0007 job-0005 (created) · nothing from a drawing is pre-ticked");
+    expect(sourceWords(cs)).toBe("from drawing job-0005 (History #3001) · ev-0007 at 1:50, turned 0°, its paper corner at 37000, -2000 mm, level at 0 mm, stated by lead@example.test · checked to 0 mm by a third point · storey Drawing ev-0007 job-0005 (created) · nothing from a drawing is pre-ticked");
     expect([isDrawn(cs), isDrawn({ ...cs, job: { ...cs.job!, reader: "sentinel-survey 0.6.0" } }), canMeasure(cs, "lead", null)]).toEqual([true, false, false]);
     // review: the same drawing placed before by another job is named on the desk, as a scan's is
     expect(sourceWords({ ...cs, job: { ...cs.job!, overlaps: [{ changeset: "Drawing job-0004 · ev-0007 · GR-FFL", job_id: "job-0004", evidence: ["ev-0007"] }] } }))
@@ -501,7 +501,7 @@ describe("measured against the scan (MA-4e)", () => {
       .toBe("out of tolerance (20 mm, p95) · LOA10 (p95 63 mm, USIBD C120 v3.1, Table 'Levels of Accuracy', p. 15, relative to the scan, not independently validated) · p95 63 mm · mean +0.2 mm (+ = the scan outside it) · 100% of its faces seen · within 50 / 100 / 200 mm: 0% / 100% / 100% · 3512 points");
     expect(measureWords({ proposal_guid: "g2", status: "missing", points: 0, p95_mm: null, mean_signed_mm: null, coverage: 0, share_within: null, reason: "no scan point within 400 mm of its faces — not built where it stands, or not scanned there" }))
       .toBe("missing · 0% of its faces seen · no scan point within 400 mm of its faces — not built where it stands, or not scanned there");
-    expect(measureWords({ proposal_guid: "g3", status: "not_measured", reason: "undone in Revit (ledger #2211) — nothing placed to measure" })).toBe("not measured · undone in Revit (ledger #2211) — nothing placed to measure");
+    expect(measureWords({ proposal_guid: "g3", status: "not_measured", reason: "undone in Revit (History #2211) — nothing placed to measure" })).toBe("not measured · undone in Revit (History #2211) — nothing placed to measure");
     // MA-5a-2: a row that names its per-face rule says it and each face's share; an old row (p95, target_mm) keeps its words
     const DEV = { within_mm: 20, face_share_min: 0.2 }, SW = { 20: 1, 50: 1, 100: 1, 200: 1 };
     const FACES = { ...IN, share_within: SW, faces: [{ points: 1800, coverage: 1, share_within: { ...SW, 20: 0.97 } }, { points: 1712, coverage: 1, share_within: { ...SW, 20: 0.95 } }] };
@@ -518,8 +518,8 @@ describe("measured against the scan (MA-4e)", () => {
     const rec: VerifyRecord = { id: 2300, at: "2026-10-09T10:00:02.000Z", actor: "lead@example.test", status: "done", reference: "as filed", target_mm: 20,
       placed_by: { reported_by: "lead@example.test", reported_role: "lead" },
       counts: { within_tolerance: 1, not_measured: 1 }, elements: [IN, { proposal_guid: "g9", status: "not_measured", reason: "a level has no face to measure — its height against the scan is MA-4h's level error" }] };
-    const AS_FILED = "Measured against the scan as filed (the changeset's geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen) · placed as Revit reported (by lead@example.test)";
-    expect(verifiedView(cs, rec)).toEqual({ head: `${AS_FILED} · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 1 not measured · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`,
+    const AS_FILED = "Measured against the scan as filed (the proposed changes' geometry, which Revit placed exactly — not re-read from Revit: a wall moved since, Revit's joins, the type's width in Revit and the lead's frame are not seen) · placed as Revit reported (by lead@example.test)";
+    expect(verifiedView(cs, rec)).toEqual({ head: `${AS_FILED} · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 1 not measured · History #2300 · 2026-10-09 10:00 UTC · by lead@example.test`,
       lines: [{ line: ghostLine(W), words: measureWords(IN) }, { line: "g9", words: "not measured · a level has no face to measure — its height against the scan is MA-4h's level error" }] });
     expect(verifiedView(cs, { ...rec, placed_by: { reported_by: "revit", reported_role: "service" } })!.head)
       .toContain(" · placed as Revit reported (by revit) — the machine credential's report · ");
@@ -531,7 +531,7 @@ describe("measured against the scan (MA-4e)", () => {
     expect(lines[0].words).toBe(measureWords(PF, { deviation: DEV }));
     expect(lines[0].words).toMatch(/^within tolerance \(each face 20% within 20 mm\) · LOA40 [^·]+ · faces within 20 mm: 97% \/ 97% · /);
     expect(verifiedView(cs, { ...rec, status: "failed", error: "the survey took longer than 10 min — it was stopped; nothing it found was kept", elements: [] })!.head)
-      .toBe(`${AS_FILED} · did not finish — the survey took longer than 10 min — it was stopped; nothing it found was kept · ledger #2300 · 2026-10-09 10:00 UTC · by lead@example.test`);
+      .toBe(`${AS_FILED} · did not finish — the survey took longer than 10 min — it was stopped; nothing it found was kept · History #2300 · 2026-10-09 10:00 UTC · by lead@example.test`);
     expect(verifiedView(cs, new Error("not read — HTTP 500"))).toEqual({ head: "Measure not read — HTTP 500", lines: [] });
   });
   it("readVerified reads each changeset's newest verify:measured row on its own (limit 1, in parallel): a busy report never cuts a quiet one's; a failed read is that report's 'not read — …'; none asked is no read", async () => {
@@ -554,7 +554,7 @@ describe("measured against the scan (MA-4e)", () => {
     expect(m.items.map((x) => [x.id, x.rec.id])).toEqual([[A, 2307], [B, 2306]]);   // newest row per changeset; C is shown under the decided reports
     expect(m.capped).toBe(false);
     const v = verifiedView({ id: A, name: m.items[0].name, source: "", status: "", created_at: "", elements: [] } as PendingChangeset, m.items[0].rec)!;
-    expect(v.head).toContain("ledger #2307");
+    expect(v.head).toContain("History #2307");
     expect(v.lines[0].words).toContain("LOA40");
     bfetch.mockResolvedValueOnce(res(200, { rows: [row(2307, A)], total: 900 }));
     expect((await readMeasuredRecent("http://b", "demo", new Set())).capped).toBe(true);
@@ -573,7 +573,7 @@ describe("measured against the scan (MA-4e)", () => {
     expect(v.items[0].lines[0].words).toContain("LOA40");
     expect(v.notes.map((n) => n.text).join(" ")).toContain("an Undo in Revit since then is not read here");
     expect(v.notes.join(" ")).not.toContain("newest 200");   // cap words only when capped
-    expect(measuredView({ items: [{ id: A, name: "n", rec: rec(1, [IN1]) }], capped: true }, new Map())!.notes[0].text).toBe(`The newest ${MEASURED_MAX} measures — the older ones are on the ledger.`);
+    expect(measuredView({ items: [{ id: A, name: "n", rec: rec(1, [IN1]) }], capped: true }, new Map())!.notes[0].text).toBe(`The newest ${MEASURED_MAX} measures — the older ones are in History.`);
     expect(measuredView({ items: [], capped: false }, byId)).toBeNull();   // nothing to say = no section
     const e = measuredView({ items: [], capped: true }, byId)!;
     expect(e.notes[0].text).toContain("None outside the reports above");
@@ -599,21 +599,21 @@ describe("measured against the scan (MA-4e)", () => {
     bwrite.mockResolvedValueOnce({ changeset: { id: A, name: "Survey job-0002 · GR-FFL" }, status: "done", counts: { within_tolerance: 3 }, elements: [], ledger: { id: 2300, hash: "h" } });
     const r = await postMeasure("http://b/", "demo", A);
     expect(bwrite).toHaveBeenCalledWith("http://b/cde/demo/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ changeset: A }) });
-    expect(measureLine(r)).toBe("✓ Measured Survey job-0002 · GR-FFL against the scan as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2300");
+    expect(measureLine(r)).toBe("✓ Measured Survey job-0002 · GR-FFL against the scan as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · History #2300");
     expect(countWords({})).toBe("0 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured");
   });
   it("MA-4f: a measure of Revit's re-read says so — the head, a mixed row's as-filed lines, the status line", () => {
     const cs = { id: A, name: "Survey job-0003 · Scan L01 job-0003", source: "sentinel-survey 0.1.0", status: "applied", created_at: "", elements: [W] } as PendingChangeset;
     const rec: VerifyRecord = { id: 2400, at: "2026-10-10T10:00:00Z", actor: "lead@example.test", status: "done", reference: "revit (claimed)", target_mm: 20,
       placed_by: { reported_by: "lead@example.test", reported_role: "lead" }, counts: { within_tolerance: 1 }, elements: [{ ...IN, reference: "revit (claimed)" }] };
-    expect(verifiedView(cs, rec)!.head).toBe("Measured against the scan as Revit placed it (Revit's re-read at Apply, the add-in's claim: its joins, its location line and the type's width in Revit are measured — a wall moved since Apply and the lead's frame are not seen) · placed as Revit reported (by lead@example.test) · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2400 · 2026-10-10 10:00 UTC · by lead@example.test");
+    expect(verifiedView(cs, rec)!.head).toBe("Measured against the scan as Revit placed it (Revit's re-read at Apply, the add-in's claim: its joins, its location line and the type's width in Revit are measured — a wall moved since Apply and the lead's frame are not seen) · placed as Revit reported (by lead@example.test) · 1 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · History #2400 · 2026-10-10 10:00 UTC · by lead@example.test");
     const mix = verifiedView(cs, { ...rec, reference: "mixed", elements: [{ ...IN, reference: "revit (claimed)" }, { ...IN, proposal_guid: "g9", reference: "as filed" }] })!;
     expect(mix.head).toContain("Measured against the scan as Revit placed it where Revit re-read it at Apply (the add-in's claim), else as filed — a wall moved since Apply and the lead's frame are not seen · ");
     expect(mix.lines.map((l) => l.words.endsWith(" · as filed"))).toEqual([false, true]);
     const reply = { changeset: { id: A, name: cs.name }, status: "done", counts: { within_tolerance: 3 }, elements: [], ledger: { id: 2400, hash: "h" } };
     expect([measureLine({ ...reply, reference: "revit (claimed)" }), measureLine({ ...reply, reference: "mixed" })]).toEqual([
-      "✓ Measured Survey job-0003 · Scan L01 job-0003 against the scan as Revit re-read it (the add-in's claim) — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2400",
-      "✓ Measured Survey job-0003 · Scan L01 job-0003 against the scan as Revit re-read it (the add-in's claim), else as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · ledger #2400"]);
+      "✓ Measured Survey job-0003 · Scan L01 job-0003 against the scan as Revit re-read it (the add-in's claim) — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · History #2400",
+      "✓ Measured Survey job-0003 · Scan L01 job-0003 against the scan as Revit re-read it (the add-in's claim), else as filed — 3 within tolerance, 0 out of tolerance, 0 missing, 0 insufficient data, 0 not measured · History #2400"]);
   });
   it("canMeasure: a placed survey changeset, a signed-in contributor or above, not undone in Revit — the bridge holds the same rules", () => {
     const cs = { id: A, name: "n", source: "s", status: "applied", created_at: "", elements: [], job: { id: "job-0002", ledger_id: 2201 } } as PendingChangeset;
@@ -644,7 +644,7 @@ describe("measured against the scan (MA-4e)", () => {
     expect(src).toContain("const v = measuredView(data, byId), older = unmeasuredOlder(decided, data);");
     expect(src).toContain('if (canMeasure(cs, role, null)) row.append(measureBtn(cs.id, "Measure against the scan"));');
     // review: the heading says an Undo in Revit is not read for these (canMeasure has no ledger rows here)
-    expect(src).toContain("Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — the bridge refuses an undone one");
+    expect(src).toContain("Placed as reported, no finished measure (older than the newest ${DECIDED_MAX} reports; an Undo in Revit since is not read here — Sentinel refuses an undone one");
     expect(src).toContain("decided instanceof Error ? [] : decided, role.role); if (mb) tail.append(mb);");
   });
   it("the desk reads the newest measure after the ledger rows, and Measure sits behind canMeasure with one press, one run (source scan)", () => {
@@ -656,7 +656,7 @@ describe("measured against the scan (MA-4e)", () => {
 });
 
 describe("edit cost (MA-8-1)", () => {
-  const run: EditCostRun = { run: "job#40", label: "job-0003 (ledger #40)", filed: 12, web: 2, carried: 1, revit: 1, applied: 9, undone: 1, kept: 8, pending: 0, withdrawn: 0,
+  const run: EditCostRun = { run: "job#40", label: "job-0003 (History #40)", filed: 12, web: 2, carried: 1, revit: 1, applied: 9, undone: 1, kept: 8, pending: 0, withdrawn: 0,
     share_changed: 4 / 11, complete: true, ceiling: "edits made after Apply, other than an Undo in Revit, are not seen" };
 
   it("says each count in words, carried apart, and the ceiling", () => {
@@ -731,8 +731,8 @@ describe("recipes (MA-8-13, D13)", () => {
     expect(done).toContain("approved by a lead (#950) and an owner (#951) — a third person, who approved neither, may run it");
   });
   it("recipeLine: a withdrawn recipe runs no more, an untrusted body says why, and an approver who no longer holds the role is named as not counting", () => {
-    expect(recipeLine(row({ state: "withdrawn", withdrawn: { id: 960 }, approvals: [app(950, "lead"), app(951, "owner")] }))).toContain("withdrawn (ledger #960) — it runs no more");
-    expect(recipeLine(row({ state: "untrusted", why: "its body does not hash to the sha256 it was installed with" }))).toContain("not trusted — its body does not hash");
+    expect(recipeLine(row({ state: "withdrawn", withdrawn: { id: 960 }, approvals: [app(950, "lead"), app(951, "owner")] }))).toContain("withdrawn (History #960) — it runs no more");
+    expect(recipeLine(row({ state: "untrusted", why: "its content no longer matches its fingerprint from when it was installed" }))).toContain("not trusted — its content no longer matches");
     const lapsed = recipeLine(row({ approvals: [app(950, "lead", false), app(951, "owner")] }));
     expect(lapsed).toContain("approved by an owner (#951); a lead's approval is owed");
     expect(lapsed).toContain("#950 no longer counts (its approver is not a lead or owner any more)");
@@ -744,7 +744,7 @@ describe("recipes (MA-8-13, D13)", () => {
   });
   it("the words after a draft and after an approval", () => {
     expect(draftWords({ ref: "recipe@2", scope: "office" }, "job#900")).toBe("✓ Drafted recipe@2 (office) from job#900 — it runs once a lead and an owner (two different people) approve it; whoever runs it approved neither.");
-    expect(approveWords({ ref: "recipe@1", role: "lead", approved: false, ledger: { id: 7, hash: "h" } })).toBe("Approved recipe@1 as lead · ledger #7 — an owner's approval, from another person, is owed.");
+    expect(approveWords({ ref: "recipe@1", role: "lead", approved: false, ledger: { id: 7, hash: "h" } })).toBe("Approved recipe@1 as lead · History #7 — an owner's approval, from another person, is owed.");
     expect(approveWords({ ref: "recipe@1", role: "owner", approved: true, ledger: null })).toContain("it is approved: a third person may run it");
   });
   it("readRecipes reads GET /cde/:key/recipes and throws 'not read' on a failure; the posts send the sha the desk shows and the scope", async () => {
@@ -754,7 +754,7 @@ describe("recipes (MA-8-13, D13)", () => {
     bfetch.mockResolvedValueOnce(res(503, { message: "ledger down" }));
     await expect(readRecipes("http://b", "demo")).rejects.toThrow("not read — ledger down");
     bfetch.mockResolvedValueOnce(res(200, {}));
-    await expect(readRecipes("http://b", "demo")).rejects.toThrow("not read — the bridge answered without recipes");
+    await expect(readRecipes("http://b", "demo")).rejects.toThrow("not read — Sentinel could not answer");
     bwrite.mockResolvedValue({ ref: "recipe@1" });
     await postRecipeDraft("http://b", "demo", "job#900", "Kladno", "office");
     expect(bwrite).toHaveBeenLastCalledWith("http://b/cde/demo/recipes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ run: "job#900", name: "Kladno", scope: "office" }) });

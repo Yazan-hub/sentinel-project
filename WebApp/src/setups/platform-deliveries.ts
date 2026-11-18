@@ -40,21 +40,21 @@ export function deliveryCard(item: PlatformItem, versionTag: string, labels: Lab
   if (report && report.kind === REPORT_KIND) {
     const contract = report.contract?.ref ?? null;
     const run = report.run?.executionId ?? null;
-    if (report.result === "pass") return { ...base, state: "passed", headline: `Passed — ${contract ?? "contract"}`, lines: report.warnings.map((w) => `⚠ ${w}`), sha256: report.sha256, run };
-    if (report.result === "fail") return { ...base, state: "refused", headline: `Refused — ${contract ?? "contract"} — ${report.failures.length} failure${report.failures.length === 1 ? "" : "s"}`, lines: report.failures.map((f) => `✗ ${f}`), sha256: report.sha256, run };
-    return { ...base, state: "not_checked", headline: "Not checked", lines: [report.reason ?? "no contract on the platform project"], sha256: report.sha256, run };
+    if (report.result === "pass") return { ...base, state: "passed", headline: `Passed — ${contract ?? "pre-publish check rules"}`, lines: report.warnings.map((w) => `⚠ ${w}`), sha256: report.sha256, run };
+    if (report.result === "fail") return { ...base, state: "refused", headline: `Refused — ${contract ?? "pre-publish check rules"} — ${report.failures.length} failure${report.failures.length === 1 ? "" : "s"}`, lines: report.failures.map((f) => `✗ ${f}`), sha256: report.sha256, run };
+    return { ...base, state: "not_checked", headline: "Not checked", lines: [report.reason ?? "no pre-publish check rules on the platform project"], sha256: report.sha256, run };
   }
   const gate = labels ? String(labels.sentinel_gate ?? "") : "";
   if (gate) {
     const sha = labels!.sentinel_sha256_a && labels!.sentinel_sha256_b ? `${labels!.sentinel_sha256_a}${labels!.sentinel_sha256_b}` : null;
     const run = labels!.sentinel_run ? String(labels!.sentinel_run) : null;
-    const contract = labels!.sentinel_contract ? String(labels!.sentinel_contract) : "contract";
+    const contract = labels!.sentinel_contract ? String(labels!.sentinel_contract) : "pre-publish check rules";
     if (gate === "pass") return { ...base, state: "passed", headline: `Passed — ${contract}`, lines: ["the report file could not be read — the labels say pass"], sha256: sha, run };
     if (gate === "fail") return { ...base, state: "refused", headline: `Refused — ${contract} — ${labels!.sentinel_failures ?? "?"} failure(s)`, lines: ["the report file with the sentences could not be read"], sha256: sha, run };
-    if (gate === "not_checked") return { ...base, state: "not_checked", headline: "Not checked", lines: ["no contract on the platform project — install one in Sentinel"], sha256: sha, run };
-    return { ...base, state: "did_not_run", headline: "Gate did not run", lines: [`the labels say ${gate} — never a pass`], sha256: sha, run };
+    if (gate === "not_checked") return { ...base, state: "not_checked", headline: "Not checked", lines: ["no pre-publish check rules on the platform project — install them in Sentinel"], sha256: sha, run };
+    return { ...base, state: "did_not_run", headline: "Pre-publish check did not run", lines: [`the labels say ${gate} — never a pass`], sha256: sha, run };
   }
-  return { ...base, state: "running", headline: "Running", lines: ["no verdict yet — the platform's Sentinel gate has not written one for this version"], sha256: null, run: null };
+  return { ...base, state: "running", headline: "Running", lines: ["no check result yet — the platform's Sentinel check has not written one for this version"], sha256: null, run: null };
 }
 
 /** The newest version: by createdAt when the platform gives it, else the FIRST entry — the platform lists versions
@@ -157,10 +157,10 @@ export function verifiedPass(c: DeliveryCard, rows: GateLedgerRow[] | null): Del
   const row = citedRow(c.run, rows, c);
   // C8: a refusal stays "Refused"; when its row says the contract was not verified, the card says so in a line.
   if (c.state === "refused")
-    return row?.new_value?.result === "fail_unverified" ? { ...c, lines: [...c.lines, "the ledger does not show that the contract installed in Sentinel judged it"] } : c;
+    return row?.new_value?.result === "fail_unverified" ? { ...c, lines: [...c.lines, "History does not show that the pre-publish check rules installed in Sentinel judged it"] } : c;
   if (c.state !== "passed") return c;
   if (row?.new_value?.result === "pass" && row.new_value.contract?.verified === true) return c;
-  const why = row ? "the ledger's row for this run does not show the contract installed in Sentinel judged it" : "no ledger row shows this run judged by the contract installed in Sentinel";
+  const why = row ? "History's row for this run does not show the pre-publish check rules installed in Sentinel judged it" : "no History row shows this run judged by the pre-publish check rules installed in Sentinel";
   return { ...c, unverified: true, headline: c.headline.replace(/^Passed/, "Passed (unverified)"), lines: [...c.lines, why] };
 }
 

@@ -21,7 +21,7 @@ describe("snapshot-store", () => {
     answer.fn = () => json({ message: "this action requires membership" }, 403);
     await expect(fetchRevisions("b", "p")).rejects.toThrow("this action requires membership");
     answer.fn = () => Promise.reject(new Error("Failed to fetch"));
-    await expect(fetchRevisionSnapshots("b", "p", "r")).rejects.toThrow("can't reach the bridge (Failed to fetch)");
+    await expect(fetchRevisionSnapshots("b", "p", "r")).rejects.toThrow("Sentinel is not connected (Failed to fetch)");
   });
 
   it("a save answers its id, or throws why it was not saved", async () => {

@@ -119,9 +119,15 @@ export function blockedReason(id) {
   if (!p.cloud) return null;
   if (id === "claude" && !keyOf(id) && !hasAnthropicProfile())
     return "Not signed in — run `ant auth login` to use your Claude account, or set ANTHROPIC_API_KEY in config/.env.";
-  if (id !== "claude" && !keyOf(id)) return `No API key — set ${p.env} in config/.env and restart the bridge.`;
+  if (id !== "claude" && !keyOf(id)) return `No API key is set for this provider. Ask your administrator to add one and restart Sentinel.`;
   if (!CLOUD_OPTIN) return "Cloud is off. Set SENTINEL_AI_CLOUD=1 in config/.env to allow it.";
   return null;
+}
+
+/** The setting behind a blockedReason, for the administrator (a Details line), or null. */
+export function blockedDetail(id) {
+  const p = Object.hasOwn(PROVIDERS, id) ? PROVIDERS[id] : undefined;
+  return p?.cloud && id !== "claude" && !keyOf(id) ? `Set ${p.env} in config/.env, then restart the bridge.` : null;
 }
 
 /** What the picker renders. Never leaks a key — only whether one is present, and not even that to a caller who may not
@@ -135,6 +141,7 @@ export function listProviders({ cloudRefusal = null } = {}) {
       configured: p.cloud ? !!keyOf(id) || (id === "claude" && hasAnthropicProfile()) : true,
       available: blockedReason(id) === null,
       blocked: blockedReason(id),
+      blocked_detail: blockedDetail(id),
     };
   });
 }
@@ -179,7 +186,7 @@ export async function listModels(id) {
  */
 export async function chat({ provider = "local", model, system, messages = [], tools = [], format, project } = {}, { budget = true, policy } = {}) {
   const blocked = blockedReason(provider);
-  if (blocked) throw Object.assign(new Error(blocked), { status: 400 });
+  if (blocked) throw Object.assign(new Error(blocked), { status: 400, detail: blockedDetail(provider) });
 
   const p = PROVIDERS[provider];
   const chosen = model || p.models[0];

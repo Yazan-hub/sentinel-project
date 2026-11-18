@@ -1,6 +1,7 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid, onActiveProjectChange, platformProjectId } from "./active-project";
 import * as OBF from "@thatopen/components-front";
 import { extractAssets } from "../sentinel-core/adapter/fragments-assets";
@@ -55,7 +56,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
     '<div id="ow-msg" style="padding:.4rem .7rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, c = "#9ca3af") => { el("ow-msg").textContent = t; el("ow-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { el("ow-msg").replaceChildren(withDetails(t, detail)); el("ow-msg").style.color = c; };
 
   const tile = (label: string, value: string, color = "#eee", sub = "") =>
     `<div style="border:1px solid #23232a;border-radius:.5rem;background:#101014;padding:.6rem .7rem">` +
@@ -66,7 +67,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
   /** A bridge read in the bridge's own words: "can't reach the bridge" only when the fetch itself failed. */
   const readJson = async (url: string) => {
     let r: Response;
-    try { r = await bfetch(url); } catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message ?? String(e)})`); }
+    try { r = await bfetch(url); } catch (e) { throw new Error(`Sentinel is not connected (${(e as Error)?.message ?? String(e)})`); }
     if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
     return r.json();
   };
@@ -90,7 +91,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
       const at = typeof s.handover_at === "string" ? s.handover_at.slice(0, 10) : null;
       // A browser scan's measurement, said as one — the recorded stage gate has not measured hand-over.
       const readyWords = ready == null ? "Not yet assessed"
-        : `${done != null && total != null ? `${done} of ${total} assets complete` : `${ready}% of assets complete`} — a browser scan${at ? ` of ${at}` : ""}, not the recorded stage gate`;
+        : `${done != null && total != null ? `${done} of ${total} assets complete` : `${ready}% of assets complete`} — a browser scan${at ? ` of ${at}` : ""}, not the recorded stage check`;
       el("ow-ready").innerHTML =
         `<div style="width:52px;height:52px;border-radius:50%;flex:none;display:grid;place-items:center;border:3px solid ${readyColor(ready)};color:${readyColor(ready)};font:750 15px ui-monospace,Consolas,monospace">${ready != null ? ready + "%" : "—"}</div>` +
         `<div><div style="font-weight:650">Handover readiness</div><div style="color:#9ca3af;font-size:12px">${esc(readyWords)}</div></div>`;
@@ -133,7 +134,7 @@ export function ownerPanel(components: OBC.Components, opts: { baseUrl?: string 
       el("ow-search").style.display = assets.length ? "block" : "none";
       renderAssets("");
       msg(`${assets.length} asset(s) in the register.`);
-    } catch (e) { msg("Couldn't load assets: " + ((e as Error)?.message ?? String(e)), "#f87171"); }
+    } catch (e) { msg("Couldn't load assets: " + ((e as Error)?.message ?? String(e)), "#f87171", detailOf(e)); }
     finally { b.disabled = false; }
   };
 

@@ -30,7 +30,7 @@ describe("myRoleRead (W-2 G7): a non-member is not told 'your role: viewer'", ()
   it("a 401 is a session the bridge did not accept — read-only", async () => {
     const r = await read(res(401));
     expect(r).toEqual({ role: SIGNED_OUT, read: true });
-    expect(roleWords(r)).toBe("sign-in not accepted by the bridge — sign in again; read-only");
+    expect(roleWords(r)).toBe("Your sign-in was not accepted. Sign in again — read-only");
     expect(canEditRole(r.role)).toBe(false);
   });
   it("a 5xx or no bridge is 'role not read'; another 4xx is a viewer", async () => {

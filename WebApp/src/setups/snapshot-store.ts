@@ -46,15 +46,15 @@ export function rowToSnapshot(r: SnapRow): ElementSnapshot {
 }
 
 /** Why a revision cannot be priced although it was read: its rows carry no quantity. */
-export const NO_QUANTITIES = "that revision carries no quantities (a take-off saved before 2026-09-29, when the bridge dropped them, or an intake capture of element identities only) — it cannot be priced; take a new baseline";
+export const NO_QUANTITIES = "that revision carries no quantities (a take-off saved before 2026-09-29, when they were dropped, or an intake capture of element identities only) — it cannot be priced; take a new baseline";
 
 /** GET/POST a bridge JSON answer, or throw its reason — a failed read is never an empty list (item 6 step 0). */
 async function readJson(url: string, init?: RequestInit): Promise<unknown> {
   let r: Response;
   try { r = await bfetch(url, init); }
-  catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message ?? e})`); }
+  catch (e) { throw new Error(`Sentinel is not connected (${(e as Error)?.message ?? e})`); }
   const body = await r.json().catch(() => null);
-  if (!r.ok) throw new Error((body as { message?: string } | null)?.message || `HTTP ${r.status}`);
+  if (!r.ok) throw Object.assign(new Error((body as { message?: string } | null)?.message || `HTTP ${r.status}`), { detail: (body as { detail?: string } | null)?.detail ?? `HTTP ${r.status}` });
   return body;
 }
 
@@ -70,7 +70,7 @@ export async function postRevision(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ rev_code: meta.rev_code ?? null, snapshots }),
   }) as { revision_id?: unknown } | null;
-  if (typeof d?.revision_id !== "string") throw new Error("the bridge answered without a revision id");
+  if (typeof d?.revision_id !== "string") throw Object.assign(new Error("Sentinel could not answer"), { detail: "The reply had no revision id." });
   return d.revision_id;
 }
 

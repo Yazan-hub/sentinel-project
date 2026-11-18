@@ -1,7 +1,8 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { activePid, onActiveProjectChange } from "./active-project";
-import { fetchJourney, journeyPlace, standardsLine, stepDetail } from "./next-strip";
+import { detailsHtml } from "./ids-from-standards";
+import { fetchJourney, journeyPlace, standardsDetail, standardsLine, stepDetail } from "./next-strip";
 import { escapeHtml as escHtml } from "./escape-html";
 
 /**
@@ -26,7 +27,7 @@ re-typed or re-checked at each hand-off, and the owner receives a living asset r
 PDFs.</p>
 <p><b>How it's used.</b> Load your model, install your office standard, and work the lifecycle left-to-right
 through the stages <b>Tender → Design → Coordination → Construction → Handover → Operate</b>. At each stage
-boundary a <b>gate</b> checks the standard and only lets you advance when it's met.</p>
+boundary a <b>stage check</b> checks the standard and only lets you advance when it's met.</p>
 <div class="tip">Tip: the sidebar has five areas — <b>Home</b> (what needs you now), <b>Models</b>, <b>Documents</b>,
 <b>Issues</b> and <b>Settings</b>. Start at <b>Home ▸ Overview</b> (the command center). Every panel reads the <i>same</i>
 model, so numbers never disagree.</div>
@@ -35,11 +36,11 @@ model, so numbers never disagree.</div>
 const TOPICS: Topic[] = [
   { id: "project", stage: "Overview", title: "Home ▸ Overview — Command Center", body: `
 <p><b>What it is.</b> The home screen: your project's lifecycle rail + live KPIs (health, compliance, open
-issues, cost) + the current <b>stage gate</b>.</p>
+issues, cost) + the current <b>stage check</b>.</p>
 <p><b>How to use it.</b></p><ol>
 <li>Press ↻ to aggregate the latest KPIs from the model + service.</li>
-<li>Read the gate: green ✓ = met, amber ! = not yet, grey – = not measured (each check names its source).</li>
-<li>Press <b>Run gate → advance</b> — the bridge measures the gate itself, records it on the ledger and moves the project forward only on a pass; a check nothing measured leaves it not checkable, never passed.</li></ol>
+<li>Read the stage check: green ✓ = met, amber ! = not yet, grey – = not measured (each check names its source).</li>
+<li>Press <b>Check and move to the next stage</b> — Sentinel measures the stage check itself, records it in History and moves the project forward only when it is ready; a check nothing measured is shown as cannot be checked, never as ready.</li></ol>
 <div class="tip">This is the payoff of the whole platform: standards-as-code gating the lifecycle.</div>` },
 
   { id: "copilot", stage: "Overview", title: "Home ▸ Copilot — grounded assistant", body: `
@@ -71,9 +72,9 @@ shares. Everything else reads from it.</p>` },
 
   { id: "standards", stage: "Design", title: "Settings ▸ Standards library", body: `
 <p><b>What it is.</b> A marketplace of office/regional standards packs. <b>Installing a pack makes it the
-project's rulebook</b> — QA, the Copilot and every gate immediately enforce it.</p>
+project's rulebook</b> — QA, the Copilot and every check immediately enforce it.</p>
 <p><b>How to use it.</b></p><ol>
-<li><b>Install</b> a pack (e.g. BDS House Standard) → it becomes the active ruleset.</li>
+<li><b>Install</b> a pack (e.g. BDS House Standard) → it becomes the project's standards.</li>
 <li><b>Fork</b> a pack to adapt it; <b>Publish</b> your current standard to share it.</li>
 <li>Edit the rules themselves in Revit (Standards Engine), then re-publish a new version.</li></ol>` },
 
@@ -117,14 +118,14 @@ status / type / priority; open one for full details, comments and history.</p>` 
 history trail.</p>
 <p><b>How to use it.</b> Select elements to link them, <b>Raise</b> an RFI (subject, discipline, assignee,
 question). The responder <b>answers</b> it (auto-moves to Answered); a coordinator <b>Approves & closes</b> it.</p>
-<div class="tip">Open RFIs block the coordination gate — you can't advance with them unresolved.</div>` },
+<div class="tip">Open RFIs block the stage check — you can't advance with them unresolved.</div>` },
 
   { id: "cobie", stage: "Handover", title: "Documents ▸ Reports ▸ Handover (COBie export)", body: `
 <p><b>What it is.</b> The asset register the FM team uses: maintainable components + their FM data, scored for
 handover readiness, exportable as COBie.</p>
 <p><b>How to use it.</b> <b>Assets ▶</b> → readiness % + coverage bars (serial / manufacturer / warranty / install
 date). Red chips show what's missing on each asset. <b>COBie</b> exports the register. Readiness ≥ 95% is
-required to pass the handover gate.</p>
+required to pass the handover stage check.</p>
 <div class="tip">On a design model this reads low — correct: those fields get filled during construction.</div>` },
 
   { id: "owner", stage: "Operate", title: "Documents ▸ Reports ▸ Owner view", body: `
@@ -208,7 +209,7 @@ export function guidePanel(_components: OBC.Components, opts: { baseUrl?: string
       const j = await fetchJourney(base, key);
       if (mine !== seq) return;
       live.innerHTML = head(`Journey · ${j.key} · ${j.kind} · ${j.done} of ${j.total} done`) +
-        `<p class="gd-muted">${escHtml(standardsLine(j))}</p>` +
+        `<p class="gd-muted">${escHtml(standardsLine(j))} ${standardsDetail(j) ? detailsHtml(standardsDetail(j)) : ""}</p>` +
         j.steps.map((s) => {
           const where = [s.how.web && `Web: ${journeyPlace(s.how.web.tab)} ▸ ${s.how.web.hint}`, s.how.revit && `Revit: ${s.how.revit}`, `who: ${s.how.who}`].filter(Boolean).join(" · ");
           const detail = stepDetail(s, j.next);

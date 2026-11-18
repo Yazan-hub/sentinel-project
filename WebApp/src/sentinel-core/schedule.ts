@@ -114,7 +114,7 @@ const midpKey = (n: string) => n.trim().replace(/\.(ifc|ifczip|rvt|nwc|nwd|pdf|d
 export function taskInformation(task: Task, rows: MidpRow[]): { container: string; state: InfoState; words: string }[] {
   return (task.containers ?? []).map((container) => {
     const row = rows.find((r) => midpKey(r.container_name) === midpKey(container));
-    if (!row) return { container, state: "unplanned" as const, words: "not in the MIDP — nobody is due to deliver it" };
+    if (!row) return { container, state: "unplanned" as const, words: "not in the delivery plan — nobody is due to deliver it" };
     const published = row.published_at ? String(row.published_at).slice(0, 10) : null;
     if (published) {
       return published <= task.start

@@ -41,7 +41,7 @@ describe("getJourney", () => {
     expect(j.standards.ruleset).toMatchObject({ ref: "ruleset@1", source: "office", standard_key: "ast-std-001", semver: "1.0.0" });
     const s = Object.fromEntries(j.steps.map((x) => [x.id, x]));
     expect(s.standards.evidence.label).toBe([j.standards.ids.label, j.standards.ruleset.label, j.standards.naming.label].join(" | "));
-    expect(s.federated).toMatchObject({ status: "todo", reason: "the Federation Gate has not run" });
+    expect(s.federated).toMatchObject({ status: "todo", reason: "the coordination check has not run" });
     expect(d.getSnapshot).not.toHaveBeenCalled();                       // a project does not read the office snapshot
     expect(d.ensureProject).toHaveBeenCalledWith("aster-villa");
   });
@@ -88,9 +88,9 @@ describe("getJourney", () => {
     const d = memDeps({ listAudit: vi.fn(async () => ({ rows: [row], total: 3, limit: 1, offset: 0 })) });
     const j = await getJourney("aster-villa", d);
     expect(d.listAudit).toHaveBeenCalledWith("aster-villa", { entity_type: "lod_state", limit: 1 });
-    expect(j.lod_state).toEqual({ line: "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 UTC · ledger #4242",
+    expect(j.lod_state).toEqual({ line: "LOD state: DD → design: 38 of 264 at DD (14%) · 212 below · 14 blocked · 0 not measured — Revit's count (claimed), lead@office.example, 2026-10-03 09:15 UTC · History #4242",
       share: 14, at: row.at, ledger: { id: 4242, hash: row.hash } });
-    expect((await getJourney("aster-villa", memDeps())).lod_state).toEqual({ line: "LOD state: not measured — no lod_state row yet (Promote (DD) in Revit records one)", share: null, at: null, ledger: null });
+    expect((await getJourney("aster-villa", memDeps())).lod_state).toEqual({ line: "LOD state: not measured yet — Promote (DD) in Revit records it", share: null, at: null, ledger: null });
     // A row measured against another matrix than the one in force is not the LOD state now (review C3).
     const old = { ...row, new_value: { ...row.new_value, matrix: "lod_matrix@1 · office · bbbbbbbbbbbb…", matrix_sha256: "b".repeat(64) } };
     expect((await getJourney("aster-villa", memDeps({ listAudit: vi.fn(async () => ({ rows: [old], total: 1, limit: 1, offset: 0 })) }))).lod_state).toEqual({

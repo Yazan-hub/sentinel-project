@@ -53,8 +53,8 @@ export interface IntakeReply {
   hold?: LedgerRef | null;
 }
 
-export const STAGE_WORDS: Record<HoldStage, string> = { gate: "delivery gate", naming: "naming standard", ids: "IDS", evidence: "evidence intake" };
-export const SOURCE_WORDS: Record<HoldSource, string> = { revit: "Governed Publish", "auto-publish": "auto-publish", web: "web upload", intake: "intake", evidence: "evidence folder" };
+export const STAGE_WORDS: Record<HoldStage, string> = { gate: "pre-publish check", naming: "naming standard", ids: "data requirements", evidence: "evidence intake" };
+export const SOURCE_WORDS: Record<HoldSource, string> = { revit: "Publish", "auto-publish": "auto-publish", web: "web upload", intake: "intake", evidence: "evidence folder" };
 export const CLEARED_BY_RECORDED = "cleared by a registration that was not judged (recorded)";
 
 const at = (baseUrl: string, key: string, path: string) => `${baseUrl.replace(/\/$/, "")}/cde/${encodeURIComponent(key)}/${path}`;
@@ -81,30 +81,30 @@ export function uploadFailedLine(e: unknown): string {
   const { message, status } = e as { message?: string; status?: number };
   return status !== undefined && NOT_STORED.includes(status)
     ? `Not uploaded — ${message}`
-    : `Not confirmed — ${message} (the bridge may have stored it; ↻ to check)`;
+    : `Not confirmed — ${message} (Sentinel may have stored it; ↻ to check)`;
 }
 
 /** Which judge refused, in the panel's words: the gate; else the naming standard when it rejected under enforce reject
  *  (the bridge's own rule, cde-store adjudicateProposal); else the IDS. */
 function refusedBy(r: IntakeReply): { words: string; n: number } {
-  if (r.stage === "gate") return { words: "the delivery gate", n: (r.gate?.failures ?? []).length };
+  if (r.stage === "gate") return { words: "the pre-publish check", n: (r.gate?.failures ?? []).length };
   if (r.naming?.ok === false && r.naming.enforce === "reject") return { words: "the naming standard", n: (r.naming.failures ?? []).length };
-  return { words: "the IDS", n: r.failures_total ?? (r.failures ?? []).length };
+  return { words: "the data requirements", n: r.failures_total ?? (r.failures ?? []).length };
 }
 
 /** The status line after an upload: what judged it, whether anything was stored, and the ledger row that says so. */
 export function intakeLine(name: string, r: IntakeReply): string {
   if (r.verdict === "rejected") {
     const by = refusedBy(r);
-    const held = r.hold ? `On hold · ${ledgerLine(r.hold)}` : "not on hold — the bridge returned no hold row";
+    const held = r.hold ? `On hold · ${ledgerLine(r.hold)}` : "not on hold — Sentinel returned no hold entry";
     return `Not uploaded — ${by.words} refused ${name} (${by.n} failure(s)) · ${held}`;
   }
   const row = ledgerLine({ id: r.audit_id ?? null, hash: r.receipt?.ledger_hash ?? null });
   const passing = r.summary?.passing ?? 0, inScope = r.summary?.in_scope ?? 0;
   // F-RUN-5: under "warn" the file is accepted with failing checks; say so instead of "accepted (0/2 passed)".
-  const judged = r.verdict !== "accepted" ? "recorded (the IDS did not judge it)"
-    : r.warned ? `accepted · IDS ${r.ids_ref ?? ""}: ${passing} of ${inScope} checks passed, kept as warnings (the IDS is set to warn)`.replace("IDS :", "IDS:")
-    : `accepted (${r.ids_ref ?? "IDS"}: ${passing}/${inScope} passed)`;
+  const judged = r.verdict !== "accepted" ? "recorded (the data requirements did not judge it)"
+    : r.warned ? `accepted · data requirements ${r.ids_ref ?? ""}: ${passing} of ${inScope} checks passed, kept as warnings (the data requirements are set to warn)`.replace("requirements :", "requirements:")
+    : `accepted (${r.ids_ref ?? "data requirements"}: ${passing}/${inScope} passed)`;
   // SEC-4: the bridge registers before it uploads; a bridge from before it registered nothing (no version in the reply).
   if (r.stage === "upload_failed") {
     const kept = r.version?.revision ? `Registered as ${r.version.revision} without geometry` : "Nothing was registered";
@@ -121,7 +121,7 @@ export async function readHolding(baseUrl: string, key: string): Promise<Holding
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as (Holding & { message?: string }) | null;
   if (!r.ok || !j || !Array.isArray(j.items)) {
-    const why = !r.ok || !j ? j?.message || `HTTP ${r.status}` : "the bridge answered without a list";
+    const why = !r.ok || !j ? j?.message || `HTTP ${r.status}` : "Sentinel could not answer";
     throw new Error(why.startsWith("not read — ") ? why : `not read — ${why}`);
   }
   const g = (j as { type_gaps?: TypeGaps | null }).type_gaps;
@@ -151,12 +151,12 @@ export function typeGapClosedLine(g: TypeGap): string {
  *  never sent; a refusal (a role below lead is a 403, a group no longer open a 409) throws the bridge's words. */
 export async function dismissTypeGap(baseUrl: string, key: string, group: string, reason: string): Promise<LedgerRef> {
   const why = reason.trim();
-  if (!why) throw new Error("a dismissal needs a reason — the ledger records it");
+  if (!why) throw new Error("a dismissal needs a reason — History records it");
   const r = await bfetch(at(baseUrl, key, `holding/type-gaps/${encodeURIComponent(group)}/dismiss`), {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: why }),
   });
   const j = (await r.json().catch(() => null)) as (LedgerRef & { message?: string }) | null;
-  if (!r.ok || !j) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok || !j) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
   return { id: j.id ?? null, hash: j.hash ?? null };
 }
 
@@ -164,12 +164,12 @@ export async function dismissTypeGap(baseUrl: string, key: string, group: string
  *  never sent; a refusal (a role below lead is a 403) throws the bridge's words. */
 export async function dismissHold(baseUrl: string, key: string, containerName: string, reason: string): Promise<LedgerRef> {
   const why = reason.trim();
-  if (!why) throw new Error("a dismissal needs a reason — the ledger records it");
+  if (!why) throw new Error("a dismissal needs a reason — History records it");
   const r = await bfetch(at(baseUrl, key, "holding/dismiss"), {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ container_name: containerName, reason: why }),
   });
   const j = (await r.json().catch(() => null)) as (LedgerRef & { message?: string }) | null;
-  if (!r.ok || !j) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok || !j) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
   return { id: j.id ?? null, hash: j.hash ?? null };
 }
 

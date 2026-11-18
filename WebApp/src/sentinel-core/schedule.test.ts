@@ -35,7 +35,7 @@ describe("taskInformation — the programme against the MIDP", () => {
       ["DOC-C", "late", "due 2027-01-10, after the task starts 2026-12-01 — it will be late"],
       ["DOC-D", "at_risk", "due 2026-11-20, not yet delivered (overdue) — needed by 2026-12-01"],
       ["DOC-E", "no_date", "planned with no due date (unscheduled) — not yet delivered"],
-      ["DOC-X", "unplanned", "not in the MIDP — nobody is due to deliver it"],
+      ["DOC-X", "unplanned", "not in the delivery plan — nobody is due to deliver it"],
     ]);
   });
   it("a task that names no container asks nothing of the MIDP", () => {

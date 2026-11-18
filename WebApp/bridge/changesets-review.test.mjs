@@ -55,7 +55,7 @@ describe("applyDecisions — the web desk's decisions on one changeset, all or n
   });
 
   it("a decline needs a reason; a reason is one line of at most 500 characters", () => {
-    expect(() => applyDecisions(fx.before, [decline("g-1", "  ")], WHO)).toThrow(/a decline needs a reason — the ledger records it and Revit shows it/);
+    expect(() => applyDecisions(fx.before, [decline("g-1", "  ")], WHO)).toThrow(/a decline needs a reason — History records it and Revit shows it/);
     expect(() => applyDecisions(fx.before, [{ proposal_guid: "g-1", decision: "decline" }], WHO)).toThrow(/a decline needs a reason/);
     expect(() => applyDecisions(fx.before, [decline("g-1", "x".repeat(501))], WHO)).toThrow(/a reason is one line of at most 500 characters/);
     expect(() => applyDecisions(fx.before, [decline("g-1", "two\nlines")], WHO)).toThrow(/one line/);
@@ -91,7 +91,7 @@ describe("applyDecisions — the web desk's decisions on one changeset, all or n
 
   it("nothing is decided once the changeset is not proposed (Revit reported, or it was withdrawn)", () => {
     for (const status of ["applied", "partially_applied", "declined", "withdrawn"])
-      expect(() => applyDecisions({ ...fx.before, status }, [accept("g-1")], WHO)).toThrow(new RegExp(`changeset is ${status} — the web desk decides only while it is proposed`));
+      expect(() => applyDecisions({ ...fx.before, status }, [accept("g-1")], WHO)).toThrow(new RegExp(`proposed changes are ${status} — the web desk decides only while they are proposed`));
   });
 });
 
@@ -109,7 +109,7 @@ describe("reopenDecline — a lead re-opens one decline", () => {
     expect(() => reopenDecline(fx.after, "g-1", " ", LEAD)).toThrow(/a re-open needs a reason/);
     expect(() => reopenDecline(fx.after, "nope", "why", LEAD)).toThrow(/unknown proposal_guid "nope"/);
     expect(() => reopenDecline(fx.after, "g-2", "why", LEAD)).toThrow(/attach wall "W 1": only a declined ghost can be re-opened \(this one is accepted\)/);
-    expect(() => reopenDecline({ ...fx.after, status: "applied" }, "g-1", "why", LEAD)).toThrow(/changeset is applied — the web desk decides only while it is proposed/);
+    expect(() => reopenDecline({ ...fx.after, status: "applied" }, "g-1", "why", LEAD)).toThrow(/proposed changes are applied — the web desk decides only while they are proposed/);
   });
 });
 

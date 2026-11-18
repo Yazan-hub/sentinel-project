@@ -111,7 +111,7 @@ describe("runStageGate — lead only, the current stage, the bridge's measuremen
     expect(calls).toHaveLength(0);
   });
   it("a stage other than the current one is a 409 naming it; nothing is written", async () => {
-    await expect(runStageGate("aster-tower", "design", "x")).rejects.toMatchObject({ status: 409, message: "the gate to run is the current stage's: tender" });
+    await expect(runStageGate("aster-tower", "design", "x")).rejects.toMatchObject({ status: 409, message: "the stage check to run is the current stage's: tender" });
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
   it("tender with a ruleset: gate:pass tender is written with the checks and next_stage, the reply carries the row, the stage is then design", async () => {
@@ -144,7 +144,7 @@ describe("runStageGate — lead only, the current stage, the bridge's measuremen
   it("the final stage has no gate to run: 409, nothing read from the stores, nothing written", async () => {
     db.audit_log.push(gateRow(1, "gate:pass hand", { stage: "hand", status: "pass", checks: [], next_stage: "oper" }));
     expect(STAGES[STAGES.length - 1]).toBe("oper");
-    await expect(runStageGate("aster-tower", "oper", "x")).rejects.toMatchObject({ status: 409, message: "oper is the final stage — there is no gate to run" });
+    await expect(runStageGate("aster-tower", "oper", "x")).rejects.toMatchObject({ status: 409, message: "oper is the final stage — there is no stage check to run" });
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
   it("a reply with no row is ledger {id: null, hash: null} — never a made-up id", async () => {

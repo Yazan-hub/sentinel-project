@@ -49,7 +49,7 @@ describe("liveViewEditor", () => {
     expect(ed.value().data).toEqual({ source: "office_register", filter: { team: null, stage: null, register_part: "software" } });
     s.value = "capability"; fire(s, "change");
     expect(ed.value().data).toEqual({ source: "capability", filter: { team: null, stage: null, register_part: null } });
-    expect(findAll(s, "option").map(textOf)).toEqual(["MIDP", "TIDP of a task team", "Office register", "Risk register", "Mobilisation plan", "Capability"]);
+    expect(findAll(s, "option").map(textOf)).toEqual(["Delivery plan", "Team delivery plan of a task team", "Office register", "Risk register", "Mobilisation plan", "Capability"]);
     expect(findAll(p, "option").map(textOf)).toEqual(["People and functions", "Software", "Hardware and IT", "Past projects", "Training plan", "Terms"]);
   });
   it("a stored team that is not in the list is kept", async () => {

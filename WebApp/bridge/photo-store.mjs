@@ -12,11 +12,17 @@ import { pythonPath } from "./survey-service.mjs";
 export const BLUR_SCRIPT = fileURLToPath(new URL("../../survey/blur.py", import.meta.url));
 export const BLUR_MS = 60_000; // one photo: Pillow reads, fills and re-encodes it in a second or two; this only bounds a stuck child
 
+/** A not-set-up cause as a 503: the sentence says it plainly, the setting names / paths ride in `detail` (a closed Details on screen). */
+const offErr = (text) => {
+  const m = /^(.+? is not set up on this PC): (.+?)( — nothing was .*)?$/s.exec(text);
+  return Object.assign(new Error(m ? `${m[1]}${m[3] ?? ""}` : text), { status: 503, ...(m ? { detail: m[2] } : {}) });
+};
+
 /** Why the blur tool cannot run on this PC (a 503's words), or null. */
 export function blurNotSetUp({ python = pythonPath(), script = BLUR_SCRIPT } = {}) {
   if (!isAbsolute(python)) return "the blur tool is not set up on this PC: SENTINEL_PYTHON must be the absolute path of a python.exe — nothing was saved";
   if (!existsSync(python)) return "the blur tool is not set up on this PC: no Python where SENTINEL_PYTHON in config/.env points (C:\\Python314\\python.exe by default) — nothing was saved";
-  if (!existsSync(script)) return "the blur tool is not set up on this PC: survey/blur.py is missing from the bridge's checkout — nothing was saved";
+  if (!existsSync(script)) return "the blur tool is not set up on this PC: survey/blur.py is missing from this installation — nothing was saved";
   return null;
 }
 
@@ -25,7 +31,7 @@ export function blurNotSetUp({ python = pythonPath(), script = BLUR_SCRIPT } = {
  *  BLUR_MS. A 422 in words when the file is not an image; a 503 when the tool is not set up; the child's stderr goes to the log only. */
 export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS } = {}) {
   const off = blurNotSetUp({ python, script });
-  if (off) return Promise.reject(Object.assign(new Error(off), { status: 503 }));
+  if (off) return Promise.reject(offErr(off));
   const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP }).filter(([, v]) => v));
   return new Promise((ok, no) => {
     execFileFn(python, ["-B", script, src, dst, JSON.stringify(boxes), ...(shown ? [`${shown.w}x${shown.h}`] : [])], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 64 * 1024 }, (e, stdout, stderr) => {
@@ -44,7 +50,7 @@ export function runBlur(src, dst, boxes, shown, { python = pythonPath(), script 
  *  nothing else) and checked by sha256 inside the tool; a 503 in words when it is missing or not the approved file, so the person marks by hand. */
 export function runDetect(src, { python = pythonPath(), script = BLUR_SCRIPT, env = process.env, execFileFn = execFile, ms = BLUR_MS } = {}) {
   const off = blurNotSetUp({ python, script });
-  if (off) return Promise.reject(Object.assign(new Error(off.replace("the blur tool", "the face detector").replace("nothing was saved", "nothing was proposed; mark the faces by hand")), { status: 503 }));
+  if (off) return Promise.reject(offErr(off.replace("the blur tool", "the face detector").replace("nothing was saved", "nothing was proposed; mark the faces by hand")));
   const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, APPDATA: env.APPDATA, TEMP: env.TEMP, TMP: env.TMP, USERPROFILE: env.USERPROFILE }).filter(([, v]) => v));
   return new Promise((ok, no) => {
     execFileFn(python, ["-B", script, "--detect", src], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 256 * 1024 }, (e, stdout, stderr) => {
@@ -87,7 +93,7 @@ export const E57_MS = 180_000; // a 2 GB E57's panoramas: a read of their blobs 
  *  environment, no shell, no network use, killed at E57_MS. A 422 in words when the E57 holds no readable panorama; a 503 when the tool is not set up. */
 export function runE57Images(src, outDir, { python = pythonPath(), script = E57_SCRIPT, env = process.env, execFileFn = execFile, ms = E57_MS } = {}) {
   const off = blurNotSetUp({ python, script });
-  if (off) return Promise.reject(Object.assign(new Error(off.replace("the blur tool", "the panorama tool").replace("survey/blur.py", "photo/e57_images.py")), { status: 503 }));
+  if (off) return Promise.reject(offErr(off.replace("the blur tool", "the panorama tool").replace("survey/blur.py", "photo/e57_images.py")));
   const childEnv = Object.fromEntries(Object.entries({ SYSTEMROOT: env.SYSTEMROOT ?? env.SystemRoot, TEMP: env.TEMP, TMP: env.TMP }).filter(([, v]) => v));
   return new Promise((ok, no) => {
     execFileFn(python, ["-B", "-I", script, src, outDir], { env: childEnv, timeout: ms, windowsHide: true, maxBuffer: 256 * 1024 }, (e, stdout, stderr) => {

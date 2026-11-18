@@ -27,7 +27,7 @@ export async function readDeleted(baseUrl: string, key: string): Promise<Deleted
   try { r = await bfetch(at(baseUrl, key, "deleted")); }
   catch (e) { throw new Error(`not read — ${(e as Error).message}`); }
   const j = (await r.json().catch(() => null)) as (DeletedItem[] & { message?: string }) | { message?: string } | null;
-  if (!r.ok || !Array.isArray(j)) throw new Error(`not read — ${(j as { message?: string } | null)?.message || (r.ok ? "the bridge answered without a list" : `HTTP ${r.status}`)}`);
+  if (!r.ok || !Array.isArray(j)) throw new Error(`not read — ${(j as { message?: string } | null)?.message || (r.ok ? "Sentinel could not answer" : `HTTP ${r.status}`)}`);
   return j;
 }
 
@@ -38,7 +38,7 @@ export async function restoreDeleted(baseUrl: string, key: string, item: Deleted
     body: JSON.stringify({ container_id: item.container_id, ...(item.kind === "version" ? { version_id: item.version_id } : {}), actor }),
   });
   const j = (await r.json().catch(() => null)) as { message?: string; kind?: string; iso_name?: string } | null;
-  if (!r.ok || !j) throw new Error(j?.message || `HTTP ${r.status}`);
+  if (!r.ok || !j) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
   return j as { kind: string; iso_name: string };
 }
 

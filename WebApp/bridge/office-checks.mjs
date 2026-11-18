@@ -48,7 +48,7 @@ const noSnapshot = (id, label) => ({ ...classifySnapshotPresent(null), id, label
 
 export function classifyNamingRules(ruleset) {
   const id = "office.naming_rules", label = "Naming rules for families, types, views, sheets";
-  if (!ruleset) return result(id, label, "not_checkable", { reason: "The snapshot carried no ruleset, so the office's naming rules cannot be checked." });
+  if (!ruleset) return result(id, label, "not_checkable", { reason: "The snapshot carried no naming rules, so the office's naming rules cannot be checked." });
   const targets = new Set((ruleset.rules || []).map((r) => String(r.target || "").toLowerCase()));
   const evidence = REQUIRED_NAMING_TARGETS.filter((t) => !targets.has(t)).map((t) => ({ label: t, detail: `no ${t} naming rule` }));
   if (!String(ruleset.org || "").trim()) evidence.push({ label: "org", detail: "office code is empty — every {org} rule is skipped" });
@@ -60,16 +60,16 @@ export function classifyNamingRules(ruleset) {
 export function classifyTemplateTypes(catalog, ruleset) {
   const id = "office.template_types", label = "Template types follow the type convention";
   const rules = (ruleset?.rules || []).filter((r) => String(r.target).toLowerCase() === "type" && (r.tokens || []).length);
-  if (!rules.length) return result(id, label, "not_checkable", { reason: "No type-naming (TN) rule in the office ruleset — the convention is not declared, so nothing can be measured." });
+  if (!rules.length) return result(id, label, "not_checkable", { reason: "No type-naming (TN) rule in the office standards — the convention is not declared, so nothing can be measured." });
   const engineRules = rules.map((r) => expandOrg(r, ruleset.org));
   const byCat = new Map();
   for (const r of engineRules) for (const c of r.categories || []) byCat.set(c, r);
   const governed = (catalog?.types || []).filter((t) => byCat.has(t.category));
-  if (!governed.length) return result(id, label, "not_checkable", { reason: `The catalogue has no types in the governed categories (${[...byCat.keys()].join(", ")}).` });
+  if (!governed.length) return result(id, label, "not_checkable", { reason: `The catalogue has no types in the categories the standard covers (${[...byCat.keys()].join(", ")}).` });
   const engine = new RuleEngine();
   const bad = governed.filter((t) => engine.checkName(byCat.get(t.category), 0, t.type) !== null);
   const pct = Math.round(((governed.length - bad.length) / governed.length) * 100);
-  const summary = `${governed.length - bad.length} of ${governed.length} governed types (${pct} %) match the type convention; threshold ${TEMPLATE_TYPES_MIN_PCT} %.`;
+  const summary = `${governed.length - bad.length} of ${governed.length} types the standard covers (${pct} %) match the type convention; threshold ${TEMPLATE_TYPES_MIN_PCT} %.`;
   return pct >= TEMPLATE_TYPES_MIN_PCT
     ? result(id, label, "met", { summary })
     : result(id, label, "violations", { count: bad.length, summary, evidence: bad.slice(0, EVIDENCE_CAP).map((t) => ({ label: t.category, detail: t.type })) });
@@ -82,7 +82,7 @@ export function classifyWorksets(worksets, ruleset, source) {
   if (source?.kind === "template")
     return result(id, label, "not_checkable", { reason: "Revit templates (.rte) cannot carry worksets — send the office snapshot from a workshared starter model to measure this; a live model's workset names are also judged by the scan (office.model_health, rule WS-01)." });
   const rule = (ruleset?.rules || []).find((r) => String(r.target).toLowerCase() === "workset" && (r.whitelist || []).length);
-  if (!rule) return result(id, label, "not_checkable", { reason: "No workset whitelist rule in the office ruleset." });
+  if (!rule) return result(id, label, "not_checkable", { reason: "No workset whitelist rule in the office standards." });
   const want = new Set(rule.whitelist), have = new Set((worksets || []).map((w) => w.name));
   const evidence = [...[...want].filter((n) => !have.has(n)).map((n) => ({ label: "missing", detail: n })), ...[...have].filter((n) => !want.has(n)).map((n) => ({ label: "extra", detail: n }))];
   return evidence.length
@@ -106,7 +106,7 @@ export function classifyModelHealth(scan, now = new Date()) {
   if (!scan) return result(id, label, "not_checkable", { reason: "No scan report received — synchronise a model with the add-in installed." });
   if (!(ageDays(scan.at, now) <= SNAPSHOT_MAX_AGE_DAYS)) return result(id, label, "not_checkable", { reason: `Last scan is from ${day(scan.at)} (older than ${SNAPSHOT_MAX_AGE_DAYS} days).` });
   // A scan that names no ruleset judged nothing we can name: never a pass (spec 2026-09-25 decision 4).
-  if (!scan.ruleset_ref || scan.ruleset_ref === "none") return result(id, label, "not_checkable", { reason: `The latest scan names no ruleset (${scan.doc_title}, ${day(scan.at)}) — install a ruleset on the project or its office, then synchronise again.` });
+  if (!scan.ruleset_ref || scan.ruleset_ref === "none") return result(id, label, "not_checkable", { reason: `The latest scan names no rules (${scan.doc_title}, ${day(scan.at)}) — install standards on the project or its office, then synchronise again.` });
   const byRule = new Map();
   for (const v of scan.violations || []) { const m = byRule.get(v.rule_id) || { block: 0, warn: 0, request: 0, monitor: 0 }; m[v.mode] = (m[v.mode] || 0) + 1; byRule.set(v.rule_id, m); }
   // Prefer the scan's own per-mode totals (computed over ALL violations before truncation); fall back to
@@ -157,13 +157,13 @@ const snapshotOr = async (key, fn) => { const s = await getSnapshot(key); return
 export const OFFICE_CHECKS = [
   { id: "office.snapshot_present", label: "Office snapshot received", description: "The add-in has sent this office's standards pack and type catalogue within the last 30 days.", params_schema: {},
     async run(key) { return classifySnapshotPresent(await getSnapshot(key)); } },
-  { id: "office.naming_rules", label: "Naming rules for families, types, views, sheets", description: "The office ruleset carries naming rules for all four targets and a non-empty office code.", params_schema: {},
+  { id: "office.naming_rules", label: "Naming rules for families, types, views, sheets", description: "The office standards carry naming rules for all four targets and a non-empty office code.", params_schema: {},
     async run(key) { return snapshotOr(key, (s) => s ? classifyNamingRules(s.ruleset) : noSnapshot("office.naming_rules", "Naming rules for families, types, views, sheets")); } },
   { id: "office.template_types", label: "Template types follow the type convention", description: "At least 90 % of the template's wall/floor/ceiling/roof/door/window types match the office's TN rules.", params_schema: {},
     async run(key) { return snapshotOr(key, (s) => s ? classifyTemplateTypes(s.catalog, s.ruleset) : noSnapshot("office.template_types", "Template types follow the type convention")); } },
   { id: "office.worksets", label: "Worksets follow the office whitelist", description: "Every whitelisted workset exists in the template and no others do.", params_schema: {},
     async run(key) { return snapshotOr(key, (s) => s ? classifyWorksets(s.pack?.worksets, s.ruleset, s.source) : noSnapshot("office.worksets", "Worksets follow the office whitelist")); } },
-  { id: "office.shared_params", label: "Required shared parameters exist", description: "Every parameter the ruleset requires is bound in the template.", params_schema: {},
+  { id: "office.shared_params", label: "Required shared parameters exist", description: "Every parameter the standards require is bound in the template.", params_schema: {},
     async run(key) { return snapshotOr(key, (s) => s ? classifySharedParams(s.pack?.shared_parameters, s.ruleset) : noSnapshot("office.shared_params", "Required shared parameters exist")); } },
   { id: "office.model_health", label: "Live model health", description: "The latest scan shows no blocking violations and at most 25 warnings.", params_schema: {},
     async run(key) { return classifyModelHealth(await getScan(key)); } },
@@ -176,8 +176,8 @@ export const OFFICE_CHECKS = [
       const reg = await import("./check-registry.mjs");   // lazy: check-registry imports this file
       return classifyBep(bep, executability(bep, reg.CHECKS.map((c) => c.id), reg.PLANNED_CHECKS.map((p) => p.id)).score);
     } },
-  { id: "office.naming_standard", label: "Container naming standard installed", description: "A container naming standard (the naming artefact) is in force for the project or its office.", params_schema: {},
-    async run(key) { const reg = await import("./check-registry.mjs"); return reg.classifyStandard(await resolveArtefact(key, "naming"), "naming", "office.naming_standard", "Container naming standard installed"); } },
+  { id: "office.naming_standard", label: "File naming standard installed", description: "A file naming standard is in force for the project or its office.", params_schema: {},
+    async run(key) { const reg = await import("./check-registry.mjs"); return reg.classifyStandard(await resolveArtefact(key, "naming"), "naming", "office.naming_standard", "File naming standard installed"); } },
   { id: "office.roles", label: "Project roles: owner and lead present", description: "At least one owner and one lead are members of the project.", params_schema: {},
     async run(key) { return classifyRoles(await listMembers(key)); } },
   { id: "office.task_teams", label: "Task teams per discipline, each with a lead", description: "Task teams are declared and each names a lead.", params_schema: {},

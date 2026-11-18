@@ -5,6 +5,7 @@ import { C, btn, h } from "./dom";
 import { pathSegment } from "../setups/escape-html";
 import { groupByParty, INVITED_WORDS, type MemberRow } from "../setups/members-people";
 import type { PaneCtx } from "./workspace-page";
+import { showMessage } from "./workspace-state";
 
 export const PEOPLE_FOR_MEMBERS = "The people list is shown to members of the project.";
 export const PEOPLE_HINT = "Parties and invitations are set in Project Settings, Members.";
@@ -52,7 +53,7 @@ export function peopleTab(ctx: PaneCtx): HTMLElement {
 
   const saved = async (sent: Promise<unknown>): Promise<void> => {
     if (await sent) ctx.refresh("all");
-    else note.textContent = ctx.ws.state().message;
+    else showMessage(note, ctx.ws.state());
   };
 
   const leads = (rows: MemberRow[]): HTMLElement => {

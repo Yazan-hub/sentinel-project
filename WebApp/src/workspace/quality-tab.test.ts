@@ -88,18 +88,18 @@ describe("qualityTab", () => {
     expect(t).toContain("Bound but not written");
     expect(t).toContain("11. QA: qa.old is not a check Sentinel knows; it is not counted.");
   });
-  it("puts Compile to IDS at the top of an EIR's tab, and of no other document's", () => {
+  it("puts Turn into data requirements at the top of an EIR's tab, and of no other document's", () => {
     const eir = ctxWith();
     eir.st.doc = { ...docRow, doc_type: "EIR" };
     const root = qualityTab(eir);
-    expect(textOf(root.childNodes[0] as any)).toContain("Compile to IDS");
-    expect(button(qualityTab(ctxWith()), "Compile to IDS")).toBeUndefined();
+    expect(textOf(root.childNodes[0] as any)).toContain("Turn into data requirements");
+    expect(button(qualityTab(ctxWith()), "Turn into data requirements")).toBeUndefined();
   });
-  it("F11: Compile to IDS shows from contributor up on any status, never to a viewer", () => {
+  it("F11: Turn into data requirements shows from contributor up on any status, never to a viewer", () => {
     for (const [role, shown] of [["viewer", false], ["contributor", true], ["lead", true]] as const) {
       const c = ctxWith({ canGovern: false, canEdit: false });
       c.st.role = role; c.st.doc = { ...docRow, doc_type: "EIR", status: "published" };
-      expect(!!button(qualityTab(c), "Compile to IDS"), role).toBe(shown);
+      expect(!!button(qualityTab(c), "Turn into data requirements"), role).toBe(shown);
     }
   });
   it("reads the headline from the state each time it is built", () => {

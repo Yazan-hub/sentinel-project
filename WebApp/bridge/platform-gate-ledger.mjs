@@ -125,8 +125,8 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, t
   let written = 0, skipped = 0;
   let runs;
   try { runs = await deps.listExecutions(componentId, platformProjectId); }
-  catch (e) { return { written, skipped, reason: `the platform's gate runs were not read — ${why(e)}` }; }
-  if (!Array.isArray(runs)) return { written, skipped, reason: "the platform's gate runs were not read — the answer was not a list" };
+  catch (e) { return { written, skipped, reason: `the platform check runs were not read — ${why(e)}` }; }
+  if (!Array.isArray(runs)) return { written, skipped, reason: "the platform check runs were not read — the answer was not a list" };
   const finished = runs.filter((r) => str(r?._id) && r.result);
   const fresh = finished.filter((r) => !seen.has(String(r._id)));
   skipped = finished.length - fresh.length;
@@ -148,7 +148,7 @@ export async function syncPlatformGate(deps, { componentId, platformProjectId, t
   try {
     for (let i = 0; i < ids.length; i += CHUNK)
       for (const id of await deps.existingExecutionIds(proj.id, ids.slice(i, i + CHUNK))) seen.add(String(id));
-  } catch (e) { return { written, skipped, reason: `the ledger was not read — ${why(e)}` }; }
+  } catch (e) { return { written, skipped, reason: `History was not read — ${why(e)}` }; }
   const todo = fresh.filter((r) => !seen.has(String(r._id)))
     .sort((a, b) => createdAt(a) - createdAt(b) || String(a._id).localeCompare(String(b._id)));
   skipped += fresh.length - todo.length;

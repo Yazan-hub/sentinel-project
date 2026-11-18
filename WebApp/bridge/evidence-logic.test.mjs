@@ -248,7 +248,7 @@ describe("a concept model (MA-6-8)", () => {
     expect(magicRefusal("ifc", Buffer.from("%PDF-1.7\n1 0 obj"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
     expect(magicRefusal("ifc", Buffer.from("ISO-1030"), "model")).toBe("the file does not begin as a .ifc does — renamed or damaged");
     expect(sizeRefusal("ifc", 64 * MB, "model")).toBe(null); // MA-8-3 (D3): a 25 MB vendor export is read
-    expect(sizeRefusal("ifc", 64 * MB + 1, "model")).toBe("a .ifc is read inside the bridge — at most 64 MB (this one is 65537 KB); export it without its site, links and furniture");
+    expect(sizeRefusal("ifc", 64 * MB + 1, "model")).toBe("a .ifc is read inside Sentinel — at most 64 MB (this one is 65537 KB); export it without its site, links and furniture");
     expect(sizeRefusal("ifc", 70.3 * MB, "model")).toContain("(this one is 70.3 MB)");
     expect(sizeRefusal("las", 9e9, "scan")).toBe(null);
     expect(sizeRefusal("jpg", 64 * MB, "photo")).toBe(null); // MA-7-7 (R18)

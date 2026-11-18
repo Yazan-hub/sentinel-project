@@ -30,7 +30,7 @@ describe("activeRuleset", () => {
   it("is null on 404 — nothing installed on the project or its office", async () => {
     bfetch.mockResolvedValue(res(404, { message: "no ruleset artefact installed for aster-villa or its office" }));
     expect(await activeRuleset("http://b")).toBeNull();
-    expect(NO_RULESET).toBe("No ruleset installed for this project — install one from Settings ▸ Standards library");
+    expect(NO_RULESET).toBe("No project standards are installed for this project — install them from Settings ▸ Standards library");
   });
 
   it("a 404 that is not 'not installed' throws: a key the bridge does not know is not an empty project", async () => {

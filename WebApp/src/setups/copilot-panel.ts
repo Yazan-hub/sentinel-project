@@ -48,7 +48,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
   /** A bridge read in the bridge's own words: "can't reach the bridge" only when the fetch itself failed. */
   const readJson = async (url: string) => {
     let r: Response;
-    try { r = await bfetch(url); } catch (e) { throw new Error(`can't reach the bridge (${(e as Error)?.message ?? String(e)})`); }
+    try { r = await bfetch(url); } catch (e) { throw new Error(`Sentinel is not connected (${(e as Error)?.message ?? String(e)})`); }
     if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
     return r.json();
   };
@@ -251,7 +251,7 @@ export function copilotPanel(components: OBC.Components, opts: { baseUrl?: strin
       if (mode === "agent") { thinking.remove(); await runAgent(q, g); return; }
       let a = answer(q, g);
       // The issues answer comes from an empty list when the read failed — say not read, never "No open … issues".
-      if (g.issuesNotRead && a.sources.includes("BCF service")) a = { text: `Issues not read — ${g.issuesNotRead}`, sources: ["BCF service"] };
+      if (g.issuesNotRead && a.sources.includes("Issues")) a = { text: `Issues not read — ${g.issuesNotRead}`, sources: ["Issues"] };
       thinking.remove();
       if (a.fallback && g.hasModel) {
         // deterministic engine didn't match — try the local LLM, grounded; else show capabilities.

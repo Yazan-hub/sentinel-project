@@ -1,9 +1,10 @@
 import * as OBC from "@thatopen/components";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { withDetails } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import type { Ruleset } from "../sentinel-core";
-import { activeRuleset, installArtefact, refLabel, NO_RULESET } from "./active-ruleset";
+import { activeRuleset, installArtefact, refLabel, refParts, NO_RULESET } from "./active-ruleset";
 import { currentUser } from "./auth";
 import { projectTitle } from "../app";
 import { escapeHtml as esc } from "./escape-html";
@@ -34,6 +35,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
   let packs: Pack[] = [];
   let installedId = "";
   let officeKey: string | null = null;   // the active project's office — a pack installs there too (its projects inherit)
+  let inForceDetail = "";
   let inForce = "";   // `in force: ruleset@n · source · sha`, or NO_RULESET
   let forkFrom: Pack | null = null;
 
@@ -52,14 +54,14 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
   const val = (id: string) => (el(id) as HTMLInputElement).value;
-  const msg = (t: string, c = "#9ca3af") => { el("pk-msg").textContent = t; el("pk-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string) => { el("pk-msg").replaceChildren(withDetails(t, detail)); el("pk-msg").style.color = c; };
 
   // ── data ──────────────────────────────────────────────────────────────────────
   const publishPack = (p: Partial<Pack> & { ruleset: Ruleset }) =>
     bfetch(`${base}/packs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) });
   // SEC-5: a refused publish or fork says the bridge's words — never "Published".
   const okOr = async (r: Response) => {
-    if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `the bridge answered HTTP ${r.status}`);
+    if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { message?: string } | null)?.message || `Sentinel could not answer (HTTP ${r.status})`);
     return r;
   };
 
@@ -74,7 +76,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       reached = true;
       if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `HTTP ${r.status}`);
       const list = await r.json();
-      let inst = "", force: string;
+      let inst = "", force: string, forceDetail = "";
       let instErr = "";
       try {
         const pr = await bfetch(`${base}/projects/${encodeURIComponent(pid())}`);
@@ -87,10 +89,10 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
           if (hub.ok) { const row = ((await hub.json()) as { key: string; kind?: string; office_key?: string | null }[]).find((x) => x.key === pid()); officeKey = row && row.kind !== "office" ? (row.office_key ?? null) : null; }
         } catch { /* no office button when the hub is not read */ }
       } catch (e) { instErr = `installed pack not read — ${(e as Error).message}`; }
-      try { const a = await activeRuleset(base); force = a ? `in force: ${refLabel(a)}` : NO_RULESET; } catch (e) { force = `ruleset in force unknown: ${(e as Error).message}`; }
+      try { const a = await activeRuleset(base); force = a ? `in force: ${refParts(a).text}` : NO_RULESET; forceDetail = a ? refLabel(a) : ""; } catch (e) { force = `project standards in force unknown: ${(e as Error).message}`; }
       if (instErr) force = `${force} · ${instErr}`;
       if (mine !== seq) return;
-      packs = list; installedId = inst; inForce = force;
+      packs = list; installedId = inst; inForce = force; inForceDetail = forceDetail;
       renderBrowse();
     } catch (e) {
       if (mine !== seq) return;
@@ -98,14 +100,14 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       packs = [];
       el("pk-count").textContent = "";
       el("pk-body").innerHTML = `<div style="color:#ef4444;font-size:12px">Packs not read — ` +
-        (reached ? esc((e as Error).message) : `can't reach the service (npm run bcf:serve).<br>${esc((e as Error).message)}`) + "</div>";
+        (reached ? esc((e as Error).message) : `Sentinel is not connected. Ask your administrator to start Sentinel on the office PC.<details style="display:inline-block;margin-left:.3rem"><summary>Details</summary><code>npm run bcf:serve — ${esc((e as Error).message)}</code></details>`) + "</div>";
     }
   };
 
   // ── browse ──────────────────────────────────────────────────────────────────
   const renderBrowse = () => {
     forkFrom = null;
-    el("pk-count").textContent = `(${packs.length}) · ${inForce}`;
+    el("pk-count").replaceChildren(withDetails(`(${packs.length}) · ${inForce}`, inForceDetail));
     el("pk-body").innerHTML = packs.map((p) => {
       const installed = p.id === installedId;
       const rules = p.ruleset?.rules?.length ?? 0;
@@ -114,7 +116,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
         `<span style="font:600 10px ui-monospace,Consolas,monospace;color:#9ca3af">${esc(p.key)}@${esc(p.version)}</span></div>` +
         `<div style="font-size:11.5px;color:#9ca3af;margin:.25rem 0">${esc(p.description)}</div>` +
         `<div style="display:flex;gap:.3rem;flex-wrap:wrap;margin-bottom:.4rem">${(p.tags || []).map((t) => `<span style="font-size:10px;color:#c4b5fd;border:1px solid #6528d755;border-radius:100px;padding:.05rem .4rem">${esc(t)}</span>`).join("")}` +
-        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""}${p.ids ? " · ids" : ""}${p.layers ? " · layers" : ""}${p.contract ? " · contract" : ""} · ${esc(p.installs || 0)} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
+        `<span style="font-size:10px;color:#6b7280">${rules} rule(s)${p.naming ? " · naming" : ""}${p.ids ? " · data requirements" : ""}${p.layers ? " · layers" : ""}${p.contract ? " · pre-publish check rules" : ""} · ${esc(p.installs || 0)} install(s) · ${esc(p.author)}${p.forked_from ? " · forked" : ""}</span></div>` +
         '<div style="display:flex;gap:.4rem">' +
           (installed ? `<span style="${btn};background:#16a34a22;color:#4ade80;border:1px solid #16a34a55">✓ Installed</span>` : `<button class="pk-install" data-id="${esc(p.id)}" style="${btn};background:#6528d7;color:#fff">Install</button>`) +
           (officeKey ? `<button class="pk-install-office" data-id="${esc(p.id)}" title="The office's projects inherit it; a project overlays it by installing its own" style="${btn};background:#2a2a30;color:#c4b5fd;border:1px solid #6528d755">Install on office ${esc(officeKey)}</button>` : "") +
@@ -142,9 +144,9 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       await bfetch(`${base}/packs/${encodeURIComponent(id)}/install`, { method: "POST" });   // marketplace counter
       await bfetch(`${base}/projects/${encodeURIComponent(target)}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ standards_pack: id }) }); // display name only
       if (target === pid()) installedId = id;
-      msg(`Installed ${pack.name} as ${refs.join(" + ")} on ${target}${target !== pid() ? ` — ${pid()} and the office's other projects inherit it unless they install their own` : ""}. QA, the Copilot and the stage gates now enforce it — re-run a Scan to see it apply.`, "#22c55e");
+      msg(`Installed ${pack.name} on ${target}${target !== pid() ? ` — ${pid()} and the office's other projects inherit it unless they install their own` : ""}. QA, the Copilot and the stage checks now enforce it — re-run a Scan to see it apply.`, "#22c55e", refs.join(" + "));
       await load();
-    } catch (e) { msg("Install failed: " + ((e as Error)?.message ?? String(e)) + (refs.length ? ` — ${refs.join(" + ")} did install` : ""), "#ef4444"); }
+    } catch (e) { msg("Install failed: " + ((e as Error)?.message ?? String(e)) + (refs.length ? " — part of it did install" : ""), "#ef4444", refs.length ? `${refs.join(" + ")} did install` : undefined); }
   };
 
   // ── publish / fork ────────────────────────────────────────────────────────────
@@ -161,7 +163,7 @@ export function packsPanel(components: OBC.Components, opts: { baseUrl?: string 
       `<input id="pk-name" value="${esc(src ? src.name + " (fork)" : "")}" placeholder="Display name" style="${inp};width:100%;margin-bottom:.4rem"/>` +
       `<input id="pk-desc" value="${esc(src ? src.description : "")}" placeholder="Description" style="${inp};width:100%;margin-bottom:.4rem"/>` +
       `<input id="pk-tags" value="${esc(src ? (src.tags || []).join(", ") : "")}" placeholder="Tags (comma-separated)" style="${inp};width:100%;margin-bottom:.4rem"/>` +
-      `<div style="font-size:11.5px;color:#9ca3af;margin-bottom:.5rem">Rules come from ${src ? `<b>${esc(src.name)}</b>` : "the <b>project's active ruleset</b>"} (${rules} rule(s)). Edit rules in Revit (Standards Engine), then re-publish a new version.</div>` +
+      `<div style="font-size:11.5px;color:#9ca3af;margin-bottom:.5rem">Rules come from ${src ? `<b>${esc(src.name)}</b>` : "the <b>project's standards</b>"} (${rules} rule(s)). Edit rules in Revit (Standards Engine), then re-publish a new version.</div>` +
       '<div style="display:flex;gap:.4rem">' +
         `<button id="pk-cancel" style="${btn};background:#2a2a30;color:#eee;flex:1">Cancel</button>` +
         `<button id="pk-do" style="${btn};background:#6528d7;color:#fff;flex:2">${src ? "Fork it" : "Publish"}</button></div>`;

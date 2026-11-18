@@ -34,7 +34,7 @@ export function createLine(t: Choice): string {
 }
 /** F-RUN-6: a TIDP opens read-only (plans are made in Deliverables), so the start picker does not offer one. */
 export const creatable = (list: Choice[]): Choice[] => list.filter((t) => String(t.doc_type).toUpperCase() !== "TIDP");
-export const TIDP_MOVED = "A task team's delivery plan (TIDP) is made in Documents ▸ Delivery plan ▸ By task team, not as a document.";
+export const TIDP_MOVED = "A team delivery plan is made in Documents ▸ Delivery plan ▸ By task team, not as a document.";
 
 const BLANK: Record<BlockKind, () => unknown> = {
   text: () => ({ markdown: "" }), table: () => ({ columns: [], rows: [], group_by_team: false }),

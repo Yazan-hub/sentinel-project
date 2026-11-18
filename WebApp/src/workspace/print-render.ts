@@ -37,7 +37,7 @@ export function coverLines(input: PrintInput, today: string): string[] {
   const { row, version } = input;
   const stage = own(STAGE_WORDS, version?.stage ?? row.stage) ?? DASH;
   return [
-    row.title, `Project: ${input.projectKey}`, `Container ID: ${input.containerId || "not assigned"}`, ...(showsStage(row.doc_type) ? [`Stage: ${stage}`] : []),
+    row.title, `Project: ${input.projectKey}`, `File ID: ${input.containerId || "not assigned"}`, ...(showsStage(row.doc_type) ? [`Stage: ${stage}`] : []),
     `Revision: ${version?.revision ?? DASH}`, `Suitability: ${version?.suitability ?? row.suitability ?? DASH}`,
     `Version: ${version ? `v${version.version_no}, ${version.label}` : liveWord(row.status)}`, `Date: ${version ? String(version.published_at).slice(0, 10) : today}`,
     ...(version ? [] : [`${liveWord(row.status)}, live data`]),
@@ -50,10 +50,10 @@ export function pickPrintSource(st: WorkspaceState): { kind: "live" } | { kind: 
   return { kind: "live" };
 }
 
-/** Why a container ID fails the naming rule: one sentence of reasons, or null when it passes. */
+/** Why a file ID fails the naming rule: one sentence of reasons, or null when it passes. */
 export function containerIdReasons(id: string, rs: NamingRuleset): string | null {
   const r = validateContainerName(id, rs);
-  return r.ok ? null : `This container ID does not follow the naming rule in force: ${r.failures.map((f) => f.reason).join("; ")}`;
+  return r.ok ? null : `This file ID does not follow the naming rule in force: ${r.failures.map((f) => f.reason).join("; ")}`;
 }
 
 export function containerIdProblem(id: string, rs: NamingRuleset | null): string | null {

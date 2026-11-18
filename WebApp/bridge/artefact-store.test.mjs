@@ -340,7 +340,7 @@ describe("artefactReply — the GET route's answer (ETag, 304, 404 reasons)", ()
   });
   it("404 not_installed when neither the project nor its office has the kind", async () => {
     const r = await artefactReply("aster-villa", "ids", undefined, memDeps({ parentKey: "aster-office" }));
-    expect(r).toEqual({ status: 404, body: { message: "no ids artefact installed for aster-villa or its office (PUT /cde/aster-villa/artefacts/ids)", reason: "not_installed" } });
+    expect(r).toEqual({ status: 404, body: { message: "no ids standard installed for aster-villa or its office — install one in Settings > Standards library", detail: "PUT /cde/aster-villa/artefacts/ids", reason: "not_installed" } });
   });
   it("404 no_project when the key is unknown to the bridge — never read as nothing installed", async () => {
     const d = memDeps();

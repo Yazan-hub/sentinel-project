@@ -141,7 +141,7 @@ describe("section operations (lead and above, ledgered with the outline)", () =>
     await expect(reorderSections("k", doc.id, { order: ["sec2"] })).rejects.toMatchObject({ status: 400, message: "the new order must name every section once" });
   });
   it("removing a bound section asks first and names the check that left", async () => {
-    await expect(removeSection("k", doc.id, "sec2", {})).rejects.toMatchObject({ status: 422, message: "This section is bound to checks (naming.containers); confirm to remove it. Nothing was saved." });
+    await expect(removeSection("k", doc.id, "sec2", {})).rejects.toMatchObject({ status: 422, message: "This section is tied to checks; confirm to remove it. Nothing was saved." });
     await removeSection("k", doc.id, "sec2", { confirm_bound: true });
     expect(audit).toHaveBeenLastCalledWith("proj1", "bim_document", doc.id, "document_structure_changed", "web", expect.anything(),
       expect.objectContaining({ op: "remove", section_id: "sec2", checks_removed: ["naming.containers"] }));

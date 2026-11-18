@@ -77,7 +77,7 @@ describe("saveWithLedger", () => {
     const cde = fakeCde({ noRow: true });
     let saved = false;
     await expect(saveWithLedger(cde, { before: T, topic: topic("p3"), actor: "a@x", save: async () => { saved = true; } }))
-      .rejects.toMatchObject({ status: 502, message: "the ledger gave no row back — nothing was changed" });
+      .rejects.toMatchObject({ status: 502, message: "History gave no row back — nothing was changed" });
     expect(saved).toBe(false);
   });
 

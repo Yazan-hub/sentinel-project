@@ -49,7 +49,7 @@ export async function mirrorState(versionId, deps = {}) {
     // The newest state: row (cde_transition, migration 0032: entity_type container_version) — its own new_value.state is
     // the state it recorded, so the label's state and row always belong together.
     const [row] = (await sb(`audit_log?entity_type=eq.container_version&entity_id=eq.${versionId}&action=like.state:*&order=id.desc&limit=1&select=id,new_value`, { service: true })) || [];
-    if (!row?.id) return skip("the version has no state: row on the ledger");
+    if (!row?.id) return skip("the version has no state entry in History");
     // SEC-5 (S17): the label speaks for one project's version. An item that versions on two projects name is not mirrored.
     const named = (await sb(`container_versions?platform_item_id=eq.${encodeURIComponent(item)}&select=id,information_containers(project_id)`, { service: true })) || [];
     const projects = new Set(named.map((x) => x?.information_containers?.project_id ?? null));
@@ -65,18 +65,18 @@ export async function mirrorState(versionId, deps = {}) {
       // for this version (SEC-7 stores it at upload); an item whose link recorded none is not mirrored.
       const [link] = (await sb(`audit_log?entity_type=eq.file_version&entity_id=eq.${versionId}&action=eq.${encodeURIComponent("geometry linked")}&order=id.desc&limit=1&select=new_value`, { service: true })) || [];
       tag = typeof link?.new_value?.version_tag === "string" && link.new_value.version_tag ? link.new_value.version_tag : null;
-      if (!tag) return skip(`the platform item has ${count === null ? "no list of" : count} versions, not one, and the ledger's link recorded no tag — the tag is not known`);
+      if (!tag) return skip(`the platform item has ${count === null ? "no list of" : count} versions, not one, and History's link recorded no tag — the tag is not known`);
       if (count !== null && !versions.some((x) => x?.tag === tag)) return skip(`the platform no longer serves version tag "${tag}" of the item — not mirrored`);
     }
     if (!tag) return skip("the platform version has no tag");
     const file = await client.getFile(item);
-    if (/\.ifc$/i.test(file?.name || "") || /^\.?ifc$/i.test(file?.fileExtension || "")) return skip(`${file?.name || "the item"} is an IFC — the gate's labels live there, only a .frag carries the state`);
+    if (/\.ifc$/i.test(file?.name || "") || /^\.?ifc$/i.test(file?.fileExtension || "")) return skip(`${file?.name || "the item"} is an IFC — the check labels live there, only a .frag carries the state`);
     const merged = stateLabels(await client.getFileVersionMetadata(item, tag), state, row.id);
     // Already current is not a failure: no "not mirrored" line, the answer says so.
-    if (!merged) return { mirrored: false, current: true, reason: `up to date — the label already names ledger #${row.id} or a newer state: row` };
+    if (!merged) return { mirrored: false, current: true, reason: `up to date — the label already names History #${row.id} or a newer state entry` };
     await client.updateFileVersionMetadata(item, tag, merged);
     return { mirrored: true, item, tag, state, row: row.id };
   } catch (e) {
-    return skip(`the platform or the ledger answered: ${e?.message || e}`);
+    return skip(`the platform or History answered: ${e?.message || e}`);
   }
 }

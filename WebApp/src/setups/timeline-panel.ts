@@ -5,6 +5,7 @@ import { elementLevels } from "../sentinel-core/adapter/fragments-levels";
 import { defaultSequence, levelSequence, csvToSchedule, scheduleRange, buildBoQ, buildCarbon, defaultRates, defaultFactors, taskInformation, type Schedule, type MidpRow, type InfoState } from "../sentinel-core";
 import { SERVICE_URL } from "../config";
 import { bfetch } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid } from "./active-project";
 import { escapeHtml as esc } from "./escape-html";
 
@@ -68,13 +69,13 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
     "</div>" +
     '<div id="tl-body" style="flex:1;overflow:auto;padding:.5rem .6rem">' +
       '<div id="tl-empty" style="color:#9ca3af;font-size:12px;padding:.6rem;line-height:1.6">' +
-        "Turn the programme into a view of the model.<br>Load a model, then <b>Generate</b> a trade sequence — or <b>Import</b> a programme CSV (<code>name,start,finish,categories,containers</code> — the last names the MIDP information each task needs). Scrub the timeline to watch it build." +
+        "Turn the programme into a view of the model.<br>Load a model, then <b>Generate</b> a trade sequence — or <b>Import</b> a programme CSV (<code>name,start,finish,categories,containers</code> — the last names the delivery plan information each task needs). Scrub the timeline to watch it build." +
       "</div>" +
     "</div>" +
     '<div id="tl-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, c = "#9ca3af") => { el("tl-msg").textContent = t; el("tl-msg").style.color = c; };
+  const msg = (t: string, c = "#9ca3af", detail?: string | null) => { el("tl-msg").replaceChildren(withDetails(t, detail)); el("tl-msg").style.color = c; };
 
   // ── build the category → elements index from the model, then per-task maps ────
   const indexModel = async (): Promise<boolean> => {
@@ -174,10 +175,10 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
       const none = s.tasks.filter((t) => unlinked(t.id));
       if (none.length) parts.push(`${none.length} task(s) match no element of the loaded models (${none.slice(0, 4).map((t) => t.name).join(", ")}${none.length > 4 ? " …" : ""}) — not counted as built.`);
       const flagged = [...info.values()].flat().filter((i) => i.state !== "ready").length;
-      if (infoNotRead) parts.push(`MIDP not read — ${infoNotRead}.`);
+      if (infoNotRead) parts.push(`Delivery plan not read — ${infoNotRead}.`);
       else if (info.size) parts.push(flagged ? `${flagged} information item(s) not ready before their task starts — see the tasks.` : "Every named information item is delivered before its task starts.");
       msg(parts.join(" "), s.refused?.length || none.length || flagged || infoNotRead ? "#eab308" : undefined);
-    } catch (e) { msg("CSV import failed: " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("CSV import failed: " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
   };
 
   /** The MIDP's status for the containers the programme names (GET /deliverables/:key/status) → each task's verdicts. */
@@ -187,7 +188,7 @@ export function timelinePanel(components: OBC.Components): HTMLElement {
     try {
       const r = await bfetch(`${SERVICE_URL.replace(/\/$/, "")}/deliverables/${encodeURIComponent(activePid())}/status`);
       const j = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+      if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
       const rows = (j?.rows ?? []) as MidpRow[];
       for (const t of s.tasks) if (t.containers?.length) info.set(t.id, taskInformation(t, rows));
     } catch (e) { infoNotRead = (e as Error)?.message ?? String(e); }

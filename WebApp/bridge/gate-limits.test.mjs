@@ -271,7 +271,7 @@ describe("SEC-5 (F-a): the pack registry is the machine credential's — a signe
     for (const path of ["/packs", "/packs/bds-house@1.4.1/fork", "/packs/bds-house@1.4.1/install"]) {
       const r = await fetch(`http://127.0.0.1:${b.port}${path}`, { method: "POST", headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" }, body: JSON.stringify({ key: "sec5-pack", version: "1.0.0" }) });
       expect(r.status, path).toBe(403);
-      expect((await r.json()).message, path).toBe("the standards-pack registry is written by the bridge's machine credential — a signed-in publish, fork or install count is not open yet; nothing was published");
+      expect((await r.json()).message, path).toBe("the standards-pack registry is written by Sentinel's own account — a signed-in publish, fork or install count is not open yet; nothing was published");
     }
     expect(sent).toEqual([]);
   });
@@ -403,7 +403,7 @@ describe("the local stores — the single desktop's only, never a signed-in call
       ["/rfis/gl", { method: "POST", body: JSON.stringify({ subject: "s" }) }], ["/packs", { method: "POST", body: JSON.stringify({ key: "k", version: "1" }) }]]) {
       const r = await as(jwt, path, init);
       expect(r.status, path).toBe(503);
-      expect((await r.json()).message, path).toContain("the team store is not configured on this bridge");
+      expect((await r.json()).message, path).toContain("Sentinel's team storage is not set up on this installation");
     }
   });
 
@@ -454,7 +454,7 @@ describe("the team store without the anon key — a verified sign-in is never se
     for (const path of ["/projects", "/rfis/gl", "/bimdocs/templates"]) {
       const r = await fetch(`http://127.0.0.1:${b.port}${path}`, { headers: { Authorization: `Bearer ${userJwt()}` } });
       expect(r.status, path).toBe(503);
-      expect((await r.json()).message, path).toContain("this bridge does not forward sign-ins (SUPABASE_ANON_KEY)");
+      expect((await r.json()).message, path).toContain("this installation cannot accept sign-ins yet");
     }
   });
 });

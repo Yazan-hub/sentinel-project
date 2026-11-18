@@ -318,7 +318,7 @@ export function planIfc({ job, candidates, frame, levels: named = {}, manifest =
       byCid.set(s.cid, trust(lv));
     }
     if (elements.length > MAX_CHANGESET_ELEMENTS)
-      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one changeset (one Undo) holds; a storey is not split into changesets yet — export a part of the concept — nothing was saved`);
+      throw err(413, `${s.cid} would file ${elements.length} elements on ${s.level} — over the ${MAX_CHANGESET_ELEMENTS} one set of proposed changes (one Undo) holds; a storey is not split into several sets yet — export a part of the concept — nothing was saved`);
     // MA-8-3: a vendor's IFC says whose in the changeset's name
     return { storey: s, byCid, exceptions, once: [], body: { name: `IFC${job.provider && job.provider !== "own" ? ` (${job.provider})` : ""} ${job.id} · ${s.level}`, contract: 2, source: `${job.reader} ${job.version}`, elements, exceptions } };
   });

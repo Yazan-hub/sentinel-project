@@ -588,7 +588,7 @@ describe("weeklyReport", () => {
 
   it("says so plainly when nothing is at risk", () => {
     const md = weeklyReport({ ...status, summary: { total: 1, delivered: 1 } }, tidp);
-    expect(md).toMatch(/Nothing is overdue, late or stuck in WIP/);
+    expect(md).toMatch(/Nothing is overdue, late or stuck in work in progress/);
   });
 
   it("renders the exception register as a table with the owing team", () => {

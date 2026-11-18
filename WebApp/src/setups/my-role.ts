@@ -34,7 +34,7 @@ export async function myRoleRead(base: string, key: string): Promise<{ role: str
 export const roleWords = (r: { role: string; read: boolean }): string =>
   !r.read ? "role not read — read-only"
     : r.role === NOT_MEMBER ? "not a member of this project (or it was not found) — read-only"
-      : r.role === SIGNED_OUT ? "sign-in not accepted by the bridge — sign in again; read-only"
+      : r.role === SIGNED_OUT ? "Your sign-in was not accepted. Sign in again — read-only"
         : `your role: ${r.role}`;
 
 /** contributor and up may change content. */

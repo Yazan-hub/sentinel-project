@@ -10,14 +10,15 @@ import { rejectionTopic } from "./review-logic.mjs";
 import { currentUserToken, currentSub, resolveActor } from "./bridge-auth.mjs";
 import { myMembership, ROLE_RANK } from "./members-store.mjs";
 
-const err = (status, message) => Object.assign(new Error(message), { status });
+const err = (status, message, detail) => Object.assign(new Error(message), { status, ...(detail ? { detail } : {}) });
 const enc = encodeURIComponent;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DB_STATUS = { P0001: 409, P0002: 404, "42501": 403 };
-const NO_SESSION = "Sending, deciding and withdrawing are a signed-in person's: sign in (and the bridge must forward the session: SUPABASE_ANON_KEY). Nothing was done.";
+const NO_SESSION = "Sending, deciding and withdrawing are a signed-in person's: sign in. Nothing was done.";
+const NO_SESSION_DETAIL = "the bridge must forward the session: SUPABASE_ANON_KEY";
 
 /** The machine credential decides nothing: refused before any call. */
-const requireSignedIn = () => { if (!currentUserToken() || !forwardingConfigured()) throw err(403, NO_SESSION); };
+const requireSignedIn = () => { if (!currentUserToken() || !forwardingConfigured()) throw err(403, NO_SESSION, NO_SESSION_DETAIL); };
 
 /** Call one of 0053's functions with the caller's own session; a refusal comes back as the function's words alone (no "Supabase 4xx: {json}" envelope, F-R2a-2). */
 async function callFn(name, body) {

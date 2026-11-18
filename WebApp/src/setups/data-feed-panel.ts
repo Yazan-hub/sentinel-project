@@ -1,6 +1,7 @@
 import { askYesNo } from "./ask";
 import { SERVICE_URL } from "../config";
 import { bfetch, bwrite } from "./bridge-fetch";
+import { detailOf, withDetails } from "./details";
 import { activePid, onActiveProjectChange } from "./active-project";
 import { escapeHtml as esc, fmtDate } from "./escape-html";
 
@@ -60,7 +61,7 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     '<div id="df-msg" style="padding:.4rem .6rem;border-top:1px solid #2a2a30;color:#9ca3af;font-size:12px;min-height:1rem"></div>';
 
   const el = (id: string) => root.querySelector("#" + id) as HTMLElement;
-  const msg = (t: string, color = "#9ca3af") => { el("df-msg").textContent = t; el("df-msg").style.color = color; };
+  const msg = (t: string, color = "#9ca3af", detail?: string | null) => { el("df-msg").replaceChildren(withDetails(t, detail)); el("df-msg").style.color = color; };
   const copy = async (text: string, what: string) => {
     try { await navigator.clipboard.writeText(text); msg(`Copied ${what}.`, "#22c55e"); }
     catch { msg(`Copy is blocked in this browser — select ${what} and copy it by hand.`, "#eab308"); }
@@ -82,7 +83,7 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     try {
       const r = await bfetch(`${base}/feed/keys`);
       const j = await r.json().catch(() => null);
-      if (!r.ok) throw new Error(j?.message || `HTTP ${r.status}`);
+      if (!r.ok) throw Object.assign(new Error(j?.message || `HTTP ${r.status}`), { detail: (j as { detail?: string } | null)?.detail });
       const keys = j as FeedKey[];
       el("df-keys").innerHTML = keys.length
         ? keys.map((k) => `<div style="display:flex;align-items:center;gap:.4rem;padding:.25rem 0;border-top:1px solid #222;font-size:12px${k.revoked_at ? ";color:#6b7280" : ""}">` +
@@ -110,7 +111,7 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
       el("df-copykey").addEventListener("click", () => void copy(k.key, "the feed key"));
       msg("✅ Feed key made — copy it now.", "#22c55e");
       await loadKeys();
-    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); }
+    } catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); }
     finally { b.disabled = false; }
   };
 
@@ -118,7 +119,7 @@ export function dataFeedPanel(opts: { baseUrl?: string } = {}): HTMLElement {
     if (!(await askYesNo("Revoke this feed key? Every report that uses it stops refreshing until you give it a new key.", { ok: "Revoke" }))) return;
     b.disabled = true;
     try { await bwrite(`${base}/feed/keys/${encodeURIComponent(id)}`, { method: "DELETE" }); msg("✅ Key revoked — it reads nothing from now on.", "#22c55e"); if (id === shownId) { el("df-new").innerHTML = ""; shownId = null; } await loadKeys(); }
-    catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444"); b.disabled = false; }
+    catch (e) { msg("❌ " + ((e as Error)?.message ?? String(e)), "#ef4444", detailOf(e)); b.disabled = false; }
   };
 
   el("df-make").addEventListener("click", () => void make());

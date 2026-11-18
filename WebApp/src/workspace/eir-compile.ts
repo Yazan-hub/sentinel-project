@@ -7,6 +7,7 @@ import { artefactInForce, installArtefact, type InForce } from "../setups/active
 import { canGovernRole } from "../setups/my-role";
 import { C, btn, h } from "./dom";
 import type { PaneCtx } from "./workspace-page";
+import { showMessage } from "./workspace-state";
 
 type Spec = { name?: string; entity?: string; property?: string; source_sentence?: string };
 export interface CompileResult { stats: Record<string, number>; specifications: Spec[]; unmatched: { sentence: string; reason: string }[];
@@ -27,16 +28,16 @@ export function compileLines(r: CompileResult): { text: string; tone: Tone }[] {
   const out: { text: string; tone: Tone }[] = [];
   const skipped = arr<CompileResult["skipped"][number]>(r.skipped), unmatched = arr<CompileResult["unmatched"][number]>(r.unmatched);
   out.push({ text: `Checks from this EIR: ${r.stats?.compiled ?? 0} of ${r.stats?.requirement_sentences ?? 0} requirement sentence(s) read`, tone: "head" });
-  out.push({ text: "A proposal: check each line against the sentence it came from. A sentence in red is in the EIR but not in the IDS. Reword it, or it is not checked.", tone: "warn" });
+  out.push({ text: "A proposal: check each line against the sentence it came from. A sentence in red is in the EIR but not in the data requirements. Reword it, or it is not checked.", tone: "warn" });
   out.push({ text: r.current
-    ? `Installing keeps ${r.kept} check(s) of ${r.current}. The checks made from the contract and naming rules stay. It replaces what an earlier EIR compile added.`
-    : "No IDS is installed on this project yet.", tone: "note" });
+    ? `Installing keeps ${r.kept} check(s) of ${r.current}. The checks made from the pre-publish check rules and naming rules stay. It replaces what an earlier EIR added.`
+    : "No data requirements are installed on this project yet.", tone: "note" });
   for (const sk of skipped) out.push({ text: `${inName(sk.name)}: ${inReason(sk.reason)}`, tone: "warn" });
   for (const sp of arr<Spec>(r.specifications).filter((s) => !skipped.some((k) => k.name === s.name && k.source_sentence === s.source_sentence))) {
     out.push({ text: sp.name ? inName(sp.name) : `${sp.entity || "?"}: ${sp.property || "?"}`, tone: "ok" });
     if (sp.source_sentence) out.push({ text: `from: “${sp.source_sentence}”`, tone: "note" });
   }
-  for (const u of unmatched) { out.push({ text: `Not in the IDS: “${u.sentence}”`, tone: "bad" }); out.push({ text: inReason(u.reason), tone: "note" }); }
+  for (const u of unmatched) { out.push({ text: `Not in the data requirements: “${u.sentence}”`, tone: "bad" }); out.push({ text: inReason(u.reason), tone: "note" }); }
   const n = arr(r.xml_skipped).length;
   if (n) out.push({ text: `The .ids file leaves out ${n} check(s) its format cannot hold. Sentinel still checks them.`, tone: "warn" });
   return out;
@@ -50,16 +51,16 @@ export function eirCompile(ctx: PaneCtx): HTMLElement {
   const stale = (): boolean => ctx.ws.state().key !== key; // the project changed while a call ran: its answer is no longer this page's
   const root = h(d, "div", `border-bottom:1px solid ${C.line};padding-bottom:.6rem;margin-bottom:.6rem`);
   if (!doc) return root;
-  const compile = btn(d, "Compile to IDS");
+  const compile = btn(d, "Turn into data requirements");
   const say = h(d, "div", `color:${C.warn};font:12px system-ui;margin:.3rem 0`), out = h(d, "div");
-  root.append(h(d, "div", `font:600 11px system-ui;color:${C.muted};margin:0 0 .3rem`, "IDS from this EIR"), compile, say, out);
+  root.append(h(d, "div", `font:600 11px system-ui;color:${C.muted};margin:0 0 .3rem`, "Data requirements from this EIR"), compile, say, out);
 
   compile.addEventListener("click", async () => {
     compile.disabled = true; compile.textContent = "Compiling…"; say.textContent = ""; out.replaceChildren();
-    const restore = (): void => { compile.disabled = false; compile.textContent = "Compile to IDS"; };
+    const restore = (): void => { compile.disabled = false; compile.textContent = "Turn into data requirements"; };
     let inForce: InForce | null; // read before the compile: the install's If-Match (the compile answer's `current` is a label, not a sha)
     try { inForce = await artefactInForce(ctx.base, key, "ids"); } catch (e) {
-      if (!stale()) { restore(); say.textContent = `The IDS in force could not be read: ${(e as Error).message}`; }
+      if (!stale()) { restore(); say.textContent = `The data requirements in force could not be read: ${(e as Error).message}`; }
       return;
     }
     if (stale()) return;
@@ -67,7 +68,7 @@ export function eirCompile(ctx: PaneCtx): HTMLElement {
     const r = await ctx.ws.post<CompileResult>(`/cde/${encodeURIComponent(key)}/artefacts/ids/eir`, { text: eirText(doc), title: `${doc.title}, compiled IDS` });
     if (stale()) return;
     restore();
-    if (!r) { say.textContent = ctx.ws.state().message || "The compile did not finish. Nothing was installed."; return; }
+    if (!r) { showMessage(say, ctx.ws.state(), "This did not finish. Nothing was installed."); return; }
 
     const box = h(d, "div", `border:1px solid ${C.border};border-radius:.4rem;padding:.6rem;margin:.4rem 0;background:${C.side};color:${C.soft};font:12px system-ui`);
     for (const l of compileLines(r)) box.append(h(d, "div", `${TONE[l.tone]};padding:.15rem 0`, l.text));
@@ -80,20 +81,22 @@ export function eirCompile(ctx: PaneCtx): HTMLElement {
       a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); // revoked at once, the browser may not have started the download
     });
     actions.append(download);
-    if (unusable) result.textContent = "The IDS in force could not be read; nothing can be installed now.";
+    if (unusable) result.textContent = "The data requirements in force could not be read; nothing can be installed now.";
     // Installing is a governance action on the project, not an edit of this EIR: a lead's, on any status (a published EIR is what is installed).
     else if (canGovernRole(st.role) && arr(r.specifications).length > 0) { // a compile with no checks would pass every model vacuously: not offered
-      const install = btn(d, "Install on this project", true);
+      const install = btn(d, "Use as the project's data requirements", true);
       install.addEventListener("click", async () => {
         install.disabled = true; install.textContent = "Installing…"; result.textContent = "";
         try {
           const p = await installArtefact(ctx.base, key, "ids", { ...r.ids, source: { document_id: doc.id, compiled_at: new Date().toISOString() } }, st.me, inForce?.sha256 ?? "none");
           if (stale()) return;
-          install.textContent = "Installed"; result.textContent = `Installed ids@${p.version} on ${key}.`;
+          install.textContent = "Installed"; result.textContent = `Installed the data requirements on ${key}. `;
+          const more = d.createElement("details"), sum = d.createElement("summary"), code = d.createElement("code"); // closed Details: the version
+          sum.textContent = "Details"; code.textContent = `ids@${p.version}`; more.append(sum, code); result.append(more);
         } catch (e) {
           if (stale()) return;
-          if ((e as { status?: number }).status === 412) { install.textContent = "Install on this project"; result.textContent = "The IDS in force changed while you looked; compile again. Nothing was installed."; return; }
-          install.disabled = false; install.textContent = "Install on this project"; result.textContent = (e as Error).message;
+          if ((e as { status?: number }).status === 412) { install.textContent = "Use as the project's data requirements"; result.textContent = "The data requirements in force changed while you looked; turn the EIR into data requirements again. Nothing was installed."; return; }
+          install.disabled = false; install.textContent = "Use as the project's data requirements"; result.textContent = (e as Error).message;
         }
       });
       actions.append(install);

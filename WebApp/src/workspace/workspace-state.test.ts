@@ -156,7 +156,7 @@ describe("the workspace controller", () => {
     const t = setup((m, p) => (m === "PATCH" ? { status: 422, body: { message: words } } : m === "PUT" ? Promise.reject(new TypeError("fetch failed")) : docRoute()(m, p)));
     await t.ws.open("d1");
     expect(await t.ws.write("PATCH", "/section/s1", { body: "x" })).toBeNull(); expect(t.ws.state().message).toBe(words);
-    expect(await t.ws.write("PUT", "/x", {})).toBeNull(); expect(t.ws.state().message).toBe("The bridge did not answer. Nothing was saved.");
+    expect(await t.ws.write("PUT", "/x", {})).toBeNull(); expect(t.ws.state().message).toBe("Sentinel is not connected. Nothing was saved.");
   });
   it("two sections with one id open read-only with a notice (Review Focus 3)", async () => {
     const twin = doc({ sections: [S1, { ...S1 }] });
