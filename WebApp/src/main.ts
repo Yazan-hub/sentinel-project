@@ -51,6 +51,8 @@ import { projectsHubPanel } from "./setups/projects-hub-panel";
 import { projectSwitcher } from "./setups/project-switcher";
 import { authWidget } from "./setups/auth-widget";
 import { projectSettingsPanel } from "./setups/project-settings-panel";
+import { hiddenTabs, hiddenIn, readShowAll, writeShowAll } from "./setups/role-view";
+import { myRoleRead } from "./setups/my-role";
 import { activePid, onActiveProjectChange, refreshActiveProject, getActiveProjectKey, hasProjectOverride } from "./setups/active-project";
 import { onAuthChange, currentSession } from "./setups/auth";
 import { userChangeFilter } from "./setups/user-change";
@@ -84,7 +86,11 @@ function tabbed(tabs: { label: string; el: HTMLElement }[], links: { label: stri
   const body = document.createElement("div");
   body.style.cssText = "flex:1;min-height:0;display:flex";
   const btns: HTMLButtonElement[] = [];
+  // UX slice 6: a tab hidden for the role keeps its panel mounted; only its button goes. A jump to it still shows it, its
+  // button back for that visit (dashed, with the reason in its tooltip) until another tab is picked.
+  let hidden = new Set<string>(), cur = 0;
   const show = (i: number) => {
+    cur = i;
     tabs.forEach((t, j) => {
       const on = j === i;
       t.el.style.display = on ? "flex" : "none";
@@ -96,7 +102,16 @@ function tabbed(tabs: { label: string; el: HTMLElement }[], links: { label: stri
       b.style.background = on ? "#6528d7" : "#1f1f27";
       b.style.color = on ? "#fff" : "#c9cfda";
       b.style.borderColor = on ? "#6528d7" : "#2c2c34";
+      const off = hidden.has(tabs[j].label);
+      b.style.display = off && !on ? "none" : "";
+      b.style.borderStyle = off ? "dashed" : "solid";
+      b.title = off ? "Hidden for your role. Shown because you opened it. Settings ▸ Show all tools brings it back for good." : "";
     });
+  };
+  const setHidden = (labels: string[]) => {
+    hidden = new Set(labels);
+    const first = tabs.findIndex((t) => !hidden.has(t.label));
+    show(hidden.has(tabs[cur].label) && first >= 0 ? first : cur);
   };
   tabs.forEach((t, i) => {
     const b = document.createElement("button");
@@ -118,7 +133,7 @@ function tabbed(tabs: { label: string; el: HTMLElement }[], links: { label: stri
   });
   root.append(bar, body);
   show(0);
-  (root as unknown as { showTab?: (i: number) => void }).showTab = show;
+  Object.assign(root, { showTab: show, setHidden });
   return root;
 }
 
@@ -528,6 +543,40 @@ async function main() {
   ];
   const SETTINGS_TABS = labelsOf(settingsTabs);
   const settingsAreaEl = tabbed(settingsTabs);
+
+  // UX slice 6 (docs/ux/role-hiding.md): role hides what isn't yours, per tab group, re-read on every project change (a
+  // sign-in change and the bridge coming back re-notify it too). Not read (no project, bridge down) hides nothing. The
+  // one switch, "Show all tools", sits in the Settings tab bar, which no role hides (Advanced is always there).
+  const ROLE_GROUPS: [string, HTMLElement][] = [
+    ["Home", homeTabsEl], ["Models", modelsEl], ["Documents", docsAreaEl], ["Documents ▸ Reports", reportsEl],
+    ["Issues", issuesAreaEl], ["Settings", settingsAreaEl], ["Settings ▸ Advanced", advancedEl],
+  ];
+  const showAllEl = document.createElement("label");
+  showAllEl.style.cssText = "margin-left:auto;display:flex;align-items:center;gap:.3rem;font:600 11px system-ui;color:#a8b0bf;cursor:pointer";
+  const showAllBox = document.createElement("input");
+  showAllBox.type = "checkbox";
+  showAllBox.checked = readShowAll();
+  const showAllText = document.createElement("span");
+  showAllEl.append(showAllBox, showAllText);
+  settingsAreaEl.firstElementChild!.appendChild(showAllEl); // the tab bar
+  let roleNow = { role: "", read: false }, roleSeq = 0, rolePid = "";
+  const applyRoleView = () => {
+    const hidden = hiddenTabs(roleNow.role, roleNow.read, showAllBox.checked);
+    for (const [path, el] of ROLE_GROUPS) (el as unknown as { setHidden: (l: string[]) => void }).setHidden(hiddenIn(hidden, path));
+    const n = hiddenTabs(roleNow.role, roleNow.read, false).size;
+    showAllText.textContent = n && !showAllBox.checked ? `Show all tools (${n} hidden for your role)` : "Show all tools";
+  };
+  const readRoleView = async () => {
+    const mine = ++roleSeq, pid = activePid();
+    if (!hasProjectOverride() || pid !== rolePid) { roleNow = { role: "", read: false }; applyRoleView(); } // a new project: nothing hidden until read
+    rolePid = pid;
+    if (!hasProjectOverride()) return;
+    const r = await myRoleRead(SERVICE_URL, pid);
+    if (mine === roleSeq) { roleNow = r; applyRoleView(); }
+  };
+  showAllBox.addEventListener("change", () => { writeShowAll(showAllBox.checked); applyRoleView(); });
+  onActiveProjectChange(() => void readRoleView());
+  void readRoleView();
 
   // "My work" (Dashboard and the editor header): a review line opens the review desk, Documents ▸ Proposed changes.
   openReviewDesk = () => go("Documents", docsAreaEl, DOC_TABS, "Proposed changes");
