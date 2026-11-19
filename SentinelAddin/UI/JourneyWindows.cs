@@ -19,6 +19,7 @@ public sealed class CheckGroup
     public List<long> ElementIds = new();
     public string FixLabel;     // null = no fix button
     public string FixChoice;    // what the command does on Fix
+    public List<(string Label, string Choice)> MoreActions = new();   // further buttons after Fix (Build's step 3)
 }
 
 /// F-UX1-5: Check's "Fix all" lists the proposed names first; only the rows a person ticks are filed. Nothing is ticked at
@@ -92,6 +93,7 @@ public sealed class JourneyWindow : Window
         var buttons = new StackPanel { Orientation = Orientation.Horizontal };
         if (g.ElementIds.Count > 0) buttons.Children.Add(Btn("Show", () => { Choice = "show"; Picked = g; }));
         if (g.FixLabel != null) buttons.Children.Add(Btn(g.FixLabel, () => { Choice = g.FixChoice; Picked = g; }, primary: true));
+        foreach (var (label, choice) in g.MoreActions) buttons.Children.Add(Btn(label, () => { Choice = choice; Picked = g; }));
         DockPanel.SetDock(buttons, Dock.Right);
         head.Children.Add(buttons);
         var left = new StackPanel();

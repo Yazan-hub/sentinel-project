@@ -236,3 +236,62 @@ public sealed class PublishCommand : IExternalCommand
         };
     }
 }
+
+/// UX slice 7: Build — model from drawings and photos as one window over the existing tools, in order. Each step's state is
+/// a cheap read (element counts by class or category: no geometry, no web call); what cannot be read cheaply says "not checked
+/// here". How a button runs a tool: the window is modal and only records the chosen command's class name (BuildSteps); once it
+/// closes we are still inside this Execute, on Revit's API thread with no transaction open, so creating that command and calling
+/// its own Execute with the same ExternalCommandData is the same as pressing its ribbon button (Check and Fix do the same).
+/// PostCommand is not used: it runs only after this command returns, and a posted add-in command needs its ribbon id looked up.
+[Transaction(TransactionMode.Manual)]
+public sealed class BuildCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData c, ref string msg, ElementSet els)
+    {
+        if (c.Application.ActiveUIDocument?.Document is not { } doc) return Result.Cancelled;
+        if (doc.IsFamilyDocument) { TaskDialog.Show("Sentinel — Build", "Open a project model to build in it."); return Result.Cancelled; }
+        var state = State(doc);
+        var w = new JourneyWindow("Build", "Model from drawings and photos, step by step");
+        foreach (var s in BuildSteps.All.Append(BuildSteps.WhereFrom))
+            w.AddGroup(new CheckGroup
+            {
+                Title = s.Number == null ? s.Title : s.Number + "  " + s.Title,
+                Summary = s.Text,
+                Examples = state.TryGetValue(s.Number ?? "", out var lines) ? lines : new List<string>(),
+                FixLabel = s.Buttons[0].Label, FixChoice = s.Buttons[0].Command,
+                MoreActions = s.Buttons.Skip(1).ToList(),
+            });
+        DialogOwner.Attach(w, c);
+        w.ShowDialog();
+        if (w.Choice is not { } cls) return Result.Succeeded;
+        var cmd = (IExternalCommand)Activator.CreateInstance(typeof(BuildCommand).Assembly.GetType("Sentinel.Commands." + cls, throwOnError: true)!)!;
+        return cmd.Execute(c, ref msg, els);
+    }
+
+    /// Step number → its state lines. Counts only; nothing is judged here.
+    private static Dictionary<string, List<string>> State(Document doc)
+    {
+        FilteredElementCollector All() => new FilteredElementCollector(doc);
+        var levels = All().OfClass(typeof(Level)).ToElements();
+        var grids = All().OfClass(typeof(Grid)).ToElements();
+        int drawings = All().OfClass(typeof(ImportInstance)).GetElementCount();
+        int walls = All().OfClass(typeof(Wall)).GetElementCount();
+        int masses = All().OfCategory(BuiltInCategory.OST_Mass).WhereElementIsNotElementType().GetElementCount();
+        int pinnedL = levels.Count(l => l.Pinned), pinnedG = grids.Count(g => g.Pinned);
+        var needs = drawings == 0 ? "Needs: an imported drawing. None is imported or linked in this model yet."
+                                  : $"{drawings} drawing(s) imported or linked in this model.";
+        return new Dictionary<string, List<string>>
+        {
+            ["1"] = new() { grids.Count > 0 ? $"Done: {levels.Count} level(s) and {grids.Count} grid(s) in the model." : $"Not yet: {levels.Count} level(s), no grids.", needs },
+            ["2"] = new() { walls > 0 ? $"Done: {walls} wall(s) in the model." : "Not yet: no walls in the model.", needs },
+            ["3"] = new() { masses > 0 ? $"{masses} mass(es) in the model; Shell a Mass can use them." : "Not yet: no mass in the model.",
+                            "Photo Massing needs photos added to the project's evidence on the web (not checked here)." },
+            ["4"] = new() { levels.Count + grids.Count > 0 && pinnedL == levels.Count && pinnedG == grids.Count
+                                ? $"Done: all {levels.Count} level(s) and {grids.Count} grid(s) are pinned."
+                                : $"Not yet: {pinnedL} of {levels.Count} level(s) and {pinnedG} of {grids.Count} grid(s) pinned.",
+                            "Needs the office modelling guideline (not checked here)." },
+            ["5"] = new() { "Not checked here: Promote shows each element's stage before it changes anything.",
+                            "Needs this model linked to its web project (More > Project Setup)." },
+        };
+    }
+}
