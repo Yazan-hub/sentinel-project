@@ -34,13 +34,13 @@ Every command the ribbon registered at 617ae9a2 and where it is now. `tools/ribb
 | Modelling Guideline | `GuidelineEditorCommand` | More > Modelling Guideline |
 | IFC Export Mapping | `IfcExportEditorCommand` | More > IFC Export Mapping |
 | Protection | `ProtectionCommand` | More > Protection |
-| 1 · Datum from Drawings | `DatumFromDrawingsCommand` | Build > 1 · Datum from Drawings |
-| 2 · Ghost Builder | `GhostBuilderCommand` | Build > 2 · Ghost Builder |
-| 2b · Photo Massing | `MassingFromImagesCommand` | Build > 2b · Photo Massing |
-| 2c · Shell a Mass | `ShellMassCommand` | Build > 2c · Shell a Mass |
-| 3 · Annotate Views | `AnnotateViewsCommand` | Build > 3 · Annotate Views |
-| 4 · Promote (DD) | `PromoteWallsCommand` | Build > 4 · Promote (DD) |
-| 5 · Provenance | `ProvenanceCommand` | Build > 5 · Provenance |
+| 1 · Datum from Drawings | `DatumFromDrawingsCommand` | slide-out > Build tools > 1 · Datum from Drawings; also a button in the Build window |
+| 2 · Ghost Builder | `GhostBuilderCommand` | slide-out > Build tools > 2 · Ghost Builder; also a button in the Build window |
+| 2b · Photo Massing | `MassingFromImagesCommand` | slide-out > Build tools > 2b · Photo Massing; also a button in the Build window |
+| 2c · Shell a Mass | `ShellMassCommand` | slide-out > Build tools > 2c · Shell a Mass; also a button in the Build window |
+| 3 · Annotate Views | `AnnotateViewsCommand` | slide-out > Build tools > 3 · Annotate Views; also a button in the Build window |
+| 4 · Promote (DD) | `PromoteWallsCommand` | slide-out > Build tools > 4 · Promote (DD); also a button in the Build window |
+| 5 · Provenance | `ProvenanceCommand` | slide-out > Build tools > 5 · Provenance; also a button in the Build window |
 | ROI\nDashboard | `RoiDashboardCommand` | More > ROI\nDashboard |
 
-New buttons: Check, Fix, Publish (journey windows over the commands above).
+New buttons: Check, Fix, Publish (journey windows over the commands above); Build (slice 7: one window, the steps in order, each opening its tool above; `tools/build-flow-check`).

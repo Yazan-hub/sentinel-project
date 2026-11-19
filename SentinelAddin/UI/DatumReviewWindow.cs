@@ -27,6 +27,10 @@ public sealed class DatumReviewWindow : Window
 
     public IReadOnlyList<DatumRow> Rows => _rows;
 
+    /// F-UX7-1: the source label in plain words (the layers@n · office|project · sha token becomes "the office's layer standard"); the raw label goes in Details. Display only, the label itself is stored as it is.
+    public static string PlainSource(string label) =>
+        System.Text.RegularExpressions.Regex.Replace(label ?? "", @"layers@\d+ · (office|project) · \S+", "the $1's layer standard");
+
     public DatumReviewWindow(List<DatumRow> rows, string source, IReadOnlyList<string> notes)
     {
         _rows = rows;
@@ -37,7 +41,7 @@ public sealed class DatumReviewWindow : Window
 
         var header = new TextBlock
         {
-            Text = "Read from: " + source + (notes.Count > 0 ? "\n\n" + string.Join("\n", notes.Select(n => "• " + n)) : "") +
+            Text = "Read from: " + PlainSource(source) + (notes.Count > 0 ? "\n\n" + string.Join("\n", notes.Select(n => "• " + n)) : "") +
                    "\n\nUntick what is not a level or grid (a parapet line, a section mark), type the names your office uses, and set ±0.00 on the level " +
                    "the building is measured from — a level below it reads negative. Nothing is created until you press Create.",
             TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
@@ -103,6 +107,7 @@ public sealed class DatumReviewWindow : Window
         DockPanel.SetDock(header, Dock.Top);
         DockPanel.SetDock(footer, Dock.Bottom);
         root.Children.Add(header);
+        if (DetailsExpander.Make(new[] { source }) is { } fold) { fold.Margin = new Thickness(0, 0, 0, 6); DockPanel.SetDock(fold, Dock.Top); root.Children.Add(fold); }
         root.Children.Add(footer);
         root.Children.Add(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
         Content = root;
