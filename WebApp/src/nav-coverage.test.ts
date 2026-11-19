@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { ROLE_HIDES, hiddenTabs, hiddenIn } from "./setups/role-view";
 
 // UX slice 2 (docs/ux/web-coverage.md): the founder's rule for the 12 → 5 areas move — nothing removed, nothing unreachable.
 // main.ts is read as text, as main-wiring.test.ts does: the panels are built inside main() and cannot be imported.
@@ -90,5 +91,52 @@ describe("UX slice 2: nothing is lost in the five areas (founder rule)", () => {
     const pairs = [...places.matchAll(/"([^"]+)": "([^"]+)"/g)];
     expect(pairs.length).toBe(6);
     for (const [, old, now] of pairs) { expect(opens.has(old), old).toBe(true); expect(opens.has(now), now).toBe(true); }
+  });
+});
+
+// UX slice 6 (docs/ux/role-hiding.md): role hiding is a view choice. Every check above still reads the full wiring; these
+// pin that the hiding table names real tabs, never empties an area, and that Show all tools brings everything back.
+describe("UX slice 6: role hiding loses nothing", () => {
+  const groups = [...areas.slice(areas.indexOf("const ROLE_GROUPS"), areas.indexOf("];", areas.indexOf("const ROLE_GROUPS"))).matchAll(/\["([^"]+)", (\w+)\]/g)];
+  // A group's labels: its tab list (const xTabs = [...]; tabbed(xTabs)) or the list written inside tabbed([...]).
+  const labelsOfGroup = (el: string): string[] => {
+    const at = areas.indexOf(`const ${el} = tabbed(`);
+    expect(at, el).toBeGreaterThanOrEqual(0);
+    const arg = areas.slice(at + `const ${el} = tabbed(`.length);
+    if (arg.startsWith("[")) return [...arg.slice(0, arg.indexOf("]")).matchAll(/\{ label: "([^"]+)", el: /g)].map((m) => m[1]);
+    return tabLabels(arg.match(/^\w+/)![0]);
+  };
+  const byPath = Object.fromEntries(groups.map(([, path, el]) => [path, labelsOfGroup(el)]));
+  const AREAS = ["Home", "Models", "Documents", "Issues", "Settings"];
+
+  it("every area's tab group is wired for role hiding", () => {
+    for (const a of AREAS) expect(byPath[a], a).toBeDefined();
+  });
+
+  it.each(Object.entries(ROLE_HIDES).flatMap(([role, hs]) => hs.map((h) => [role, h.tab])))("%s: %s is a real tab of a wired group", (_role, tab) => {
+    const group = tab.slice(0, tab.lastIndexOf(" ▸ "));
+    expect(byPath[group], group).toBeDefined();
+    expect(byPath[group]).toContain(tab.slice(group.length + 3));
+  });
+
+  it("no role hides a whole area or a whole group", () => {
+    for (const role of Object.keys(ROLE_HIDES)) {
+      const hidden = hiddenTabs(role, true, false);
+      for (const [path, labels] of Object.entries(byPath)) expect(labels.filter((l) => !hiddenIn(hidden, path).includes(l)).length, `${role} ${path}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("with Show all tools nothing is hidden, and the switch is in the Settings tab bar, which no role empties", () => {
+    for (const role of [...Object.keys(ROLE_HIDES), "owner", "lead", "service", "not-member", "signed-out"]) expect(hiddenTabs(role, true, true).size, role).toBe(0);
+    expect(areas).toContain("settingsAreaEl.firstElementChild!.appendChild(showAllEl);");
+    expect(areas).toContain('showAllBox.addEventListener("change", () => { writeShowAll(showAllBox.checked); applyRoleView(); });');
+    expect(areas).toContain("onActiveProjectChange(() => void readRoleView());");
+  });
+
+  it("hiding removes a tab's button only: the panel stays mounted and a jump to it still shows it", () => {
+    const fn = main.slice(main.indexOf("function tabbed("), main.indexOf("async function main()"));
+    expect(fn).toContain('b.style.display = off && !on ? "none" : "";'); // the shown tab's button is never hidden
+    expect(fn).toContain("body.appendChild(t.el);"); // every panel mounted whatever the role
+    expect(fn).not.toMatch(/\.remove\(\)|removeChild/);
   });
 });
