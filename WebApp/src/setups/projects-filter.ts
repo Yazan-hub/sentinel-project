@@ -107,3 +107,14 @@ export function filterProjects<T extends FilterableProject>(
 const NOT_SET_UP = ["Sentinel's storage is not set up", "CDE not configured"];
 export const hub503Words = (said: string | null | undefined): string | null =>
   said && !NOT_SET_UP.some((p) => said.startsWith(p)) ? said : null;
+
+/** UX slice 5 (map rule 3, defaults first): the office a new project would join by default, so it starts with that
+ *  office's standards — the open project's office (or the open office itself), else the only office there is, else
+ *  none. The form selects it only once the bridge confirms the user leads it (only a lead may attach a project). */
+export function defaultOffice(projects: { key: string; kind?: string; office_key?: string | null }[], active: string | null | undefined): string {
+  const offices = new Set(projects.filter((p) => p.kind === "office").map((p) => p.key));
+  const open = projects.find((p) => p.key === active);
+  const fromOpen = open?.kind === "office" ? open.key : open?.office_key;
+  if (fromOpen && offices.has(fromOpen)) return fromOpen;
+  return offices.size === 1 ? [...offices][0] : "";
+}
