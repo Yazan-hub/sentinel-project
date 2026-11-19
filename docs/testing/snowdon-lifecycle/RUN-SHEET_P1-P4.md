@@ -23,11 +23,33 @@ and M3, the named design changes) and P4 for M2 and M3, then driving F-RUN-5 to 
 |---|---|---|---|---|
 | P1 Appointment (5.4) | `P1/README.md` | — | — | Done 2026-11-16 |
 | P2 Mobilisation (5.5) | the roadmap's P2 section | — | — | Done 2026-11-16, with findings (F1, F2, C6 have no place in Sentinel) |
-| P3 Design production (5.6), M2 and M3 | The roadmap's P3 section and decision 14 (FG-02 with Naming Manager, FG-04 with one grid edit); Revit signed in as user4 | Claude in Revit and the web; the founder's Revit steps | Sonnet, medium; a blocking defect fixed with Opus, high | Each milestone published through Governed Publish, its federation and clash runs recorded |
-| P4 Delivery and acceptance (5.7), M2 and M3 | Appendix A of the roadmap; review@3 as installed on 2026-11-16 | Four seats | Sonnet, medium | M2 and M3 accepted by the client through the chain; the audit pack downloaded and verified (M1 done 2026-11-16) |
+| P3 Design production (5.6), M2 and M3 | The roadmap's P3 section and decision 14 (FG-02 with Naming Manager, FG-04 with one grid edit); Revit signed in as user4 (More > Sign in) | Claude in Revit and the web; the founder's Revit steps | Sonnet, medium; a blocking defect fixed with Opus, high | Each milestone published through Publish (slide-out > Publish tools > Publish model), its Coordination check (Models > Clash > Run gate) and clash runs recorded |
+| P4 Delivery and acceptance (5.7), M2 and M3 | Appendix A of the roadmap; review@3 as installed on 2026-11-16 | Four seats | Sonnet, medium | M2 and M3 accepted by the client through the three review steps (Documents > Files); the audit pack downloaded (Settings > Advanced > Ledger and audit) and verified (M1 done 2026-11-16) |
 
 Each phase writes its run log beside its pack (`P1/P1-RUN_<date>.md`, as P0 did). Findings are numbered F-LC-n and go
 into the roadmap's gap list. Only a defect that blocks the rest of a phase is fixed between phases (decision 13).
+
+## P3 and P4 for M2 and M3: the steps, on the simplified interface
+
+Places and labels updated 2026-11-19 for the simplified interface (UX slices 1-7); see docs/ux/.
+
+Revit paths: the ribbon has Sentinel, Check, Fix, Issues, Publish, Build, More; the slide-out holds Checks, Changes, Build tools, Publish tools (`docs/ux/ribbon-coverage.md`, `revit-words.md`). Web paths: Home, Models, Documents, Issues, Settings (`web-coverage.md`, `web-words.md`). Steps done under a contributor or viewer account: some tabs (Settings > Project, Settings > Standards library, Documents > Proposed changes, Reports > Tender and Owner view) are hidden for that role unless "Show all tools" (right of the Settings tab bar) is ticked (`role-hiding.md`).
+
+P3, each milestone (M2, M3):
+
+1. Revit as user4: More > Sign in; More > Project Setup, save (the Sentinel pane picks up new Project standards only after this; the pane's refresh button keeps the old version).
+2. If the office has no type naming rule: web Settings > Standards library, install the standard on the office (a fork of a pack is refused; install worked in the earlier run). Settings > Standards library is a lead or owner tab.
+3. M2, named change FG-02: slide-out > Checks > Naming Manager on ARC; confirm the set of proposed changes (it is recorded in History).
+4. M2, FG-04: one grid edit in Revit (Sentinel's Build tools are not needed for it); M3, the named change: edit one door type (type properties), save.
+5. Publish: Publish button, or slide-out > Publish tools > Publish model, on ARC (and STR, bound with More > Project Setup, if it changed). Check the Pre-publish check result (formerly IFC Delivery Gate; slide-out > Publish tools > Pre-publish check), the Data requirements (IDS) count, and the version in History.
+6. Coordination check (formerly Federation Gate): web Models > Clash > Run gate, then run Models > Clash; record both. Groups sent as issues appear in Issues.
+7. Anything that fails and must be fixed: Fix button (Proposed changes to approve, with undo; slide-out > Changes). Reading the model in the web: Documents > Files > Open 3D; Waiting for approval (the old holding area) is at Documents > Files.
+
+P4, each milestone (M2, M3), four seats:
+
+1. Share ARC and STR (lead, user4): Documents > Files, the board card, Share (a reason box may ask for one); the review starts.
+2. Step 1, task team check (user3); step 2, lead authorization (owner; the sharer cannot decide it); step 3, client acceptance (Client, viewer): each on the card's review line in Documents > Files. Check the file reaches Published and History records each step. (Not confirmed: the coverage map also calls this line "Review desk"; confirm the label on screen.)
+3. Audit pack: Settings > Advanced > Ledger and audit > Audit pack download (lead or owner), then `node WebApp/bridge/ledger-verify.mjs <pack>`; the founder gives the download OK first.
 
 ## After P4
 
