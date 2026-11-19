@@ -1781,9 +1781,9 @@
   ]
  },
  "Sentinel_Chain": {
-  "summary": "The Build pulldown groups the seven tools that take a project from drawings or photos to a checked Revit model, in the order they are meant to be run.",
+  "summary": "Build tools, in the slide-out, holds the seven numbered tools the Build window opens, for people who know them.",
   "overview": [
-   "Build is a pulldown, not a command of its own. Its seven entries are numbered in the order of the chain: 1 · Datum from Drawings, 2 · Ghost Builder, 2b · Photo Massing, 2c · Shell a Mass, 3 · Annotate Views, 4 · Promote (DD) and 5 · Provenance. The idea is datum first, then geometry, then views, then promotion to design-development (DD) types, with a stamp on everything Sentinel touches so you can always ask where an element came from.",
+   "Build tools is a pulldown in the panel's slide-out (the arrow under the panel); the Build button opens the same tools as one window, step by step. Its seven entries are numbered in the order of the chain: 1 · Datum from Drawings, 2 · Ghost Builder, 2b · Photo Massing, 2c · Shell a Mass, 3 · Annotate Views, 4 · Promote (DD) and 5 · Provenance. The idea is datum first, then geometry, then views, then promotion to design-development (DD) types, with a stamp on everything Sentinel touches so you can always ask where an element came from.",
    "Datum comes first because everything else hangs on it: real levels and a real grid, measured off your section and plan drawings, mean that walls built afterwards host to real floors and sit on a real column grid. Then you model geometry in one of two ways. Ghost Builder builds LOD 200 geometry from a 2D DWG plan. Photo Massing works from the project's evidence-pack photos instead: it estimates a building envelope (storeys, proportions) that you scale with one known dimension, and files a mass for review. Shell a Mass then turns a mass (yours, or the one Photo Massing made) into typed walls, floors and a roof, one storey at a time.",
    "Annotate Views then creates the work-in-progress plan views, pins the datum and, if the guideline asks for it, makes sheets and tags. Promote (DD) retypes what is in the model to the office's exact DD types. Provenance reads back the stamp on any element.",
    "How the tools are checked: Datum and Ghost Builder show you a review window and write only what you tick. Photo Massing, Shell a Mass and Promote (DD) do not write to the model themselves; they send their proposal as a set of proposed changes for review in the project's History and open Review AI Proposals, where a person ticks and applies it. The standards that drive the chain (the layers standard, the office modelling guideline, the type catalogue, the LOD matrix) are installed on the project's web workspace or on the office. A standard that is not installed is shown as \"none\", and the tool says so instead of falling back on something else."
@@ -1797,7 +1797,7 @@
   ],
   "inputs": [],
   "steps": [
-   "Open the Sentinel tab and the Build pulldown.",
+   "Open the Sentinel tab, the slide-out under the panel, and the Build tools pulldown (or click Build for the step-by-step window).",
    "Run 1 · Datum from Drawings to create the levels and grids from your section and plan drawings.",
    "Model the geometry: run 2 · Ghost Builder on a 2D DWG plan, or 2b · Photo Massing on the evidence-pack photos followed by 2c · Shell a Mass. You can use both, and model by hand in between.",
    "Run 3 · Annotate Views to create the plan views (and sheets, if the guideline has them) and to pin the levels and grids.",
@@ -1814,6 +1814,7 @@
    "Sentinel never places into a design option. Switch to the Main Model first."
   ],
   "related": [
+   "Sentinel_Build",
    "Sentinel_Datum",
    "Sentinel_GhostBuilder",
    "Sentinel_Massing",
@@ -2587,6 +2588,45 @@
   ],
   "sources": [
    "Commands.Journey.cs",
+   "App.cs BuildRibbon"
+  ]
+ },
+ "Sentinel_Build": {
+  "summary": "Model from drawings and photos, step by step, in one window.",
+  "overview": [
+   "Build lists the modelling steps in the order they are meant to be run: 1 Levels and grids, 2 Model from drawings (Ghost Builder), 3 Massing from photos (Photo Massing, then Shell a Mass), 4 Annotate views, 5 Promote to DD. Each step says in one sentence what it does, what the model has now (counts of levels, grids, walls, masses and pinned datum) or what it needs, and has a button that opens the same tool as before.",
+   "The last line, Where did this come from?, opens Provenance for the selected element.",
+   "What is not counted here (the photos on the web, the office guideline, each element's stage) says \"not checked here\"; the tool itself shows it when it opens."
+  ],
+  "prerequisites": [
+   "A project model open and active."
+  ],
+  "inputs": [],
+  "steps": [
+   "Click Build.",
+   "Read the state line of each step.",
+   "Press the step's button: its tool opens as it does from Build tools in the slide-out."
+  ],
+  "results": [
+   "The tool you picked runs exactly as from its own button; Build itself changes nothing."
+  ],
+  "tips": [
+   "You do not have to run every step; the numbers are the recommended order.",
+   "The numbered tools are also in the slide-out (the arrow under the panel) under Build tools."
+  ],
+  "related": [
+   "Sentinel_Chain",
+   "Sentinel_Datum",
+   "Sentinel_GhostBuilder",
+   "Sentinel_Massing",
+   "Sentinel_ShellMass",
+   "Sentinel_Annotate",
+   "Sentinel_PromoteWalls",
+   "Sentinel_Provenance"
+  ],
+  "sources": [
+   "Commands.Journey.cs BuildCommand",
+   "UI/BuildSteps.cs",
    "App.cs BuildRibbon"
   ]
  }

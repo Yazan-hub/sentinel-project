@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- UX slice 7: the Build window's steps (SentinelAddin/UI/BuildSteps.cs, compiled in as it ships) are the five in order,
+       and every button names a command class that exists and that the ribbon registers (App.cs). No Revit. `dotnet run`. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <AssemblyName>build-flow-check</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\SentinelAddin\UI\BuildSteps.cs" />
+  </ItemGroup>
+</Project>
