@@ -48,7 +48,7 @@ P3, each milestone (M2, M3):
 P4, each milestone (M2, M3), four seats:
 
 1. Share ARC and STR (lead, user4): Documents > Files, the board card, Share (a reason box may ask for one); the review starts.
-2. Step 1, task team check (user3); step 2, lead authorization (owner; the sharer cannot decide it); step 3, client acceptance (Client, viewer): each on the card's review line in Documents > Files. Check the file reaches Published and History records each step. (Old name of the review line: Review desk; see the list of unmapped places in the commit report.)
+2. Step 1, task team check (user3); step 2, lead authorization (owner; the sharer cannot decide it); step 3, client acceptance (Client, viewer): each on the card's review line in Documents > Files. Check the file reaches Published and History records each step. (Not confirmed: the coverage map also calls this line "Review desk"; confirm the label on screen.)
 3. Audit pack: Settings > Advanced > Ledger and audit > Audit pack download (lead or owner), then `node WebApp/bridge/ledger-verify.mjs <pack>`; the founder gives the download OK first.
 
 ## After P4
