@@ -182,8 +182,8 @@ static class Check
         Ok(pcFolder > machineSave && machineSave > 0 && pcFolder < folderAsk,
            "Project Setup's project save never copies this PC's own folder into a model, nor refuses it as a model's");
         var news = sources.SelectMany(s => Regex.Matches(s.Text, @"new (LocalGhostBuilder|LocalVisionReader|MassingVisionReader)\(([^;]*)").Select(x => (s.Path, Call: x.Value))).ToList();
-        Ok(news.Count == 3 && news.All(n => n.Call.Contains("settings.GhostCloudOptIn")),
-           "every model client is built with this PC's opt-in" + string.Concat(news.Where(n => !n.Call.Contains("settings.GhostCloudOptIn")).Select(n => " | " + n.Path)));
+        Ok(news.Count == 3 && news.All(n => n.Call.Contains("settings.GhostCloudOptIn") || n.Call.Contains("cloudOptIn: false")), // cloudOptIn: false pins a photo-reading client to this PC, stricter than the opt-in
+           "every model client is built with this PC's opt-in" + string.Concat(news.Where(n => !n.Call.Contains("settings.GhostCloudOptIn") && !n.Call.Contains("cloudOptIn: false")).Select(n => " | " + n.Path)));
         foreach (var f in new[] { "GhostBuilder_Architecture.cs", "LocalVisionReader.cs", "MassingVisionReader.cs" })
         {
             var text = Src(Path.Combine("GhostBuilder", f));
