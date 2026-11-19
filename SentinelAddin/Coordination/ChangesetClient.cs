@@ -365,9 +365,9 @@ public static class ChangesetTrust
     /// office · …)"; null for one the caller typed, or from a bridge before MA-2a.</summary>
     public static string Typing(ChangesetElementDto el) => el.Typing?.TypedBy switch
     {
-        "bridge" => "typed by the bridge from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")",
+        "bridge" => "typed by Sentinel from the facts posted (" + (el.Typing.Guideline ?? "guideline") + ")",
         // MA-5a: a scan door or window no office rule typed — the one catalogue row within the band of its measured size
-        "bridge-size" => "typed by the bridge by size: " + (el.Typing.Size ?? "its measured size") + ", the one catalogue type within "
+        "bridge-size" => "typed by Sentinel by size: " + (el.Typing.Size ?? "its measured size") + ", the one catalogue type within "
             + (el.Typing.BandMm ?? 100) + " mm (" + (el.Typing.Catalog ?? "catalogue") + ")",
         _ => null,
     };
@@ -413,7 +413,7 @@ public static class ChangesetTrust
 
     public const string ReasonGroup = "Needs a reason — tick each row by hand";
     public const string ProtectedGroup = "Protected — kept as they stand";
-    public const string TickReasonNeeded = "Rows under \"Needs a reason\" are ticked — type why you apply them in that group's box (one line, recorded on the ledger with your name), then press Apply.";
+    public const string TickReasonNeeded = "Rows under \"Needs a reason\" are ticked — type why you apply them in that group's box (one line, recorded in History with your name), then press Apply.";
 
     /// <summary>Over the limit with no batch reason: the words; null otherwise.</summary>
     public static string BatchRefusal(int ticked, string batchReason) => ticked > BatchLimit && Blank(batchReason)
@@ -433,9 +433,9 @@ public static class ChangesetTrust
             using var doc = JsonDocument.Parse(reply ?? "");
             var r = doc.RootElement;
             return r.ValueKind == JsonValueKind.Object && r.TryGetProperty("ledger", out var l) && l.ValueKind == JsonValueKind.Object && l.TryGetProperty("id", out var id)
-                   && (id.ValueKind == JsonValueKind.Number || id.ValueKind == JsonValueKind.String) ? "ledger #" + id : "the bridge named no ledger row";
+                   && (id.ValueKind == JsonValueKind.Number || id.ValueKind == JsonValueKind.String) ? "ledger #" + id : "Sentinel named no History entry";
         }
-        catch (JsonException) { return "the bridge named no ledger row"; }
+        catch (JsonException) { return "Sentinel named no History entry"; }
     }
 
     /// <summary>MA-3b (AI-5, review M2): Decline all without a reason — said by the window at once and by the command as the backstop.</summary>
@@ -443,7 +443,7 @@ public static class ChangesetTrust
 
     /// <summary>The changeset's source as the review shows it: a claim is said to be one.</summary>
     public static string SourceLabel(ChangesetDto cs) =>
-        cs.Source + (cs.Claimed == true ? " (claimed — the bridge records who a changeset says it is from, and cannot verify it)" : "");
+        cs.Source + (cs.Claimed == true ? " (claimed — Sentinel records who a set of proposed changes says it is from, and cannot verify it)" : "");
 
     /// <summary>MA-3a: whether the web desk declined this ghost — it binds: never ticked, and Apply refuses it.</summary>
     public static bool DeclinedOnWeb(ChangesetElementDto el) => el?.Review?.State == "declined";
@@ -491,7 +491,7 @@ public static class ChangesetTrust
         }
         catch (JsonException) { /* not JSON: none can be counted */ }
         return kept >= sent ? $"\n{kept} decline reason(s) recorded with it."
-            : $"\n⚠ {sent} decline reason(s) were sent and the bridge kept {kept} — a bridge before MA-3b2 keeps none, and a blank one is never kept; what it did not keep is not on the ledger.";
+            : $"\n⚠ {sent} decline reason(s) were sent and Sentinel kept {kept} — a version of Sentinel before MA-3b2 keeps none, and a blank one is never kept; what it did not keep is not in History.";
     }
 
     /// <summary>MA-3b2 (drill MA3b's finding): a request's failure in plain words. A timeout — net48's "A task was canceled.", net8's
@@ -515,13 +515,47 @@ public static class ChangesetTrust
     public static string Refusal(int code, string body)
     {
         var said = (body ?? "").Trim();
+        var detail = "";
         try
         {
             using var doc = JsonDocument.Parse(said);
             if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) said = m.GetString().Trim();
+            // UX slice 4: the reply's own "detail" (the hint slice 3 moved out of "message") rides after the message, on its own line,
+            // so the "Bridge <code>:" prefix is unchanged; <see cref="Plain"/> splits it off again.
+            if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("detail", out var d) && d.ValueKind == JsonValueKind.String && d.GetString().Trim() is { Length: > 0 } dt)
+                detail = dt.Length > 400 ? dt.Substring(0, 400) + "…" : dt;
         }
         catch (JsonException) { /* not JSON: the body as sent */ }
-        return $"Bridge {code}: {(said.Length > 400 ? said.Substring(0, 400) + "…" : said)}";
+        return $"Bridge {code}: {(said.Length > 400 ? said.Substring(0, 400) + "…" : said)}" + (detail.Length > 0 ? DetailMark + detail : "");
+    }
+
+    /// <summary>Separator between a refusal's message and the bridge's detail inside the internal error string.</summary>
+    public const string DetailMark = "\nDetails: ";
+
+    /// <summary>UX slice 4: an internal bridge error as a person reads it. Line = plain sentence (web-words.md "When Sentinel is not
+    /// connected"); Detail = status, technical cause and the bridge's own detail for a "Details" fold, "" when none. An error that is
+    /// not a bridge/connection one comes back unchanged (Detail ""). Pure; the internal "Bridge &lt;code&gt;:" value is never altered.</summary>
+    public static (string Line, string Detail) Plain(string err)
+    {
+        if (string.IsNullOrWhiteSpace(err)) return ("Sentinel could not answer.", "");
+        var m = System.Text.RegularExpressions.Regex.Match(err, @"^Bridge (\d{3}): (.*)$", System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (m.Success)
+        {
+            var code = m.Groups[1].Value; var rest = m.Groups[2].Value; var extra = "";
+            var i = rest.IndexOf(DetailMark, StringComparison.Ordinal);
+            if (i >= 0) { extra = rest.Substring(i + DetailMark.Length); rest = rest.Substring(0, i); }
+            var http = "HTTP " + code + (extra.Length > 0 ? " · " + extra : "");
+            return code switch
+            {
+                "401" => ("Your sign-in was not accepted. Sign in again.", http + (rest.Length > 0 ? " · " + rest : "")),
+                "403" => ("You do not have permission for this.", http + (rest.Length > 0 ? " · " + rest : "")),
+                _ when code.StartsWith("5") => ("Sentinel could not answer.", http + (rest.Length > 0 ? " · " + rest : "")),
+                _ => (rest.Length > 0 ? rest : "Sentinel refused this.", http),
+            };
+        }
+        if (err.StartsWith("the bridge did not answer", StringComparison.Ordinal) || err.StartsWith("the connection failed", StringComparison.Ordinal))
+            return ("Sentinel is not connected.", err);
+        return (err, "");
     }
 
     /// <summary>…and of the exception itself: a cancelled request is the timeout; a request that never connected names its cause (the
@@ -605,7 +639,7 @@ public static class ChangesetTrust
         // MA-3b3: a carried decline says where it was made (the web, or Revit), in which changeset, and that the bridge carried it.
         if (r.State == "declined")
             return (r.CarriedFrom is { } c
-                ? $"declined {(c.Origin == "revit" ? "in Revit" : c.Origin == "web" ? "on the web" : "before")} by {Who(r)} in \"{c.Name}\", carried here by the bridge"
+                ? $"declined {(c.Origin == "revit" ? "in Revit" : c.Origin == "web" ? "on the web" : "before")} by {Who(r)} in \"{c.Name}\", carried here by Sentinel"
                 : $"declined on the web by {Who(r)}") + $": {r.Reason} · a lead may re-open it on the web desk";
         if (r.State == "accepted") return $"accepted on the web by {Who(r)}" + (string.IsNullOrWhiteSpace(r.Reason) ? "" : $": {r.Reason}") + " — advice: it still needs your tick";
         return r.Action == "reopen" ? $"re-opened on the web by {Who(r)}: {r.Reason}" : null;
@@ -618,8 +652,8 @@ public static class ChangesetTrust
         int n = declined.Count, k = declined.Count(e => e.Review.CarriedFrom != null);
         // MA-3b3 (replaces MA-3a's C4): the bridge carries a decline to the next changeset that proposes the same change.
         // C5: a re-open is for a changeset that is still proposed (changesets-logic reopenDecline).
-        return n == 0 ? null : $"{n} ghost(s) declined{(k == 0 ? " on the web" : $" ({k} carried here by the bridge from an earlier changeset)")} — shown unticked with the reason; they cannot be ticked here (a lead re-opens one on the web desk while its changeset is still proposed). " +
-                               "Apply reports them as rejected; the changeset stays proposed until Revit reports it. A decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason).";
+        return n == 0 ? null : $"{n} ghost(s) declined{(k == 0 ? " on the web" : $" ({k} carried here by Sentinel from an earlier set of proposed changes)")} — shown unticked with the reason; they cannot be ticked here (a lead re-opens one on the web while its set of proposed changes is still proposed). " +
+                               "Apply reports them as rejected; the set of proposed changes stays proposed until Revit reports it. A decline is carried: the next set of proposed changes that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason).";
     }
 
     /// <summary>MA-3b3: the declines among <paramref name="els"/>, counted for a picker line or a group header — "3 declined on the web",
@@ -638,11 +672,11 @@ public static class ChangesetTrust
         if (c == null) return null;
         var said = new List<string>();
         if (c.NoReason > 0)
-            said.Add($"{c.NoReason} ghost(s) here were rejected in Revit before with no reason of their own — proposed again, undecided: the bridge cannot tell an unticked row from an element Revit removed or an Apply that rolled back. A reason in the group's box makes a decline carry.");
+            said.Add($"{c.NoReason} ghost(s) here were rejected in Revit before with no reason of their own — proposed again, undecided: Sentinel cannot tell an unticked row from an element Revit removed or an Apply that rolled back. A reason in the group's box makes a decline carry.");
         if (c.Unverified > 0) // C1: a binding decline is a signed-in person's — under the machine credential the reporter's name is a claim
-            said.Add($"{c.Unverified} ghost(s) here were rejected in Revit before with a reason, by a caller the bridge did not know as a signed-in member (the machine credential, or a report from before this version) — not carried: proposed again, undecided.");
+            said.Add($"{c.Unverified} ghost(s) here were rejected in Revit before with a reason, by a caller Sentinel did not know as a signed-in member (the machine credential, or a report from before this version) — not carried: proposed again, undecided.");
         if (c.Creates > 0) // C7: only creates like one declined before
-            said.Add($"{c.Creates} create(s) here are of the same kind, type and level as a create declined before on this project — a create names no existing element, so the bridge cannot tell whether it is the same one: proposed again, undecided.");
+            said.Add($"{c.Creates} create(s) here are of the same kind, type and level as a create declined before on this project — a create names no existing element, so Sentinel cannot tell whether it is the same one: proposed again, undecided.");
         return said.Count == 0 ? null : string.Join("\n", said);
     }
 
@@ -674,10 +708,10 @@ public static class ChangesetTrust
             var said = new List<string>();
             if (late.Count > 0)
                 said.Add($"{late.Count} ghost(s) were declined on the web after Apply re-checked them, and were applied:\n" + Lines(late) +
-                         "\n\nThe bridge recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.");
+                         "\n\nSentinel recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.");
             if (unchecked_.Count > 0)
-                said.Add($"{unchecked_.Count} ghost(s) declined on the web were applied, and this result carried no review_rev — the bridge cannot tell whether the decline was seen:\n" + Lines(unchecked_) +
-                         "\n\nThe bridge recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.");
+                said.Add($"{unchecked_.Count} ghost(s) declined on the web were applied, and this result carried no review_rev — Sentinel cannot tell whether the decline was seen:\n" + Lines(unchecked_) +
+                         "\n\nSentinel recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.");
             return said.Count == 0 ? null : string.Join("\n\n", said);
         }
         catch (JsonException) { return null; }
@@ -991,7 +1025,7 @@ internal static class ChangesetClient
     public static bool FlagStair(BcfConfig cfg, string projectKey, string id, Sentinel.GhostBuilder.StairFlag flag, out string reply, out string error)
     {
         reply = null;
-        if (!UserSession.IsSignedIn) { error = "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved"; return false; }
+        if (!UserSession.IsSignedIn) { error = "a stair flag is a person's pick — sign in (Sentinel ▸ More ▸ Sign in); nothing was saved"; return false; }
         return Post(cfg, $"/changesets/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(id)}/flags", flag.Body(), 201, out reply, out error);
     }
 
@@ -1064,10 +1098,10 @@ internal static class ChangesetClient
     /// action, the caller names the action; nothing grants on a failure.</summary>
     public static (bool Coordinator, string Why) CoordinatorFrom(string key, string role, string error)
     {
-        if (string.IsNullOrWhiteSpace(key)) return (false, "this model is not bound to a web project (Sentinel ▸ Project Setup)");
+        if (string.IsNullOrWhiteSpace(key)) return (false, "this model is not bound to a web project (Sentinel ▸ More ▸ Project Setup)");
         if (role == null) return (false, $"your role on {key} could not be read ({error})");
         if (role is "lead" or "owner") return (true, $"{role} on {key}");
-        if (role == "service") return (false, $"signed out — sign in (Standards ▸ Sign in) as a lead or owner of {key}");
+        if (role == "service") return (false, $"signed out — sign in (Sentinel ▸ More ▸ Sign in) as a lead or owner of {key}");
         if (role.Length == 0) return (false, $"you are not a member of {key}");
         return (false, $"you are {role} on {key}");
     }

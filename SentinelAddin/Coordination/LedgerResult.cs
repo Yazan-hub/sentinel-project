@@ -27,7 +27,7 @@ public sealed class LedgerResult
     /// <summary>The cap on one event POST, body included, when the caller passes none.</summary>
     public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(6);
 
-    private const string NoHash = "the bridge returned no chain hash";
+    private const string NoHash = "Sentinel returned no chain hash";
     private const string MayHaveLanded = " (the entry may have landed)";
 
     public readonly LedgerState State;
@@ -86,7 +86,7 @@ public sealed class LedgerResult
             return hold is null ? row : new LedgerResult(row.State, row.Reason, row.Id, row.Hash, hold);
         }
         // A 401 is no session and no machine token (H4): said as signed out, never as a bridge fault.
-        var what = status == 401 ? "HTTP 401: signed out — Sentinel ▸ Sign in" : "HTTP " + status + (string.IsNullOrWhiteSpace(message) ? "" : ": " + Clip(message!));
+        var what = status == 401 ? "HTTP 401: signed out — Sentinel ▸ More ▸ Sign in" : "HTTP " + status + (string.IsNullOrWhiteSpace(message) ? "" : ": " + Clip(message!));
         return status is 400 or 401 or 403 or 404 or 503 ? NotRecorded(what) : NotConfirmed(what + MayHaveLanded);
     }
 
@@ -178,6 +178,17 @@ public static class LedgerLine
         LedgerState.NotConfirmed => "not confirmed — " + r.Reason,
         LedgerState.NotRecorded => "not recorded — " + r.Reason,
         _ => ProjectContext.NotBound,
+    };
+
+    /// <summary>UX slice 4 display twin of <see cref="For"/> (which stays as is: its text is written into issue comments). Line = the plain
+    /// words for a screen ("Recorded in History", "Not recorded in History", "Not confirmed in History", or the not-bound sentence);
+    /// Detail = what moves into Details (History number and receipt, or the reason), "" when none.</summary>
+    public static (string Line, string Detail) Display(LedgerResult r) => r.State switch
+    {
+        LedgerState.Recorded => ("Recorded in History", "History #" + r.Id + " · receipt " + r.Hash!.Substring(0, 16) + "…"),
+        LedgerState.NotConfirmed => ("Not confirmed in History", r.Reason ?? ""),
+        LedgerState.NotRecorded => ("Not recorded in History", r.Reason ?? ""),
+        _ => (ProjectContext.NotBound, ""),
     };
 
     /// <summary>The same as a sentence, for a dialog or a status line: "Recorded: ledger #812 · receipt …",

@@ -263,22 +263,22 @@ static partial class Check
         var cs = JsonSerializer.Deserialize<ChangesetDto>(stored);
         foreach (var e in cs.Elements) e.Verdict = new ElementVerdictDto { Status = "recorded" };
         Ok(cs.Elements[0].Place.TypeName == "BDS_EXT_ARC_CMU_200 mm" && cs.Elements[1].Place.TypeName == "BDS_INT_ARC_CMU_100 mm",
-           "the executor reads the type the bridge filled into place.TypeName, as for any other changeset");
+           "the executor reads the type Sentinel filled into place.TypeName, as for any other set of proposed changes");
         Ok(cs.Elements[0].Typing?.TypedBy == "bridge" && cs.Elements[0].Typing.Type == "BDS_EXT_ARC_CMU_200 mm" && cs.Elements[0].Typing.Family == "Basic Wall"
            && cs.Elements[0].Typing.Guideline == "guideline@1 · office · 0123456789ab…",
            "typing reads who typed it, the type and family, and which guideline decided");
-        Ok(ChangesetTrust.Typing(cs.Elements[0]) == "typed by the bridge from the facts posted (guideline@1 · office · 0123456789ab…)",
+        Ok(ChangesetTrust.Typing(cs.Elements[0]) == "typed by Sentinel from the facts posted (guideline@1 · office · 0123456789ab…)",
            "the review's words for a bridge-typed element");
         var caller = JsonSerializer.Deserialize<ChangesetElementDto>("{\"kind\":\"wall\",\"op\":\"create\",\"typing\":{\"typed_by\":\"caller\"}}");
         var older = JsonSerializer.Deserialize<ChangesetElementDto>("{\"kind\":\"wall\",\"op\":\"create\"}");
         Ok(ChangesetTrust.Typing(caller) == null && ChangesetTrust.Typing(older) == null, "a caller-typed element, or one from a bridge before MA-2a, adds no words");
         var sized = JsonSerializer.Deserialize<ChangesetElementDto>("{\"kind\":\"window\",\"op\":\"create\",\"typing\":{\"typed_by\":\"bridge-size\",\"type\":\"800x1200 mm\","
             + "\"family\":\"BDS_Window_1 Panel+FX\",\"size\":\"800 x 1200 mm\",\"band_mm\":100,\"catalog\":\"type_catalog@1 · project · fedcba987654…\"}}");
-        Ok(ChangesetTrust.Typing(sized) == "typed by the bridge by size: 800 x 1200 mm, the one catalogue type within 100 mm (type_catalog@1 · project · fedcba987654…)",
+        Ok(ChangesetTrust.Typing(sized) == "typed by Sentinel by size: 800 x 1200 mm, the one catalogue type within 100 mm (type_catalog@1 · project · fedcba987654…)",
            "MA-5a: the review's words for a scan opening typed by its size");
         Ok(cs.Elements.All(e => !ChangesetTrust.PreTick(cs, e)), "neither element opens ticked: a create never, a bridge-typed retype not for that");
         string filed = JsonSerializer.Serialize(new ChangesetElementDto { Kind = "wall", Op = "retype" }, ChangesetClient.WriteJson);
-        Ok(!filed.Contains("typing") && !filed.Contains("facts"), "an element the add-in files carries no typing (nulls are left out): the bridge's record is the bridge's");
+        Ok(!filed.Contains("typing") && !filed.Contains("facts"), "an element the add-in files carries no typing (nulls are left out): Sentinel's record is Sentinel's");
     }
 
     // The drill drawing's own numbers (make-sample.py --ma2a): the script states each wall's location; WallLocation reads it again.

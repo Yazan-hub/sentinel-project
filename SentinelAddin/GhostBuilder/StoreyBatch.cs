@@ -103,7 +103,7 @@ public static class StoreyBatch
         if (batch.Count == 1) return batch[0];
         return new ChangesetDto
         {
-            Id = batch[0].Id, Name = $"{StoreyOf(batch[0].Name)} ({batch.Count} changesets, one Undo)", Source = batch[0].Source,
+            Id = batch[0].Id, Name = $"{StoreyOf(batch[0].Name)} ({batch.Count} sets of proposed changes, one Undo)", Source = batch[0].Source,
             Claimed = batch[0].Claimed, Status = batch[0].Status, CreatedAt = batch[0].CreatedAt,
             Adjudication = new AdjudicationDto
             {

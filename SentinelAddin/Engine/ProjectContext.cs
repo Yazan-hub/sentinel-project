@@ -15,7 +15,7 @@ namespace Sentinel.Engine;
 public sealed class ProjectContext
 {
     /// <summary>What every surface says when a document has no web project.</summary>
-    public const string NotBound = "This model is not bound to a web project — Sentinel ▸ Project Setup.";
+    public const string NotBound = "This model is not bound to a web project — Sentinel ▸ More ▸ Project Setup.";
 
     public string Key = "";
     public bool IsBound;

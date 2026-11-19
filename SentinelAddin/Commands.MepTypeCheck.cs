@@ -78,9 +78,10 @@ public sealed class MepTypeCheckCommand : IExternalCommand
                   + (report.NotCheckable > 0 ? $" · {report.NotCheckable} not checkable (no catalogue rows for the category)" : "")
                   + (report.NoType > 0 ? $" · {report.NoType} without a type, not checked" : ""),
             MainContent = string.Join("\n", report.Lines().Concat(report.Findings.Take(12).Select(MepTypeCheck.Line)))
-                + "\n\nRead only — nothing in the model changed. Sizes are not checked: the office has no size list (D15). Links are not read. Not read: flex ducts and pipes, placeholders, fabrication parts, fittings and accessories. "
+                + "\n\nRead only — nothing in the model changed. Sizes are not checked: the office has no size list. Links are not read. Not read: flex ducts and pipes, placeholders, fabrication parts, fittings and accessories. "
                 + "The catalogue's category names must be English (Ducts, Pipes, Cable Trays, Conduits). "
-                + "Sent to the ledger as one mep_check row (the pane's Doctor log says whether it landed).",
+                + "Recorded in History (the pane's Doctor log says whether it landed).",
+            ExpandedContent = "History action: mep_check. Decision D15: no size list.",
             CommonButtons = TaskDialogCommonButtons.Close,
         };
         if (report.Unmatched > 0)

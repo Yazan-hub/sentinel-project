@@ -102,7 +102,7 @@ public static class NamingProposer
         var p = new NameProposal();
         current = (current ?? "").Trim();
         if (rule.Tokens.Count == 0) return Fail(p, "rule has no token schema");
-        if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(org)) return Fail(p, "ruleset has no org code");
+        if (RuleRegex.NeedsOrg(rule) && string.IsNullOrWhiteSpace(org)) return Fail(p, "the office code is not set in the project standards");
         // A name can look syntactically compliant yet disagree with the measured geometry — check that
         // BEFORE trusting the regex match, so a stale digit in an otherwise-conforming name still surfaces.
         // The SIZE token is matched case-insensitively, exactly as Recover matches it.

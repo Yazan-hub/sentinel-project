@@ -75,7 +75,7 @@ public static class UserSession
     public static (bool Ok, string Message) SignIn(string supabaseUrl, string anonKey, string email, string password)
     {
         if (string.IsNullOrWhiteSpace(supabaseUrl) || string.IsNullOrWhiteSpace(anonKey))
-            return (false, "no sign-in address and key on this PC — set them in Standards ▸ PC Settings");
+            return (false, "no sign-in address and key on this PC — set them in Sentinel ▸ More ▸ PC Settings");
         var body = JsonSerializer.Serialize(new { email = email.Trim(), password });
         var r = Token(supabaseUrl, anonKey, "password", body);
         if (r.Session is null) return (false, r.Error);
@@ -128,11 +128,11 @@ public static class UserSession
             var onDisk = Load();
             if (onDisk is not null && SecondsLeft(onDisk) > MinLeftSeconds) { _s = onDisk; return _s.AccessToken; }
             var refreshToken = onDisk?.RefreshToken ?? _s?.RefreshToken;
-            if (string.IsNullOrEmpty(refreshToken)) { Forget(); throw new SessionException("signed out — the stored session has no refresh token — Standards ▸ Sign in"); }
+            if (string.IsNullOrEmpty(refreshToken)) { Forget(); throw new SessionException("signed out — the stored session has no refresh token — Sentinel ▸ More ▸ Sign in"); }
             var r = Token(supabaseUrl, anonKey, "refresh_token", JsonSerializer.Serialize(new { refresh_token = refreshToken }));
             if (r.Session is null)
             {
-                if (r.Refused) { Forget(); throw new SessionException("signed out — Supabase refused the session (" + r.Error + ") — Standards ▸ Sign in"); }
+                if (r.Refused) { Forget(); throw new SessionException("signed out — Supabase refused the session (" + r.Error + ") — Sentinel ▸ More ▸ Sign in"); }
                 _failedAt = Now(); _failedWhy = r.Error; // SI-1: memory and file kept; a call after RetryAfterSeconds retries
                 return Unrefreshed(r.Error);
             }

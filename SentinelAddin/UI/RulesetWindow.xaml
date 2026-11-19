@@ -1,7 +1,7 @@
 <Window x:Class="Sentinel.UI.RulesetWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Sentinel — Ruleset"
+        Title="Sentinel — Project standards"
         Width="760" Height="640" WindowStartupLocation="CenterScreen"
         Background="#F4F6F9">
     <Window.Resources>
@@ -28,6 +28,13 @@
                            FontSize="20" FontWeight="SemiBold"/>
                 <TextBlock Text="{Binding SubHeader}" Foreground="#9DB4CE"
                            FontSize="12" Margin="0,4,0,0"/>
+                <Expander IsExpanded="False" Margin="0,6,0,0" Foreground="#9DB4CE">
+                    <Expander.Header>
+                        <TextBlock Text="Details" Foreground="#9DB4CE" FontSize="12"/>
+                    </Expander.Header>
+                    <TextBlock Text="{Binding Details}" Foreground="#9DB4CE" FontSize="12"
+                               FontFamily="Consolas" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                </Expander>
             </StackPanel>
         </Border>
 

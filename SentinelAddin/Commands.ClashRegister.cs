@@ -29,15 +29,19 @@ public sealed class ClashRegisterCommand : IExternalCommand
 
         if (rows is null && why == Sentinel.Coordination.GovernedQuery.SignedOutLine)
         {
-            TaskDialog.Show("Sentinel — Clash Register", "The bridge refused this call for project '" + ctx.Key + "': " + why + ".");
+            TaskDialog.Show("Sentinel — Clash Register", "Sign in to read the clash register for project '" + ctx.Key + "': " + why + ".");
             return Result.Cancelled;
         }
         if (rows is null)
         {
-            TaskDialog.Show("Sentinel — Clash Register",
-                $"Couldn't reach the Sentinel bridge / CDE for project '{ctx.Key}'.\n\n" +
-                "Start the bridge (WebApp: start.ps1 or npm run bcf:serve). The project is this model's " +
-                "web project (Sentinel ▸ Project Setup).");
+            new TaskDialog("Sentinel — Clash Register")
+            {
+                MainInstruction = "Sentinel is not connected",
+                MainContent = $"The clash register for project '{ctx.Key}' could not be read.\n\n" +
+                    "Ask your administrator to start Sentinel on the office PC. The project is this model's " +
+                    "web project (Sentinel ▸ More ▸ Project Setup).",
+                ExpandedContent = "To start it: WebApp start.ps1, or npm run bcf:serve.",
+            }.Show();
             return Result.Cancelled;
         }
 

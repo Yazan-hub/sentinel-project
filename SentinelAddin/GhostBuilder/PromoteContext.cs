@@ -144,11 +144,11 @@ namespace Sentinel.GhostBuilder
         /// <summary>Ask the person, modal, in the same API call (the group still open): true = place anyway. Closing is going back.</summary>
         public static bool PlaceAnyway(IReadOnlyList<string> fails, string matrix, string what)
         {
-            var td = new TaskDialog("Sentinel — DD IDS check")
+            var td = new TaskDialog("Sentinel — DD data requirements check")
             {
                 MainInstruction = StageIds.Headline(fails.Count, matrix, what.StartsWith("storey ", StringComparison.Ordinal) ? "This " + what : null),
                 MainContent = string.Join("\n", StageIds.Tally(fails).Select(t => "• " + t)) + "\n\nEach element is named under See details." +
-                              "\n\nThe DD IDS is made from the LOD matrix's properties (matrixToIds). A missing value is a gap at DD, not an error in the model.",
+                              "\n\nThe DD data requirements are made from the LOD matrix's properties. A missing value is a gap at DD, not an error in the model.",
                 // ponytail: 200 named lines, the tally above counts every one; a scrollable list if a real office's changeset outgrows it
                 ExpandedContent = string.Join("\n", fails.Take(200)) + (fails.Count > 200 ? $"\n… and {fails.Count - 200} more (counted above)" : ""),
                 AllowCancellation = true,

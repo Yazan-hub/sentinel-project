@@ -28,7 +28,7 @@ static partial class Check
            && window.Contains("public void Reopen(string words) => Ui(() => { _applied = false; _go.IsEnabled = true; Reasons(false); Say(words); Ticks(); });")
            && window.Contains("foreach (var r in g.Rows.Where(x => x.Box.IsChecked != true && x.Box.IsEnabled && x.El.ProposalGuid != null)) reasons[r.El.ProposalGuid] = reason;")
            && window.Contains("DecideRequested?.Invoke(ticked, unticked, _note.Text?.Trim() ?? \"\", reasons, tickReasons, batchReason);"),
-           "each group has one reason box on its own row: its reason goes to that group's unticked rows that may be ticked here (never a row the web declined); one the bridge would refuse, or one with no such row, is refused by the window before anything is sent; the boxes are read-only once their reasons were taken");
+           "each group has one reason box on its own row: its reason goes to that group's unticked rows that may be ticked here (never a row the web declined); one Sentinel would refuse, or one with no such row, is refused by the window before anything is sent; the boxes are read-only once their reasons were taken");
         Ok(review.Contains("window.DecideRequested += (ticked, unticked, note, reasons, tickReasons, batchReason) => Task.Run(() => Decide(ticked, unticked, note, reasons, tickReasons, batchReason));")
            && review.Contains("ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))")
            && review.Contains("records.Add(ResultOf(key, one, res.Applied, rejected, said, one.ReviewRev, here, new List<string> { undo, UndoWatcher.TxName(one.Name, one.Id) }, whys,") && review.Contains("var whys = StoreyBatch.Own(one, reasons);") // MA-5b-4: the kept reshapes' reasons join the reviewer's
@@ -36,13 +36,13 @@ static partial class Check
            && review.Contains("(string.IsNullOrEmpty(note) ? \"\" : $\" | reviewer: {note}\"), null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>")
            && !review.Contains("null, here, null, null)")
            && review.Contains("Undo = undo ?? new List<string>(), At = ProvenanceStamp.Now(), Reasons = reasons,"),
-           "a partial Apply, a Decline all and a rolled-back storey carry each changeset's own reasons (the unticked rows') on its result and its record");
+           "a partial Apply, a Decline all and a rolled-back storey carry each proposed changes' own reasons (the unticked rows') on its result and its record");
         Ok(review.Contains("var landed = ChangesetClient.ReportResult(cfg, r.Key, r.ChangesetId, r.Applied, r.Rejected, r.Note, r.ReviewRev, out var reply, out var err, r.Reasons, r.AttemptKey, r.TickReasons, r.BatchReason);")
            && review.Contains("+ ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +")
            // Review C15: a result the bridge had already taken says it too — the words are parenthesised (+ binds tighter than ??).
            && review.Contains("if (taken != null) reply = UnreportedResults.StoredReply(stored);")
            && review.Contains("rep.Words.Add((taken ?? $\"\\\"{r.Name}\\\": reported ({ChangesetTrust.LedgerOf(reply)}).\") + ChangesetTrust.ReasonsLine(reply, r.Reasons?.Count ?? 0) +"),
-           "every report of the review sends its record's reasons — one sent again later too — and says how many the bridge kept, from its reply (or, for one it had already taken, from the stored result)");
+           "every report of the review sends its record's reasons — one sent again later too — and says how many Sentinel kept, from its reply (or, for one it had already taken, from the stored result)");
 
         int show = At(review, "window.ShowRequested += el =>"), shown = At(review, "window.Show();");
         string zoom = show > 0 && shown > show ? review.Substring(show, shown - show) : "";

@@ -8,7 +8,7 @@
         <Border Background="#1E3A5F" Padding="20,14">
             <StackPanel>
                 <TextBlock Text="Sign in" Foreground="White" FontSize="16" FontWeight="SemiBold"/>
-                <TextBlock Text="Your Sentinel account — the same one as on the web. Every governed call from Revit then carries your name."
+                <TextBlock Text="Your Sentinel account — the same one as on the web. Everything you send from Revit then carries your name in History."
                            Foreground="#9DB4CE" FontSize="11" Margin="0,3,0,0" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
@@ -26,7 +26,7 @@
             </StackPanel>
 
             <TextBlock x:Name="StatusText" FontSize="11" Foreground="#B00020" Margin="0,0,0,10" TextWrapping="Wrap"/>
-            <TextBlock x:Name="WhereText" FontSize="10" Foreground="#889" Margin="0,0,0,10" TextWrapping="Wrap"/>
+            <Expander Header="Details" IsExpanded="False" FontSize="10" Margin="0,0,0,10"><TextBlock x:Name="WhereText" FontSize="10" Foreground="#889" TextWrapping="Wrap"/></Expander>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="SignOutButton" Content="Sign out" Width="90" Height="30" Margin="0,0,8,0" Click="OnSignOut"/>

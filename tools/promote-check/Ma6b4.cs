@@ -220,13 +220,13 @@ static partial class Check
            && cmd.Contains("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));") && cmd.Contains("if (ProjectContext.For(d).Key != key)")
            && cmd.Contains("var unreviewed = pending.FirstOrDefault(ReviewChangesetsCommand.StoreyRun);") && cmd.Contains("if (!m.HasCatalog)")
            && cmd.Contains("GovernedNotify.Report(\"Shell a Mass receipt\", BuildReceipt.Run(\"shell-mass\", BuildReceipt.AddinSha256,")
-           && cmd.Contains("said += \"\\nDecline the storey changeset(s) Shell a Mass filed, then run it again — once one is applied, Shell plans no more of this mass.\";")
+           && cmd.Contains("said += \"\\nDecline the storey's proposed changes that Shell a Mass sent, then run it again — once one is applied, Shell plans no more of this mass.\";")
            && cmd.IndexOf("finally { release(); }", StringComparison.Ordinal) < cmd.IndexOf("if (filed.Count > 0 && filed.Count < bodies.Count)", StringComparison.Ordinal),
            "the command holds the review guard and releases it once on every path (a refusal, No, a throw, the hub's refusal, the filing's finally, a waiting changeset reopened), files as Promote does and posts its build:run receipt; a filing stopped part-way says to decline the storeys filed before running again (review)");
         Ok(cmd.Contains("e.Category?.Id.IdValue() == (long)BuiltInCategory.OST_Mass || e is DirectShape ds && ds.ApplicationId == \"Sentinel\"")
            && cmd.Contains("catch (Autodesk.Revit.Exceptions.OperationCanceledException) { return Result.Cancelled; }")
            && cmd.Contains("This model has no mass") && cmd.Contains("turn on Show Mass (Massing & Site) to see and pick an in-place mass")
-           && cmd.Contains("or run 2b · Photo Massing and apply its changeset"), // MA-6-6: Photo Massing files a mass
+           && cmd.Contains("or run 2b · Photo Massing and apply its proposed changes"), // MA-6-6: Photo Massing files a mass
            "the pick takes a mass, or a DirectShape Sentinel placed (amendment 11); Esc cancels; no mass, or none shown, is said before the pick (amendment 13)");
         Ok(reader.Contains("catch (Exception ex) { f.Storeys.Add((null, null, $\"Revit could not cut the mass at {a.Name} — {ex.Message}\")); }")
            && reader.Contains("WherePasses(new ElementIntersectsSolidFilter(solid))") && reader.Contains("bb.Transform.OfPoint(new XYZ(x, y, z)).Z")

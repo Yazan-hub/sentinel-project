@@ -55,7 +55,7 @@ static class GuidelineChecks
     static void Bodies()
     {
         var m = GuidelineMatcher.FromBodies(Guideline, Catalog, out var ge, out var ce);
-        _ok(m.HasGuideline && m.HasCatalog && ge == null && ce == null, "a guideline and a catalogue the bridge accepts are read");
+        _ok(m.HasGuideline && m.HasCatalog && ge == null && ce == null, "a guideline and a catalogue Sentinel accepts are read");
         _ok(m.Standard == "Test Office Guideline" && m.TemplateTitle == "Office_Template" && m.Views?.Count == 1,
             "standard, views and the catalogue's template.title read as written");
         var r = m.Resolve(new GuidelineInput { Category = "Walls", Layer = "A-WALL-EXT", ThicknessMm = 199.6 });
@@ -95,10 +95,10 @@ static class GuidelineChecks
         GuidelineRefused(Guideline.Replace("\"viewNaming\":{\"statusPrefixes\":{\"WIP_\":\"01_WIP\"}}", "\"viewNaming\":[]"), "viewNaming must be an object", "viewNaming not an object");
         var optional = GuidelineMatcher.FromBodies(Guideline.Replace("\"default\":{\"family\":\"Basic Wall\",\"typePattern\":\"OFF_INT_{thickness} mm\"}", "\"default\":null")
             .Replace("\"views\":[{\"use\":\"GA Plan\",\"viewType\":\"FloorPlan\",\"namePrefix\":\"FP\"}]", "\"views\":null"), null, out var optionalError, out _);
-        _ok(optional.HasGuideline && optionalError == null, "guideline: default and views null read as absent, as the bridge reads them");
+        _ok(optional.HasGuideline && optionalError == null, "guideline: default and views null read as absent, as Sentinel reads them");
         var unreadable = GuidelineMatcher.FromBodies(Guideline.Replace("{\"layer\":\"A-WALL-EXT\"}", "{\"params\":{\"Fire Rating\":60}}"), null, out var readError, out _);
         _ok(!unreadable.HasGuideline && readError is { Length: > 0 },
-            "guideline: a when.params value that is not text is none with the reader's message (the bridge does not check it)");
+            "guideline: a when.params value that is not text is none with the reader's message (Sentinel does not check it)");
     }
 
     // ── 3. type_catalog@n refusals ─────────────────────────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ static class GuidelineChecks
         CatalogRefused("{\"template\":{\"title\":\"t\"}}", "types must be a non-empty array", "missing types");
         CatalogRefused("{\"types\":[]}", "types must be a non-empty array", "empty types");
         var many = "{\"types\":[" + string.Join(",", Enumerable.Repeat("{\"category\":\"Walls\",\"type\":\"x\"}", 20001)) + "]}";
-        CatalogRefused(many, "types must hold at most 20000 entries (has 20001)", "more types than the bridge stores");
+        CatalogRefused(many, "types must hold at most 20000 entries (has 20001)", "more types than Sentinel stores");
         CatalogRefused("{\"types\":[1]}", "types[0] must be an object", "a row that is not an object");
         CatalogRefused(Catalog.Replace("\"category\":\"Walls\",\"family\":\"Basic Wall\",\"type\":\"OFF_EXT_200 mm\"", "\"category\":\" \",\"family\":\"Basic Wall\",\"type\":\"OFF_EXT_200 mm\""),
             "types[0].category must be a non-empty string", "a blank category");
@@ -271,7 +271,7 @@ static class GuidelineChecks
                 "types keep system, width_mm (null when absent); view_templates travel with them");
             var read = GuidelineMatcher.FromBodies(null, body, out _, out var readError);
             _ok(read.HasCatalog && readError == null && read.TemplateTitle == "Office Project (Template)",
-                "the export parses as type_catalog@n — what the bridge will accept on install");
+                "the export parses as type_catalog@n — what Sentinel will accept on install");
 
             string msg = TypeCatalogExport.Message(2, "Office Project (Template)", path);
             _ok(msg.Contains("(2 types from Office Project (Template)) → " + path)

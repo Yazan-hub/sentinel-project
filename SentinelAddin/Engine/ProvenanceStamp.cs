@@ -198,12 +198,12 @@ namespace Sentinel.Engine
                     placedBy == uniqueId ? "Placed or changed by Sentinel."
                         : $"Copied, not placed by Sentinel — this stamp came with a copy of element {OneLine(placedBy) ?? "(unknown)"}; the lines below are that element's record, not this one's.",
                     "Source: " + source,
-                    "Source file sha256: " + Groups8(Or("source_sha256", "none recorded — Sentinel read no file for it (an agent's proposal, or a drawing already imported in the model)")),
+                    "Source file hash: " + Groups8(Or("source_sha256", "none recorded — Sentinel read no file for it (an agent's proposal, or a drawing already imported in the model)")),
                     "Layer: " + Or("layer", "none — not read from a drawing layer"),
                     reason ? null : "Rule: " + Or("rule", "not recorded"),
-                    "Approver: " + approver + (approver.StartsWith("unsigned", StringComparison.Ordinal) ? " (not signed in — Standards ▸ Sign in names you)" : ""),
-                    "Ledger row: " + (row != null ? "#" + row + " — the proposal row its changeset was filed with"
-                                      : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "none — not on a project ledger row of its own (an unbound model's local changeset, Datum or Photo Massing; since MA-1a item 7 a bound run is reported as one datum or massing row — the pane's log said whether the ledger recorded it)"),
+                    "Approver: " + approver + (approver.StartsWith("unsigned", StringComparison.Ordinal) ? " (not signed in — Sentinel ▸ More ▸ Sign in names you)" : ""),
+                    "History entry: " + (row != null ? "#" + row + " — the entry its proposed changes were sent with"
+                                      : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "none — not on a History entry of its own (an unbound model's local changeset, Datum or Photo Massing; since MA-1a item 7 a bound run is reported as one datum or massing row — the pane's log said whether History recorded it)"),
                     "Placed at: " + (at != null ? at + " (UTC, this PC's clock)" : v1 ? "not recorded (a stamp from before MA-1a item 4)" : "not recorded"),
                     "Changeset: " + (S("changeset_id") ?? "none") + (n > 1 ? $" (the latest of {n} that touched it)" : ""),
                     reason ? $"Reason given by the proposer ({source}): \"{Or("rule", "not recorded")}\"" : null,

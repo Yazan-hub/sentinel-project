@@ -61,7 +61,7 @@ public sealed class IfcExportMapping
     {
         if (src.Origin == "none")
             return src.NotInstalled || src.NoProject ? (null, null)
-                 : (null, $"ifc_export could not be read ({src.Reason}) — the bridge did not confirm whether an export mapping is installed");
+                 : (null, $"ifc_export could not be read ({src.Reason}) — Sentinel did not confirm whether an export mapping is installed");
         var m = FromBody(src.BodyJson, out var error);
         if (m is null) return (null, $"{src.Label} did not parse: {error}");
         m.Ref = src.Ref ?? ""; m.Sha256 = src.Sha256 ?? ""; if (src.Origin == "cache") m.CachedAt = src.FetchedAt;

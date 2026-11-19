@@ -135,7 +135,7 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>The line when the person went back: nothing was placed.</summary>
         public static string WentBack(int n, string matrix) =>
-            $"You went back at the DD IDS check — nothing was placed. {n} element(s) would have failed the DD IDS made from {matrix}.";
+            $"You went back at the DD data requirements check — nothing was placed. {n} element(s) would have failed the DD data requirements made from {matrix}.";
 
         /// <summary>The summary and ledger-note line when the person placed it anyway, the first five elements named.</summary>
         public static string PlacedAnyway(IReadOnlyList<string> fails, string matrix, string who = null) =>

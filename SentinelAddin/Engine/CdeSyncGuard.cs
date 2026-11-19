@@ -55,8 +55,8 @@ public static partial class CdeSyncGuard
                 : doc.PathName);
         if (string.IsNullOrEmpty(fileName)) fileName = doc.Title;
 
-        string label = !ctx.IsBound ? "not bound — Sentinel ▸ Project Setup"
-            : naming is null ? "naming@n not fetched from the bridge yet — CDE-01 checks from the next sync"
+        string label = !ctx.IsBound ? "not bound — Sentinel ▸ More ▸ Project Setup"
+            : naming is null ? "naming@n not fetched from Sentinel yet — CDE-01 checks from the next sync"
             : naming.Label;
         // The project code comes from the document (Project Setup) only, never the machine config.
         return Decide(fileName, SettingsManager.LoadFromDocument(doc)?.ProjectCode, naming?.BodyJson, label);

@@ -45,8 +45,8 @@ public sealed class GovernedPublishCommand : IExternalCommand
         if (App.Events is not { } events) return Result.Failed; // the hub is made at startup, before the ribbon
         if (Publisher.InFlight)
         {
-            TaskDialog.Show(Title, "A publish of this session is still running (Governed Publish waiting for the referee, or " +
-                                   "Auto-publish) — its result lands when it finishes. Run Governed Publish after that.\n\nNothing was exported.");
+            TaskDialog.Show(Title, "A publish of this session is still running (waiting for Sentinel, or " +
+                                   "Auto-publish) — its result lands when it finishes. Publish again after that.\n\nNothing was exported.");
             return Result.Cancelled;
         }
 
@@ -64,7 +64,7 @@ public sealed class GovernedPublishCommand : IExternalCommand
             var plan = Publisher.Prepare(doc, Path.Combine(Path.GetTempPath(), "Sentinel", "governed"),
                                          (kind, timeout) => ArtefactClient.Resolve(projectKey, kind, timeout), "revit", progress);
             if (plan.TempIfcPath.Length > 0) // the export ran: record what was measured (the B33 drill reads it)
-                App.PanelVm?.LogDoctor("Governed Publish: Revit reported " + progress.RevitUpdates + " progress update(s) during the IFC export" +
+                App.PanelVm?.LogDoctor("Publish: Revit reported " + progress.RevitUpdates + " progress update(s) during the IFC export" +
                                        (progress.Token.IsCancellationRequested ? "; Cancel " + (progress.CancelSent ? "was passed to Revit."
                                            : progress.CancelRefused > 0 ? "was refused by Revit on " + progress.CancelRefused + " update(s)." : "did not reach Revit.") : "."));
             if (!plan.Ready)

@@ -21,7 +21,7 @@ static partial class Check
         int rebound = At(promote, "if (ProjectContext.For(doc).Key != key)"), status = At(promote, "if (read.Status != TaskStatus.RanToCompletion)");
         int let = At(promote, "release(); // Open checks the guard"), waiting = At(promote, "ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed));");
         Ok(once > 0 && guarded > once && promote.Contains("finally { if (!handed) Once(); }") && rebound > guarded && status > rebound && let > status && waiting > let
-           && promote.Contains("This model's project changed while Promote read the bridge (was {key}) — nothing was planned or filed. Run Promote (DD) again.")
+           && promote.Contains("This model's project changed while Promote read from Sentinel (was {key}) — nothing was planned or sent for review. Run Promote (DD) again.")
            && Count(promote, "ReviewChangesetsCommand.Release();") == 2,
            "E4: the plan releases the guard exactly once on every way out but the filing — a refusal, No, a throw the hub swallows — and before a waiting storey opens (Open checks it); C4: a model re-bound during the reads plans and files nothing");
         int pane = At(promote, "var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;");
@@ -38,7 +38,7 @@ static partial class Check
            "C12: a model re-bound to another project while Promote filed opens no review of the old project's changesets — said with what was filed");
         Ok(pane > 0 && pool > pane && filing > pool && done > filing && receipt > done && open > receipt && busyHop > open
            && Count(promote, "release();") == 4 && Count(promote.Substring(0, At(promote, "private static bool InBody(")), "return true;") == 2 && At(promote, "return true;") > open // C15
-           && promote.Contains("changeset(s) were not confirmed filed") // C14
+           && promote.Contains("set(s) of proposed changes were not confirmed as sent") // C14
            && promote.IndexOf("ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));", StringComparison.Ordinal) > busyHop
            && promote.Contains("why => TaskDialog.Show(Title, PropertyPlanner.PromoteNotOpened(why, filed.Count, title)")
            && promote.Contains("if (first == null) { App.Events.Enqueue(_ => TaskDialog.Show(Title, said)); return; }")
@@ -48,8 +48,8 @@ static partial class Check
         Ok(!promote.Contains("GetAwaiter().GetResult()") && !promote.Contains(".Wait(") && Count(promote, "Task.Run(") == 3
            && review.Contains("internal static bool Held => Volatile.Read(ref _holds) > 0;") && review.Contains("internal static void Hold() =>") && review.Contains("internal static void Release() =>")
            && !review.Contains("Open(ExternalCommandData") && !review.Contains("two minutes at most")
-           && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to the bridge, or Promote (DD) or Shell a Mass is reading or filing")
-           && review.Contains("the report, Promote's filing or Shell a Mass's filing is done (a Promote or a Shell a Mass that files nothing is done when its dialog closes)"), // C13
+           && review.Contains("internal const string Busy = \"A review window is open, a result is still being reported to Sentinel, or Promote (DD) or Shell a Mass is reading or sending")
+           && review.Contains("the report, Promote's sending or Shell a Mass's sending is done (a Promote or a Shell a Mass that sends nothing is done when its dialog closes)"), // C13
            "AI-2, XC-3: nothing in Promote waits for the bridge on Revit's thread; the guard is the review's (F1), and its words name Promote (and, MA-6-4, Shell a Mass) with no time bound a filing cannot keep (F3)");
     }
 }

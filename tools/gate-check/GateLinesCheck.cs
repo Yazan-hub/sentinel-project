@@ -9,7 +9,7 @@ static class GateLinesCheck
     const string Sha = "3f9a0c1d2e4b5f60718293a4b5c6d7e8f90112233445566778899aabbccddeef";
     const string Label = "contract@1 · office · 3f9a0c1d2e4b…";
     const string NoneLabel = "none — not installed for north-yard or its office";
-    const string UnboundLabel = "none — not bound — Sentinel ▸ Project Setup";
+    const string UnboundLabel = "none — not bound — Sentinel ▸ More ▸ Project Setup";
 
     static GateResult Judged(GateOutcome o, string schema, params string[] failures)
     {
@@ -44,15 +44,15 @@ static class GateLinesCheck
         var unbound = NotChecked(UnboundLabel);
 
         // ── 1. the verdict line (spec 4b-1, Revit paragraph — exact) ──────────────────────────────────────────
-        ok(GateLines.PublishLine(pass, "north-yard") == "Delivery gate: PASS · contract@1 · office · 3f9a0c1d2e4b… · Schema IFC4",
+        ok(GateLines.PublishLine(pass, "north-yard") == "Pre-publish check: PASS · contract@1 · office · 3f9a0c1d2e4b… · Schema IFC4",
            "publish line: PASS names contract@n · source · sha and the schema");
-        ok(GateLines.PublishLine(none, "north-yard") == "Delivery gate: NOT CHECKED — contract: none — not installed for north-yard or its office",
+        ok(GateLines.PublishLine(none, "north-yard") == "Pre-publish check: NOT CHECKED — contract: none — not installed for north-yard or its office",
            "publish line: none reads NOT CHECKED with the none label");
-        ok(GateLines.JudgedAlone(none) == "The IDS judged alone — the delivery gate was not checked (contract: none — not installed for north-yard or its office).",
+        ok(GateLines.JudgedAlone(none) == "The data requirements were checked alone — the pre-publish check was not run (rules: none — not installed for north-yard or its office).",
            "publish accept with no contract: intake's note word for word (A3)");
         ok(GateLines.Verdict(fail, "north-yard") == "FAIL · contract@1 · office · 3f9a0c1d2e4b… · Schema IFC2X3",
            "verdict: FAIL names the contract and the schema");
-        ok(GateLines.Verdict(unbound, "") == "NOT CHECKED — not bound — Sentinel ▸ Project Setup" && GateLines.NotBoundVerdict == GateLines.Verdict(unbound, "  "),
+        ok(GateLines.Verdict(unbound, "") == "NOT CHECKED — not bound — Sentinel ▸ More ▸ Project Setup" && GateLines.NotBoundVerdict == GateLines.Verdict(unbound, "  "),
            "verdict: an unbound document reads NOT CHECKED — not bound");
 
         // ── 2. the IFC Gate's first dialog names the contract, never a machine path ──────────────────────────
@@ -67,7 +67,7 @@ static class GateLinesCheck
 
         // ── 3. the IFC Gate's result dialog ──────────────────────────────────────────────────────────────────
         var dPass = GateLines.GateDialog(pass, "north-yard");
-        ok(dPass.StartsWith("✓ contract PASS — IDS not checked here (Governed Publish judges ids@n)\n\nContract: " + Label + " · Schema: IFC4\nEntities: 40 (1.0 MB)\nIFCWALLSTANDARDCASE: 12\nIFCCOLUMN: 3\n\n"),
+        ok(dPass.StartsWith("✓ contract PASS — data requirements not checked here (Publish judges them)\n\nContract: " + Label + " · Schema: IFC4\nEntities: 40 (1.0 MB)\nIFCWALLSTANDARDCASE: 12\nIFCCOLUMN: 3\n\n"),
            "dialog: PASS heads with the contract label, schema and counts");
         ok(dPass.EndsWith("Certificate: C:\\out\\a.sentinel-cert.json\nSHA-256: abababababababab…"),
            "dialog: the certificate path and the file's SHA-256");
@@ -88,7 +88,7 @@ static class GateLinesCheck
            "dialog: none reads NOT CHECKED, not certified");
         ok(!dNone.Contains("PASS") && !dNone.Contains("✓") && !dNone.Contains("FAIL"),
            "dialog: NOT CHECKED never reads as a pass or a fail");
-        ok(GateLines.GateDialog(unbound, "").StartsWith("NOT CHECKED — not bound — Sentinel ▸ Project Setup\n\n"),
+        ok(GateLines.GateDialog(unbound, "").StartsWith("NOT CHECKED — not bound — Sentinel ▸ More ▸ Project Setup\n\n"),
            "dialog: an unbound document reads NOT CHECKED — not bound");
         var missing = new GateResult { Outcome = GateOutcome.Fail, ContractLabel = Label, IfcPath = @"C:\gone.ifc" };
         missing.Failures.Add("IFC file not found.");
@@ -98,8 +98,8 @@ static class GateLinesCheck
         // ── 4. Governed Publish's reject dialog names the contract ─────────────────────────────────────────────
         var many = Judged(GateOutcome.Fail, "IFC4", Enumerable.Range(1, 15).Select(i => "failure " + i).ToArray());
         var rej = GateLines.PublishRejected(many);
-        ok(rej.StartsWith("✕ REJECTED — delivery gate failed (not published)\n\nContract: " + Label + " · Schema: IFC4\n\nFAILURES:\n• failure 1\n")
-           && rej.EndsWith("\n\nFix the deliverable and run Governed Publish again."),
+        ok(rej.StartsWith("✕ REJECTED — the pre-publish check failed (not published)\n\nContract: " + Label + " · Schema: IFC4\n\nFAILURES:\n• failure 1\n")
+           && rej.EndsWith("\n\nFix the deliverable and publish again."),
            "reject: names the contract label, the schema and the failures");
         ok(rej.Contains("• failure 12\n… and 3 more\n") && !rej.Contains("failure 13"),
            "reject: 12 failures shown, the rest counted");
@@ -158,7 +158,7 @@ static class GateLinesCheck
                "route body: no mapping (a file exported without one, or Certify an existing IFC file) sends export_ref and export_sha256 null");
         using (var j = JsonDocument.Parse(JsonSerializer.Serialize(GateLines.AuditValue("a.ifc", pass, "check", false, "", ""))))
             ok(j.RootElement.GetProperty("export_ref").ValueKind == JsonValueKind.Null && j.RootElement.GetProperty("export_sha256").ValueKind == JsonValueKind.Null,
-               "route body: an empty ref or sha is null, never an empty string the bridge would refuse");
+               "route body: an empty ref or sha is null, never an empty string Sentinel would refuse");
         var unread = GateLines.AuditValue("gone.ifc", missing, "check", false);
         ok(unread["sha256"] is null && unread["size_bytes"] is null && unread["schema"] is null,
            "route body: a file that was never read sends sha256, size_bytes and schema null — never an empty hash");

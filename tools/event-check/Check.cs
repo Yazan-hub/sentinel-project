@@ -47,7 +47,7 @@ static class Check
         Is(LedgerLine.For(LedgerResult.FromResponse(200, ProposeBody.Replace("\"audit_id\":813,\"recorded_at\"", "\"audit_id\":\"813\",\"recorded_at\""))),
            "ledger #813 · receipt 0a1b2c3d4e5f6071…", "an audit id sent as a string reads the same");
 
-        const string NoHash = "not confirmed — the bridge returned no chain hash";
+        const string NoHash = "not confirmed — Sentinel returned no chain hash";
         Is(LedgerLine.For(LedgerResult.FromResponse(201, "{\"ok\":true,\"received_at\":\"2026-09-25T10:00:00Z\",\"violations\":3}")), NoHash,
            "201 from /office/scan (no row comes back) → not confirmed, no chain hash");
         var hashless = new[]
@@ -62,7 +62,7 @@ static class Check
         Ok(hashless.All(b => LedgerLine.For(LedgerResult.FromResponse(201, b)) == NoHash), "2xx without an id and a 64-hex hash → not confirmed, every shape");
 
         Is(LedgerLine.For(LedgerResult.FromResponse(400, "{\"message\":\"entity_type must be a string\"}")), "not recorded — HTTP 400: entity_type must be a string", "400 → not recorded, with the bridge's message");
-        Is(LedgerLine.For(LedgerResult.FromResponse(401, "{\"message\":\"Unauthorized\"}")), "not recorded — HTTP 401: signed out — Sentinel ▸ Sign in", "401 → not recorded, worded as signed out (H4)");
+        Is(LedgerLine.For(LedgerResult.FromResponse(401, "{\"message\":\"Unauthorized\"}")), "not recorded — HTTP 401: signed out — Sentinel ▸ More ▸ Sign in", "401 → not recorded, worded as signed out (H4)");
         Is(LedgerLine.For(LedgerResult.FromResponse(403, "{\"message\":\"Origin not allowed\"}")), "not recorded — HTTP 403: Origin not allowed", "403 → not recorded");
         Is(LedgerLine.For(LedgerResult.FromResponse(404, "{\"message\":\"Project \\\"nope\\\" does not exist — create it in the web app (Projects → + New project) first.\"}")),
            "not recorded — HTTP 404: Project \"nope\" does not exist — create it in the web app (Projects → + New project) first.", "404 → not recorded");
@@ -104,14 +104,14 @@ static class Check
     {
         var nb = LedgerResult.NotBound();
         Ok(nb.State == LedgerState.NotBound && LedgerLine.For(nb) == ProjectContext.NotBound, "not bound → ProjectContext.NotBound, word for word");
-        Is(LedgerLine.Sentence(nb), "Not recorded on the web: This model is not bound to a web project — Sentinel ▸ Project Setup.",
+        Is(LedgerLine.Sentence(nb), "Not recorded on the web: This model is not bound to a web project — Sentinel ▸ More ▸ Project Setup.",
            "not bound as a sentence: the IFC gate's words since 4a");
         Is(LedgerLine.Sentence(LedgerResult.FromResponse(201, AuditRow)), "Recorded: ledger #812 · receipt 3f9a0c1d2e4b5f60…", "Recorded: ledger #id · receipt …");
         Is(LedgerLine.Sentence(LedgerResult.NotRecorded("the bridge did not answer")), "Not recorded — the bridge did not answer", "Not recorded — the bridge did not answer");
         Is(LedgerLine.Sentence(LedgerResult.FromException(new TaskCanceledException())), "Not confirmed — timed out after 6 s (the entry may have landed)", "Not confirmed — timed out …");
         Ok(LedgerResult.FromReceipt("813", Hash2).State == LedgerState.Recorded
            && new (string?, string?)[] { (null, Hash2), ("813", null), ("x", Hash2), ("-1", Hash2), ("0", Hash2), ("813", "abc") }
-               .All(p => LedgerLine.For(LedgerResult.FromReceipt(p.Item1, p.Item2)) == "not confirmed — the bridge returned no chain hash"),
+               .All(p => LedgerLine.For(LedgerResult.FromReceipt(p.Item1, p.Item2)) == "not confirmed — Sentinel returned no chain hash"),
            "a ProposalResult's AuditId + ReceiptHash → Recorded only with both");
     }
 
@@ -199,7 +199,7 @@ static class Check
         var (seen5, url5) = Bridge(201, "{\"ok\":true,\"received_at\":\"2026-09-25T10:00:00Z\",\"violations\":1}");
         using (var wire = System.Text.Json.JsonDocument.Parse(Wire))
             Is(LedgerLine.For(LedgerResult.Post(url5, "", "demo", "/office/scan", wire.RootElement, TimeSpan.FromSeconds(5))),
-               "not confirmed — the bridge returned no chain hash", "a 201 from /office/scan → not confirmed, no chain hash");
+               "not confirmed — Sentinel returned no chain hash", "a 201 from /office/scan → not confirmed, no chain hash");
         Is(seen5.GetAwaiter().GetResult().Body, Wire, "a JsonElement payload is sent exactly as it is");
 
         var (seen3, url3) = Bridge(500, "{\"message\":\"Internal error — see the bridge log.\"}");
@@ -220,7 +220,7 @@ static class Check
 
         // SEC-5: the ledger POST carries the bearer — https, or http to this PC, as the bridge address itself (UrlRule).
         var plain = LedgerResult.Post("http://bridge.example.test", "tok", "demo", "/audit", payload, TimeSpan.FromSeconds(5));
-        Is(LedgerLine.Sentence(plain), "Not recorded — The bridge address \"http://bridge.example.test\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; set an https address in Standards ▸ PC Settings. Nothing was sent.",
+        Is(LedgerLine.Sentence(plain), "Not recorded — The bridge address \"http://bridge.example.test\" is not https and not on this PC — Sentinel sends a token or a sign-in to another PC over https only; set an https address in Sentinel ▸ More ▸ PC Settings. Nothing was sent.",
            "SEC-5: a plain-http bridge on another PC → not recorded, in the URL rule's words, nothing sent");
 
         var silent = new TcpListener(IPAddress.Loopback, 0);

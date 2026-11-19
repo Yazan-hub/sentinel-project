@@ -44,7 +44,7 @@ static partial class Check
            && desk.Contains("export const TERRAIN_SHAPE = \"" + TerrainPlanner.Shape + "\";") && goodReason.Length <= 500,
            "review round 3: \"plus 1 m\" is survey-plan.mjs's GROUND_PAD_MM (1000), the web desk's TERRAIN_SHAPE is TerrainPlanner.Shape verbatim, and the fixture's reason is within the bridge's 500 characters");
         // review round 2: the row claims only what the bridge checks (as the desk), never that the add-in read the points off the scan
-        Ok(TerrainPlanner.RowWords(6, true).StartsWith("Toposolid from 6 ground points filed by a signed-in member from the survey changeset (the bridge checked its level, footprint and height band, not the points; not re-measured); ")
+        Ok(TerrainPlanner.RowWords(6, true).StartsWith("Toposolid from 6 ground points sent for review by a signed-in member from the survey's proposed changes (Sentinel checked its level, footprint and height band, not the points; not re-measured); ")
            && !TerrainPlanner.RowWords(6, true).Contains("read off the scan"), "review round 2: the review row says a signed-in member filed the points and the bridge checked their level, footprint and band - not the points");
         // review round 2: the bridge's 500 m span is held here, in words, before the slow ground read is filed and refused
         // review round 3: measured over the points and the footprint (x -1000 to 11000), as the bridge - so points over 0 to 600 m span 601 m, and 0 to 499 m with the footprint 500 m
@@ -247,7 +247,7 @@ static partial class Check
            "a hold is said as one; a refusal (a 409 included) shows the bridge's message only; the proposal is not ticked or placed");
         Ok(win.Contains("public event Action ProposeTerrainRequested;") && win.Contains("Content = \"Propose terrain from the scan…\"") && win.Contains("terrain.Click += (_, _) => ProposeTerrainRequested?.Invoke();")
            && win.Contains("Visibility = SurveyChangeset && _cs.Status != \"withdrawn\" ? Visibility.Visible : Visibility.Collapsed") && win.Contains("TerrainPlanner.RowWords(p.Points.Length, Compat.TerrainSupported)")
-           && win.Contains("as a changeset of its own — \" + TerrainPlanner.Shape + \" — nothing is ticked or placed\""),
+           && win.Contains("as its own set of proposed changes — \" + TerrainPlanner.Shape + \" — nothing is ticked or placed\""),
            "the window: Propose terrain from the scan… on a live survey changeset; a terrain row says the points are the add-in's reading, and on a Revit before 2024 the refusal's words");
         Ok(cli.Contains("[JsonPropertyName(\"Points\")] public double[][] Points { get; set; }") && cli.Contains("[JsonPropertyName(\"from_scan\")]") && cli.Contains("/scan?ground=1")
            && cli.Contains("public static GroundDto FetchGround(") && cli.Contains("Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken))"),
@@ -258,13 +258,13 @@ static partial class Check
         // final verification round 2: only the changeset the 409 names is read, after the 409 (no list before every filing); a failed read is said
         int bl = At(rv, "var blocker = filed == null ? TerrainPlanner.Blocker(proposeErr) : null;", po), fa = At(rv, "var named = ChangesetClient.FetchOne(cfg, key, blocker, out var namedErr);", bl),
             fq = At(rv, "App.Events.Enqueue(doc, \"free a scan\"", fa), gn = At(rv, "var gone = TerrainPlanner.Gone(new[] { named }, blocker, uid => d2.GetElement(uid) != null);", fq),
-            ws = At(rv, "try { current = d2.HasAllChangesFromCentral(); }", gn), stale = At(rv, "if (!current) { window.Shown($\"The terrain was not proposed — {proposeErr} ({TerrainPlanner.StaleLocal})\"); return; }", ws),
-            q = At(rv, "MainContent = TerrainPlanner.GoneQuestion(g.Name, DocOf(d2))", stale), yes = At(rv, "if (ask.Show() != TaskDialogResult.Yes) { window.Shown(\"The terrain was not proposed — \" + proposeErr); return; }", q),
+            ws = At(rv, "try { current = d2.HasAllChangesFromCentral(); }", gn), stale = At(rv, "if (!current) { window.Shown($\"The terrain was not proposed — {PlainErr(proposeErr)} ({TerrainPlanner.StaleLocal})\"); return; }", ws),
+            q = At(rv, "MainContent = TerrainPlanner.GoneQuestion(g.Name, DocOf(d2))", stale), yes = At(rv, "if (ask.Show() != TaskDialogResult.Yes) { window.Shown(\"The terrain was not proposed — \" + PlainErr(proposeErr)); return; }", q),
             rp = At(rv, "ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, \"undo\", out var revertErr, basis: \"absent\")", yes), again = At(rv, "var again = ChangesetClient.Propose(cfg, key, plan.Body, out var againErr);", rp);
-        Ok(bl > po && fa > bl && fq > fa && gn > fq && !rv.Contains("ChangesetClient.FetchAll(cfg, key, out _)") && rv.Contains("if (named == null) { window.Shown($\"The terrain was not proposed — {proposeErr} (whether the applied terrain is still in this model could not be read: {namedErr}; nothing was recorded)\"); return; }")
+        Ok(bl > po && fa > bl && fq > fa && gn > fq && !rv.Contains("ChangesetClient.FetchAll(cfg, key, out _)") && rv.Contains("if (named == null) { window.Shown($\"The terrain was not proposed — {PlainErr(proposeErr)} (whether the applied terrain is still in this model could not be read: {namedErr}; nothing was recorded)\"); return; }")
            && cli.Contains("JsonSerializer.Serialize(new { op, guids, actor = UserSession.Actor, basis, reason, kept = kept is { Count: > 0 } ? kept : null }, WriteJson)") && ws > gn && stale > ws && q > stale && yes > q && rp > yes && again > rp
            && rv.Split("ChangesetClient.ReportReverted(cfg, key, g.").Length == 2 && !rv.Contains("TerrainPlanner.Gone(all, uid =>") && rv.Contains("DefaultButton = TaskDialogResult.No")
-           && rv.Contains("if (gone == null) { window.Shown(\"The terrain was not proposed — \" + proposeErr); return; }") && rv.Contains("nothing was ticked or placed.{word} The scan is free.")
+           && rv.Contains("if (gone == null) { window.Shown(\"The terrain was not proposed — \" + PlainErr(proposeErr)); return; }") && rv.Contains("nothing was ticked or placed.{word} The scan is free.")
            && TerrainPlanner.StaleLocal == "this local is not up to date with central — Reload Latest, then press again; nothing was recorded"
            && TerrainPlanner.GoneQuestion("T", "C:\\m.rvt").Contains("its Toposolid is not in this model (C:\\m.rvt)") && TerrainPlanner.GoneQuestion("T", "m").Contains("If it may stand in another model, a copy, another person's local, or a closed workset, answer No."),
            "final verification round 1 (Revit-only, source pin; round 2: the one changeset read after the 409, the Undo row marked basis absent): after the bridge's 409 Propose terrain judges only the changeset it names on Revit's thread, refuses a workshared local not up to date with central, asks Yes/No (default No) naming it and this model, and posts the Undo row and files again only on Yes - nothing is reported without the Yes; \"the scan is free\" is said only after the filing");

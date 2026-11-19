@@ -387,7 +387,7 @@ namespace Sentinel.GhostBuilder
                 });
             }
             if (elements.Count + 1 > MaxElements)
-                return (null, $"{elements.Count} levels and a mass are {elements.Count + 1} elements — a changeset holds {MaxElements} elements: lower the storey count, or file the levels with Datum");
+                return (null, $"{elements.Count} levels and a mass are {elements.Count + 1} elements — one set of proposed changes holds {MaxElements} elements: lower the storey count, or file the levels with Datum");
             string size = $"{Metres(W)} × {Metres(D)} m";
             List<double[]> boundary = new List<double[]> { new[] { -W / 2, -D / 2 }, new[] { W / 2, -D / 2 }, new[] { W / 2, D / 2 }, new[] { -W / 2, D / 2 } };
             string where = "";

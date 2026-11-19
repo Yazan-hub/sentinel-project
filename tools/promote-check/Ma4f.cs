@@ -83,7 +83,7 @@ static partial class Check
            && GhostOverlayGeometry.ScanCrosses(new List<double[]> { null, new double[] { 1, 2 }, new double[] { 1, double.NaN, 3 } }, 10).Count == 0
            && GhostOverlayGeometry.ScanCrosses(null, 10).Count == 0,
            "at most 5 000 points are drawn (30 000 vertices: inside any 16-bit index); a point short of three finite numbers, and none, draw nothing");
-        Ok(GhostOverlayGeometry.ScanLine(fx, 2) == "Scan: 2 of 2 point(s) drawn as cyan crosses — job-0002 (ledger #2201), one point per 100 mm, 300–2500 mm high (the walls less 300 mm at the floor and ceiling), placed by the lead's frame; nothing is written. Untick to hide.",
+        Ok(GhostOverlayGeometry.ScanLine(fx, 2) == "Scan: 2 of 2 point(s) drawn as cyan crosses, one point per 100 mm, 300–2500 mm high (the walls less 300 mm at the floor and ceiling), placed by the lead's frame; nothing is written. Untick to hide.\nDetails: job-0002 (History #2201)",
            "the window's line says how many, from which job, how thinned and how placed");
         string cli = Src("Coordination", "ChangesetClient.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs"), srv = Src("GhostBuilder", "GhostOverlayServer.cs");
         Ok(cli.Contains("/{Uri.EscapeDataString(id)}/scan\";") && cli.Contains("var (resp, body) = Send(WriteHttp, () => Req(HttpMethod.Get, url, cfg.ServiceToken));"),

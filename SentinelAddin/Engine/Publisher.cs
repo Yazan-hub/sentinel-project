@@ -75,9 +75,9 @@ public static class Publisher
         var r = new StageResult();
         if (!outcome.Publishable || outcome.Version is null)
         {
-            r.Reason = !outcome.Reached ? "the bridge returned no verdict"
+            r.Reason = !outcome.Reached ? "Sentinel returned no verdict"
                      : outcome.Rejected ? "the verdict is rejected"
-                     : "the bridge registered no version";
+                     : "Sentinel registered no version";
             Discard(plan);
             return r;
         }
@@ -330,9 +330,9 @@ public static class PublishLines
 {
     /// <summary>F-RUN-14: one line — the ruleset names no office code, so office property sets were not read; where it is set.</summary>
     public static string NoOrg(string rulesetLabel) =>
-        "Office property sets were not read: " + rulesetLabel + " has no office code. Set one in the ruleset on the web project or its office.";
+        "Office property sets were not read: " + rulesetLabel + " has no office code. Set one in the project standards on the web project or its office.";
 
-    public static string GateRow(PublishPlan p) => "Gate row: " + LedgerLine.For(p.GateRow);
+    public static string GateRow(PublishPlan p) => "Check in History: " + LedgerLine.For(p.GateRow);
 
     /// <summary>MA-8-6: the dialog's export line — the mapping the file was exported with, or that none was (never silent).</summary>
     public static string Export(PublishPlan p) => p.ExportMapping is { } m
@@ -360,15 +360,15 @@ public static class PublishLines
     }
 
     private static string NoVersion(PublishOutcome o) =>
-        !o.Reached ? "the bridge returned no verdict" + (o.Verdict.Error is { Length: > 0 } e ? " (" + e + ")" : "")
+        !o.Reached ? "Sentinel returned no verdict" + (o.Verdict.Error is { Length: > 0 } e ? " (" + e + ")" : "")
         : o.Rejected ? "rejected — nothing was registered"
-        : "the bridge registered no version";
+        : "Sentinel registered no version";
 
     /// <summary>The IDS line, from the bridge's answer: what judged and what it found, or that nothing was judged.</summary>
     public static string Ids(PublishPlan p, PublishOutcome o)
     {
         var v = o.Verdict;
-        if (v.IdsRef is null) return "IDS: none — no IDS installed for " + p.Key + " or its office. The model was NOT judged.";
+        if (v.IdsRef is null) return "Data requirements: none — none installed for " + p.Key + " or its office. The model was NOT judged.";
         if (v.Downgraded is not null) return "IDS " + v.IdsLabel + ": nothing in its scope — 0 in-scope element checks, so nothing was judged.";
         return "IDS " + v.IdsLabel + ": " + v.Passing + "/" + v.InScope + " in-scope element checks passed" +
                (v.Warned ? " — " + v.Failing + " failure(s) kept as warnings (enforce: " + (v.IdsEnforce ?? "not reported") + ")." : ".");
@@ -407,9 +407,9 @@ public static class PublishLines
         var gateLine = GateLines.PublishLine(p.Gate, p.Key);
         if (!o.Reached)
             return gateLine + "\n" + GateRow(p) + "\n\n" +
-                   "The Sentinel bridge did not return a verdict — nothing was registered or uploaded, and no verdict row is confirmed.\n\n" +
+                   "Sentinel did not return a result — nothing was registered or uploaded, and no result is recorded in History.\n\n" +
                    (o.Verdict.Error is { Length: > 0 } ? "Reason: " + o.Verdict.Error + "\n\n" : "") +
-                   "Start the bridge (npm run bcf:serve) and run Governed Publish again.";
+                   "Ask your administrator to start Sentinel on the office PC, then publish again.\n\n(For the administrator: npm run bcf:serve)";
         var v = o.Verdict;
         if (o.Rejected)
         {
@@ -423,10 +423,10 @@ public static class PublishLines
                    (nameFailed ? "NAMING:\n• " + string.Join("\n• ", v.NamingFailures) + "\n\n" : "") +
                    (v.Failures.Count > 0 ? "FAILURES:\n• " + string.Join("\n• ", v.Failures) + "\n\n" : "") +
                    (v.BcfRaised > 0
-                       ? v.BcfRaised + " BCF issue(s) opened on the failing elements — they're now in the web Issues panel and will live-sync into Revit. Fix them and run Governed Publish again."
+                       ? v.BcfRaised + " issue(s) opened on the failing elements — they're now in the web Issues panel and will live-sync into Revit. Fix them and publish again."
                        : nameFailed
-                           ? "Rename the model to match the project's ISO 19650 naming convention and run Governed Publish again."
-                           : "Fix the failures and run Governed Publish again.");
+                           ? "Rename the model to match the project's ISO 19650 naming convention and publish again."
+                           : "Fix the failures and publish again.");
         }
         // accepted, or recorded (no IDS, or nothing in its scope): registered, and in the outbox when Stage landed it
         var status = s.Staged && o.Version is { } sv ? "published as " + sv.Revision + " · " + sv.State
@@ -436,8 +436,8 @@ public static class PublishLines
             ? "✓ ACCEPTED — " + status
             : (s.Staged ? "Published" : "Recorded") + " — not judged: " + NotJudged(p, o);
         var upload = s.Staged ? "Queued for upload — the outbox watcher attaches the geometry to this version."
-                   : o.Version is null ? "Nothing was uploaded: there is no version to attach the geometry to — run Governed Publish again."
-                   : "NOT in the upload outbox — " + s.Reason + "." + (s.KeptIfcPath is null ? " The export is gone — run Governed Publish again." : " The IFC is kept at " + s.KeptIfcPath + " — run Governed Publish again.");
+                   : o.Version is null ? "Nothing was uploaded: there is no version to attach the geometry to — publish again."
+                   : "NOT in the upload outbox — " + s.Reason + "." + (s.KeptIfcPath is null ? " The export is gone — publish again." : " The IFC is kept at " + s.KeptIfcPath + " — publish again.");
         return head + "\n" +
                "Project: " + p.Key + "\n\n" +
                Ids(p, o) + "\n" +
@@ -463,19 +463,19 @@ public static class PublishLines
         0 => "Cancel asked — Sentinel stops before the export.",
         1 when revitUpdates == 0 => "Cancel asked. Revit's IFC exporter has reported no progress so far, so Cancel may not reach it: the export runs to the end, then Sentinel stops. Nothing will be published.",
         1 => "Cancel asked — passed to Revit's IFC exporter at its next progress update. If the exporter ignores it, the export runs to the end, then Sentinel stops. Nothing will be published.",
-        2 => "Cancel asked — Sentinel stops before the referee. Nothing will be registered or uploaded.",
-        3 => "Cancel asked — Sentinel stops waiting for the referee and stages nothing for upload.",
-        _ => "Too late to cancel — the referee has answered; Sentinel is staging what the bridge registered.",
+        2 => "Cancel asked — Sentinel stops before the check. Nothing will be registered or uploaded.",
+        3 => "Cancel asked — Sentinel stops waiting for the result and stages nothing for upload.",
+        _ => "Too late to cancel — Sentinel has answered; it is staging what it registered.",
     };
 
-    public const string CancelledBeforeExport = "Governed Publish cancelled before the export — nothing was exported, judged, registered or uploaded.";
+    public const string CancelledBeforeExport = "Publish cancelled before the export — nothing was exported, judged, registered or uploaded.";
 
     /// <summary>GP-1: the refusal for a Cancel during the export, with what was measured — whether Revit raised
     /// progress updates, whether Cancel reached the exporter (<paramref name="cancelSent"/>) or Revit refused it on the
     /// updates after it (<paramref name="refused"/>), and whether the export still ran to the end
     /// (<paramref name="exportFinished"/>: Document.Export returned true).</summary>
     public static string CancelledExport(bool exportFinished, int revitUpdates, bool cancelSent, int refused) =>
-        "Governed Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: " +
+        "Publish cancelled — nothing was judged, registered or uploaded.\n\nMeasured: " +
         (revitUpdates == 0 ? "Revit reported no progress during the IFC export, so Cancel could not reach the exporter — it ran to the end, then Sentinel stopped."
          : !cancelSent && refused > 0 ? "Revit reported " + revitUpdates + " progress update(s) and refused Cancel on each of the " + refused + " after it (not a cancellable stage) — the exporter ran to the end, then Sentinel stopped."
          : !cancelSent ? "Revit reported " + revitUpdates + " progress update(s), none after Cancel, so Cancel did not reach the exporter — it ran to the end, then Sentinel stopped."
@@ -484,34 +484,34 @@ public static class PublishLines
 
     /// <summary>GP-1: Cancel during the gate or the extraction — the gate row is already on the ledger.</summary>
     public static string CancelledBeforeReferee(PublishPlan p) =>
-        "Governed Publish cancelled before the referee — nothing was registered or uploaded.\n\n" +
+        "Publish cancelled before Sentinel checked it — nothing was registered or uploaded.\n\n" +
         GateLines.PublishLine(p.Gate, p.Key) + "\n" + GateRow(p);
 
     /// <summary>GP-1: Cancel while /propose was in flight. Sentinel stops waiting and stages nothing; the bridge may
     /// still finish the call, so what it may still write is said, not denied.</summary>
     public static string CancelledAtReferee(PublishPlan p) =>
-        "Governed Publish cancelled while the referee was judging — Sentinel stopped waiting and staged nothing for upload.\n\n" +
-        "The bridge may still finish: its verdict row, and on accepted or recorded a version with no geometry, can still appear on " + p.Key + "'s ledger.\n\n" +
+        "Publish cancelled while Sentinel was checking — Sentinel stopped waiting and staged nothing for upload.\n\n" +
+        "Sentinel may still finish: its result, and on accepted or recorded a version with no geometry, can still appear in " + p.Key + "'s History.\n\n" +
         GateLines.PublishLine(p.Gate, p.Key) + "\n" + GateRow(p);
 
     private static string NotJudged(PublishPlan p, PublishOutcome o) =>
-        o.Verdict.IdsRef is null ? "no IDS installed for " + p.Key + " or its office" : "nothing in the IDS's scope (" + o.Verdict.IdsLabel + ")";
+        o.Verdict.IdsRef is null ? "no data requirements installed for " + p.Key + " or its office" : "nothing in the IDS's scope (" + o.Verdict.IdsLabel + ")";
 
     /// <summary>Auto-Publish's one Doctor line for the same outcomes: <paramref name="o"/> and <paramref name="s"/> are
     /// null when the plan was refused before the referee (not bound, no export, gate FAIL) or the judge never answered.</summary>
     public static string Doctor(PublishPlan p, PublishOutcome? o = null, StageResult? s = null)
     {
         if (p.Refusal is not null) return "Auto-publish failed — nothing uploaded — " + p.Refusal.Replace("\n", " ").Replace("  ", " ");
-        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — delivery gate " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · gate row: " + LedgerLine.For(p.GateRow) + " · " + Export(p) +
+        if (p.GateFailed) return "Auto-publish rejected — nothing uploaded — pre-publish check " + GateLines.Verdict(p.Gate, p.Key) + " · " + p.Gate.Failures.Count + " failure(s) · check in History: " + LedgerLine.For(p.GateRow) + " · " + Export(p) +
                                  (p.GateRow.Hold is { } gateHold ? " · " + Held(gateHold) : "");
-        if (o is null || s is null) return "Auto-publish: no verdict — the publish stopped before the referee answered — nothing uploaded";
+        if (o is null || s is null) return "Auto-publish: no verdict — the publish stopped before Sentinel answered — nothing uploaded";
         var v = o.Verdict;
-        if (!o.Reached) return "Auto-publish: no verdict — nothing uploaded — " + (v.Error is { Length: > 0 } ? v.Error : "the bridge returned no verdict");
+        if (!o.Reached) return "Auto-publish: no verdict — nothing uploaded — " + (v.Error is { Length: > 0 } ? v.Error : "Sentinel returned no verdict");
         if (o.Rejected)
             return "Auto-publish rejected — nothing uploaded — " +
                    (v.NamingOk == false ? "the model name " + p.ContainerName + " failed naming " + v.NamingLabel : v.Failing + " of " + v.InScope + " element check(s) failed · " + v.IdsLabel) +
                    " · " + LedgerLine.For(o.VerdictRow) + (o.HoldRow is { } hold ? " · " + Held(hold) : "");
-        if (o.Version is null) return "Auto-publish: verdict " + v.Verdict + " but the bridge registered no version — nothing uploaded · " + LedgerLine.For(o.VerdictRow);
+        if (o.Version is null) return "Auto-publish: verdict " + v.Verdict + " but Sentinel registered no version — nothing uploaded · " + LedgerLine.For(o.VerdictRow);
         var ver = o.Version;
         if (!s.Staged) return "Auto-publish: " + p.ContainerName + " " + ver.Revision + " · " + ver.State + " registered but NOT in the upload outbox — " + s.Reason + (s.KeptIfcPath is null ? "" : " — the IFC is kept at " + s.KeptIfcPath);
         return "Auto-published " + p.ContainerName + " " + ver.Revision + " · " + ver.State + " · " + LedgerLine.For(o.StampRow) +

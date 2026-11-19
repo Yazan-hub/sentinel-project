@@ -25,12 +25,12 @@ public static partial class RulesetStore
                 return (rs, NoneSource(why), "Ruleset " + why + " — nothing is scored until it is fixed on the web.");
             }
             return (rs, src, skipped.Count == 0 ? null
-                : $"Ruleset {src.Label}: no office code ('org' is empty) — {skipped.Count} rule(s) that need one skipped: {string.Join(", ", skipped)}");
+                : $"Project standards {src.Label}: no office code ('org' is empty) — {skipped.Count} rule(s) that need one skipped: {string.Join(", ", skipped)}");
         }
         catch (Exception ex)
         {
-            var why = "the ruleset could not be loaded (" + ex.Message + ")";
-            return (None(), NoneSource(why), "Ruleset: " + why + " — nothing is scored; Scan Now retries.");
+            var why = "the project standards could not be loaded (" + ex.Message + ")";
+            return (None(), NoneSource(why), "Project standards: " + why + " — nothing is scored; Scan Now retries.");
         }
     }
 

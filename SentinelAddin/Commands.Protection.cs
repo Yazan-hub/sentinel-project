@@ -66,7 +66,7 @@ public sealed class ProtectionWindow : Window
         var root = new StackPanel { Margin = new Thickness(12) };
         root.Children.Add(new TextBlock { Text = "Protected from automated changes", FontSize = 15, FontWeight = FontWeights.Bold });
         root.Children.Add(new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 8), Foreground = System.Windows.Media.Brushes.DimGray,
-            Text = "No changeset — from AI, the web or Promote — may edit an existing element of what is ticked here. Such a row is kept as it stands, with the reason, and the rest of the changeset is applied. New elements are not affected." });
+            Text = "No proposed change — from AI, the web or Promote — may edit an existing element of what is ticked here. Such a row is kept as it stands, with the reason, and the rest of the proposed changes are applied. New elements are not affected." });
         root.Children.Add(_inForce);
         root.Children.Add(Heading("Elements"));
         var grid = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
@@ -186,7 +186,7 @@ public sealed class ProtectionWindow : Window
             {
                 _save.IsEnabled = true;
                 if (put.Error != null) { Say($"Not saved on {target}: {put.Error}", true); return; }
-                Say($"✓ Saved as protection@{put.Version} on {target}, recorded in the ledger. Revit uses it for the next changeset you apply.", false);
+                Say($"✓ Saved on {target} and recorded in History. Revit uses it for the next proposed changes you apply.", false); App.PanelVm?.LogDoctor($"Protection saved as protection@{put.Version} on {target}.");
                 if (target != _key) _officeSha = put.Sha256;
                 if (target == _key || !_projectHasOwn) _readSha = put.Sha256;
                 if (target == _key) { _projectHasOwn = true; _inForce.Text = $"In force now: protection@{put.Version} · project"; }

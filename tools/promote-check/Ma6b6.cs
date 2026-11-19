@@ -105,7 +105,7 @@ static partial class Check
         Ok(planner.Contains("public static (object Body, string Refusal) Changeset(MassingEstimate m, IReadOnlyList<(string Name, double ElevationMm, bool IsStory)> levels, string actor, Footprint fp = null, IReadOnlyList<string> evidence = null)")
            && !planner.Contains("LevelFact") && planner.Contains("source = \"photo\""),
            "MassingPlanner.Changeset is self-contained (amendment 4): tuples in, anonymous objects out — massing-check and ghost-p2-check compile it alone");
-        Ok(Src("App.cs").Contains("then file one changeset — the missing levels and a mass — for review; nothing is placed until a person applies it in Review AI Proposals; then Shell it (2c · Shell a Mass)"),
+        Ok(Src("App.cs").Contains("then send one set of proposed changes — the missing levels and a mass — for review; nothing is placed until a person applies it in Review AI Proposals; then Shell it (2c · Shell a Mass)"),
            "the 2b tooltip says what Photo Massing does now: one changeset for review, then Shell it");
 
         // MA-6-10 (MAS-3): the footprint pick - asked after the guards and before the images are read; the picker's traps (Esc, view-specific imports).

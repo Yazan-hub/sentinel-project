@@ -524,23 +524,23 @@ namespace Sentinel.GhostBuilder
         // ── MA-3b5: Promote reads and files off Revit's thread — the words of its wait, and its stall rule ──────────────────────────────
 
         /// <summary>MA-3b5: the pane's Doctor line when Promote starts reading (its dialog opens by itself once the reads are done).</summary>
-        public const string PromoteReading = "Promote (DD): reading the bridge (the changesets waiting for review, the standards, the LOD matrix) off Revit's thread — Revit stays usable, and Promote's dialog opens by itself. Until its dialog closes — or, after Yes, its filing is done — Review AI Proposals and a second Promote say they wait.";
+        public const string PromoteReading = "Promote (DD): reading from Sentinel (the proposed changes waiting for review, the standards, the LOD matrix) off Revit's thread — Revit stays usable, and Promote's dialog opens by itself. Until its dialog closes — or, after Yes, its filing is done — Review AI Proposals and a second Promote say they wait.";
 
         /// <summary>MA-3b5: …when Promote starts filing, after Yes.</summary>
         public static string PromoteFiling(int n) =>
-            $"Promote (DD): filing {n} changeset(s) off Revit's thread — Revit stays usable, and the review opens by itself in this model once the bridge has answered. Until then, Review AI Proposals and a second Promote say they wait.";
+            $"Promote (DD): sending {n} set(s) of proposed changes for review off Revit's thread — Revit stays usable, and the review opens by itself in this model once Sentinel has answered. Until then, Review AI Proposals and a second Promote say they wait.";
 
         /// <summary>MA-3b5: …when the filing is done and the guard is released.</summary>
-        public static string PromoteFiled(int filed, int n) => $"Promote (DD): {filed} of {n} changeset(s) filed (confirmed by the bridge) — the filing is done.";
+        public static string PromoteFiled(int filed, int n) => $"Promote (DD): {filed} of {n} set(s) of proposed changes sent for review (confirmed by Sentinel) — done.";
 
         /// <summary>MA-3b5 (DocPin): the review of what Promote filed was not opened — the model was switched or closed meanwhile.</summary>
         public static string PromoteNotOpened(string refusal, int filed, string title) =>
-            refusal + $"\n\n{filed} changeset(s) Promote filed wait for review — in \"{title}\", run Review AI Proposals (or Promote (DD): it opens a Promote storey waiting for review before it plans again).";
+            refusal + $"\n\n{filed} set(s) of proposed changes Promote sent wait for review — in \"{title}\", run Review AI Proposals (or Promote (DD): it opens a Promote storey waiting for review before it plans again).";
 
         /// <summary>MA-3b5: the filing threw — what the bridge took before it waits for review: opened by the open hop when something was
         /// filed (<paramref name="opened"/>, review C6 — true even when DocPin then refuses it, whose words say where), else by the next Promote.</summary>
         public static string PromoteStopped(string why, bool opened) =>
-            $"Promote's filing stopped — {why}\nWhat the bridge took before it stopped waits for review" +
+            $"Promote's sending stopped — {why}\nWhat Sentinel took before it stopped waits for review" +
             (opened ? " — it opens by itself while this model is in front." : ": run Promote (DD) again — it opens a Promote storey waiting for review before it plans again.");
 
         /// <summary>MA-3b5 (F4): Promote's filing under MA-3b C6's rule (as UnreportedResults.WithdrawEach) — after the first filing the
@@ -562,13 +562,13 @@ namespace Sentinel.GhostBuilder
         // -- MA-3b6: the declines made before, read before Promote's dialog - its words (pure) ----------------------------------------
 
         /// <summary>MA-3b6: the pane's Doctor line when Promote asks the bridge which ghosts were declined before.</summary>
-        public const string PromotePreviewing = "Promote (DD): asking the bridge which ghosts were declined before (off Revit's thread) — the dialog opens by itself.";
+        public const string PromotePreviewing = "Promote (DD): asking Sentinel which ghosts were declined before (off Revit's thread) — the dialog opens by itself.";
 
         /// <summary>MA-3b6: the dialog's question - the storeys to file, and those not filed because every ghost in them was declined before.</summary>
         public static string FileQuestion(int file, int skipped) =>
-            skipped == 0 ? $"File {file} changeset(s)?"
+            skipped == 0 ? $"Send {file} set(s) of proposed changes for review?"
             : file == 0 ? "Nothing to file: every ghost Promote would propose was declined before."
-            : $"File {file} of {file + skipped} changeset(s)? ({skipped} not filed — every ghost in them was declined before)";
+            : $"Send {file} of {file + skipped} set(s) of proposed changes for review? ({skipped} not sent — every ghost in them was declined before)";
 
         /// <summary>MA-3b6: the dialog's line on the declines made before - null when none and nothing is skipped.</summary>
         public static string CarriedLine(IReadOnlyList<Sentinel.Coordination.ChangesetPreviewDto> pv)
@@ -577,17 +577,17 @@ namespace Sentinel.GhostBuilder
             int carried = pv.Sum(p => p.Carried), noReason = pv.Sum(p => p.NoReason), unverified = pv.Sum(p => p.Unverified), creates = pv.Sum(p => p.Creates);
             var skipped = pv.Where(p => p.AllCarried).Select(p => p.Name).ToList();
             if (carried + noReason + unverified + creates == 0) return null;
-            var s = $"Declined before (the bridge carries each decline onto its ghost, already declined, for the reviewer): {carried} ghost(s) in {pv.Count(p => p.Carried > 0)} storey(s)";
+            var s = $"Declined before (Sentinel carries each decline onto its ghost, already declined, for the reviewer): {carried} ghost(s) in {pv.Count(p => p.Carried > 0)} storey(s)";
             if (noReason + unverified + creates > 0)
                 s += $"; not carried: {noReason} declined in Revit with no reason, {unverified} with a reason no signed-in member reported, {creates} create(s) like one declined before";
             if (skipped.Count > 0)
-                s += $"\n{skipped.Count} storey(s) not filed — every ghost in them was declined before: {string.Join("; ", skipped)}. Their rows sent to a person are listed only in this dialog; a lead re-opens a decline on the web desk to file them again.";
+                s += $"\n{skipped.Count} storey(s) not sent — every ghost in them was declined before: {string.Join("; ", skipped)}. Their rows sent to a person are listed only in this dialog; a lead re-opens a decline on the web (Models) to send them again.";
             return s;
         }
 
         /// <summary>MA-3b6: the preview the bridge did not answer - said, and every storey is filed as before (a ghost declined before is still filed already declined by the bridge).</summary>
         public static string PreviewNotRead(string why) =>
-            $"Declined before: not read — {why}. Every storey is filed; a ghost declined before is still filed already declined by the bridge.";
+            $"Declined before: not read — {why}. Every storey is sent; a ghost declined before is still sent already declined by Sentinel.";
 
         /// <summary>MA-3b6 (F8 B): the bodies to file - those whose preview does not say every ghost was declined before. A preview that does not
         /// match the bodies one to one (none, or another count) files every body.</summary>

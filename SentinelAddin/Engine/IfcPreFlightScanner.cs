@@ -50,10 +50,10 @@ public static class IfcPreFlightScanner
         else
             foreach (var pset in contract.RequiredPsets)   // property SETS are judged in the IFC only: say so
                 violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
-                    $"Required property set '{pset}' ({contractLabel}) — not checked here; the delivery gate checks it in the IFC.", null, bep));
+                    $"Required property set '{pset}' ({contractLabel}) — not checked here; the pre-publish check checks it in the IFC.", null, bep));
         foreach (var name in unmapped)
             violations.Add(new Violation(RuleIdPset, EnforcementMode.Monitor, -1, "IFC pre-flight",
-                $"Required property '{name}' ({contractLabel}) has no Revit mapping in Sentinel — not checked here; the delivery gate checks it in the IFC.",
+                $"Required property '{name}' ({contractLabel}) has no Revit mapping in Sentinel — not checked here; the pre-publish check checks it in the IFC.",
                 null, bep));
 
         var catFilter = new ElementMulticategoryFilter(ExportCategories);

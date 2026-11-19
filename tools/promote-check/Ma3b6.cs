@@ -8,8 +8,8 @@ static partial class Check
     static void Ma3b6WordChecks()
     {
         Console.WriteLine("\nMA-3b6 — the declines made before: Promote's words and the storeys it does not file");
-        Ok(PropertyPlanner.FileQuestion(3, 0) == "File 3 changeset(s)?"
-           && PropertyPlanner.FileQuestion(2, 1) == "File 2 of 3 changeset(s)? (1 not filed — every ghost in them was declined before)"
+        Ok(PropertyPlanner.FileQuestion(3, 0) == "Send 3 set(s) of proposed changes for review?"
+           && PropertyPlanner.FileQuestion(2, 1) == "Send 2 of 3 set(s) of proposed changes for review? (1 not sent — every ghost in them was declined before)"
            && PropertyPlanner.FileQuestion(0, 2) == "Nothing to file: every ghost Promote would propose was declined before.",
            "F8 B: the dialog's question counts the storeys it files and those it does not (every ghost in them was declined before)");
         ChangesetPreviewDto P(string name, int carried = 0, int noReason = 0, int creates = 0, int unverified = 0, bool all = false) =>
@@ -17,9 +17,9 @@ static partial class Check
         var none = new List<ChangesetPreviewDto> { P("a"), P("b") };
         var some = new List<ChangesetPreviewDto> { P("Promote (DD) · 00-GFL", carried: 1, noReason: 1), P("Promote (DD) · 01-FFL", carried: 2, all: true) };
         Ok(PropertyPlanner.CarriedLine(null) == null && PropertyPlanner.CarriedLine(none) == null
-           && PropertyPlanner.CarriedLine(some) == "Declined before (the bridge carries each decline onto its ghost, already declined, for the reviewer): 3 ghost(s) in 2 storey(s); not carried: 1 declined in Revit with no reason, 0 with a reason no signed-in member reported, 0 create(s) like one declined before\n1 storey(s) not filed — every ghost in them was declined before: Promote (DD) · 01-FFL. Their rows sent to a person are listed only in this dialog; a lead re-opens a decline on the web desk to file them again.",
+           && PropertyPlanner.CarriedLine(some) == "Declined before (Sentinel carries each decline onto its ghost, already declined, for the reviewer): 3 ghost(s) in 2 storey(s); not carried: 1 declined in Revit with no reason, 0 with a reason no signed-in member reported, 0 create(s) like one declined before\n1 storey(s) not sent — every ghost in them was declined before: Promote (DD) · 01-FFL. Their rows sent to a person are listed only in this dialog; a lead re-opens a decline on the web (Models) to send them again.",
            "the dialog says how many ghosts were declined before, what is not carried and why, and names each storey it does not file");
-        Ok(PropertyPlanner.PreviewNotRead("Bridge 404: changesets route not found") == "Declined before: not read — Bridge 404: changesets route not found. Every storey is filed; a ghost declined before is still filed already declined by the bridge.",
+        Ok(PropertyPlanner.PreviewNotRead("Bridge 404: changesets route not found") == "Declined before: not read — Bridge 404: changesets route not found. Every storey is sent; a ghost declined before is still sent already declined by Sentinel.",
            "F8 A: a preview the bridge did not answer is said, and every storey is filed as before");
         var bodies = new List<object> { "b0", "b1", "b2" };
         var kept = PropertyPlanner.WithoutCarried(bodies, new List<ChangesetPreviewDto> { P("a"), P("b", all: true), P("c") });
@@ -38,7 +38,7 @@ static partial class Check
            "MA-3b6: the preview hop releases the guard when the dialog is not handed on, and when Revit refuses the hop");
         Ok(!promote.Contains("toFile.Count == 0 || dlg.Show()") && promote.Contains("if (dlg.Show() != TaskDialogResult.Yes) return false;"),
            "MA-3b6 review: with nothing to file the dialog still opens (Ok) - it says why nothing is filed and lists the rows sent to a person");
-        Ok(promote.Contains("pv.Count != bodies.Count ? PropertyPlanner.PreviewNotRead(\"the bridge's preview did not match the storeys\")"),
+        Ok(promote.Contains("pv.Count != bodies.Count ? PropertyPlanner.PreviewNotRead(\"Sentinel's preview did not match the storeys\")"),
            "MA-3b6 review: a preview that does not match the storeys one to one is said as not read - the dialog never names a storey it files as not filed");
     }
 }

@@ -6,7 +6,7 @@ static partial class Check
     //        scans (Revit-bound; drill MA3b4 R-1) ──────────────────────────────────────────────────────────────────────────────────
     static void Ma3b4GhostChecks()
     {
-        Console.WriteLine("\nMA-3b4 — Ghost Builder does not wait for its report and keeps what the bridge did not take (source scans)");
+        Console.WriteLine("\nMA-3b4 — Ghost Builder does not wait for its report and keeps what Sentinel did not take (source scans)");
         string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs"), review = Src("Commands.ReviewChangesets.cs"), picker = Src("UI", "ChangesetPickerWindow.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
         int done = At(ghost, "done = true;");
@@ -19,7 +19,7 @@ static partial class Check
            && ghost.Contains("ReviewChangesetsCommand.DocOf(doc), new List<string> { undo, UndoWatcher.TxName(cs.Name, cs.Id) }, null);")
            && ghost.Contains("rec.Path = doc.PathName ?? \"\";")
            && !ghost.Contains("ReviewChangesetsCommand.Report(") && !ghost.Contains("UndoWatcher.Remember(") && !review.Contains("internal static bool Report("),
-           "AI-2: Ghost Builder writes each applied result on this PC (the model, the file, its Undo names) before its report, which goes through ReportAll on a pool thread — remembered for the undo watcher once the bridge takes it; Report and its modal Retry are gone");
+           "AI-2: Ghost Builder writes each applied result on this PC (the model, the file, its Undo names) before its report, which goes through ReportAll on a pool thread — remembered for the undo watcher once Sentinel takes it; Report and its modal Retry are gone");
         int decline = At(ghost, "GhostPlacementEngine.PlacementReport Decline(ChangesetDto failing, string error)");
         int declines = At(ghost, "ReviewChangesetsCommand.Said(ReviewChangesetsCommand.ReportAll(cfg, declines, after: rep =>");
         // Review C11: only the declines the bridge did not take are withdrawn (a withdrawal of one it declined is refused — a false
@@ -34,7 +34,7 @@ static partial class Check
         Ok(decline > 0 && declines > decline && landedSet > declines && notLanded > landedSet && withdraw > notLanded && asked > withdraw && ghost.Contains("report.Ledger = UnreportedResults.GhostDeclining(declines.Count);")
            && ghost.Contains(": UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved.Select(u => Short(u.ChangesetId)).ToList());")
            && all > 0 && then > all && review.IndexOf("finally { Release(); }", all, StringComparison.Ordinal) > then,
-           "B4 kept: a build rolled back reports each changeset declined off Revit's thread, and one the bridge does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");
+           "B4 kept: a build rolled back reports each set of proposed changes declined off Revit's thread, and one Sentinel does not take is withdrawn instead, there — under the guard (review C3); the summary says the report is under way and where its outcome is said");
         Ok(picker.Contains("public void SetEntries(List<(string Line, string Blocked, List<ChangesetDto> Entry)> entries, string status, Action gone = null)")
            // Review C12: the round's words are windowless on every path of the picker (it has no Retry report), and a throw keeps them.
            && review.Contains("text = UnreportedResults.Windowless(\"\", rep.Text);") && review.Contains("lost = () => App.Events.Enqueue(_ => TaskDialog.Show(Title, text));")

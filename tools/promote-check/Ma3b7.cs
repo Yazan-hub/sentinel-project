@@ -7,19 +7,19 @@ static partial class Check
     static void Ma3b7Checks()
     {
         Console.WriteLine("\nMA-3b7 — Ghost Builder files and withdraws off Revit's thread");
-        Ok(GhostFailurePolicy.FilingLine(3, true) == "Ghost Builder: the types proved and the build planned; filing 3 changeset(s) off Revit's thread — Revit stays usable, and the build places by itself in this model once the bridge has answered."
+        Ok(GhostFailurePolicy.FilingLine(3, true) == "Ghost Builder: the types proved and the build planned; sending 3 set(s) of proposed changes for review off Revit's thread — Revit stays usable, and the build places by itself in this model once Sentinel has answered."
            && GhostFailurePolicy.FilingLine(0, false) == "Ghost Builder: the types proved and the build planned; this model is not bound to a web project, so nothing is filed — the build places by itself.",
            "the Doctor line says the filing runs off Revit's thread, or that an unbound model files nothing");
         // Review: re-pinned on DocPin's real refusal (the hub passes it whole) — no double period, no "nothing was changed".
         Ok(GhostFailurePolicy.NotPlacedLine(Sentinel.Engine.DocPin.Refusal(true, false, "ma.rvt", "place the Ghost Builder build")) == "Nothing was built — Sentinel did not place the Ghost Builder build: switch back to ma.rvt. The build was planned for the model it started from and places only there; run Build again in that model."
            && GhostFailurePolicy.NotPlacedLine(Sentinel.Engine.DocPin.Refusal(false, false, "", "place the Ghost Builder build")) == "Nothing was built — Sentinel did not place the Ghost Builder build: the model it was started on is closed. The build was planned for the model it started from and places only there; run Build again in that model.",
            "DocPin: a build whose model was switched or closed says nothing was built and where to run it again");
-        Ok(GhostFailurePolicy.FiledWithdrawn(new[] { "a1", "b2" }, new string[0]) == "the 2 changeset(s) already filed were withdrawn."
-           && GhostFailurePolicy.FiledWithdrawn(new[] { "a1" }, new[] { "b2" }) == "withdrawn: a1; changeset(s) b2 were filed and could not be withdrawn — withdraw them on the web before anyone reviews them."
+        Ok(GhostFailurePolicy.FiledWithdrawn(new[] { "a1", "b2" }, new string[0]) == "the 2 set(s) of proposed changes already sent were withdrawn."
+           && GhostFailurePolicy.FiledWithdrawn(new[] { "a1" }, new[] { "b2" }) == "withdrawn: a1; set(s) of proposed changes b2 were sent and could not be withdrawn — withdraw them on the web before anyone reviews them."
            && Sentinel.Engine.UnreportedResults.WithdrawEach(new[] { ("x", "a1"), ("y", "b2"), ("z", "c3") }, id => id == "x" ? null : "timeout", GhostFailurePolicy.FiledWithdrawn)
-              == "withdrawn: a1; changeset(s) b2, c3 were filed and could not be withdrawn — withdraw them on the web before anyone reviews them.",
+              == "withdrawn: a1; set(s) of proposed changes b2, c3 were sent and could not be withdrawn — withdraw them on the web before anyone reviews them.",
            "review: Ghost Builder's own withdrawals name what was withdrawn and what is still proposed, never a decline it did not try");
-        Ok(GhostFailurePolicy.WithdrawingLine(2) == "Ledger: withdrawing the 2 changeset(s) already filed, off Revit's thread — the pane's Doctor log says what the bridge answered (one it did not answer is named there: withdraw it on the web before anyone reviews it).",
+        Ok(GhostFailurePolicy.WithdrawingLine(2) == "History: withdrawing the 2 set(s) of proposed changes already sent, off Revit's thread — the pane's Doctor log says what Sentinel answered (one it did not answer is named there: withdraw it on the web before anyone reviews it).",
            "a rolled-back build says its filed changesets are withdrawn off Revit's thread and where the answer is");
         string ghost = Src("GhostBuilder", "GhostChangesetBuild.cs"), ev = Src("GhostBuilder", "GhostBuilderExternalEvent.cs");
         int At(string s, string what) => s.IndexOf(what, StringComparison.Ordinal);
@@ -42,7 +42,7 @@ static partial class Check
         int offAt = At(ghost, "private static void WithdrawOff(Prepared p, List<ChangesetDto> filed, string what)");
         int offHold = ghost.IndexOf("ReviewChangesetsCommand.Hold();", offAt, StringComparison.Ordinal);
         int offRun = At(ghost, "Task.Run(() => { try { App.PanelVm?.LogDoctor(UnreportedResults.GhostHead + what + WithdrawAll(p, filed)); } finally { ReviewChangesetsCommand.Release(); } });");
-        int fileAll = At(ghost, "\"Ledger: \" + WithdrawAll(p, filed)");
+        int fileAll = At(ghost, "\"History: \" + WithdrawAll(p, filed)");
         Ok(offAt > 0 && offHold > offAt && offRun > offHold && offRun - offAt < 400 && Count(ghost, "WithdrawAll(") == 3 && fileAll > file && fileAll < place
            && ghost.Contains("WithdrawOff(prep, filed, \"withdrawn after the build rolled back — \");") && ghost.Contains("WithdrawOff(p, filed.Changesets, \"withdrawn, nothing was placed — \");"),
            "review: a rolled-back or unplaced build withdraws only through WithdrawOff — on a pool thread, holding the review's guard");
@@ -56,7 +56,7 @@ static partial class Check
            && addin.Contains("void Once() { if (Interlocked.Exchange(ref held, 0) == 1) ReviewChangesetsCommand.Release(); }")
            && addin.Contains("try { Say(() => prep.Report); } finally { Once(); }") && addin.Contains("try { return GhostChangesetBuild.Place(u, d, prep, filed); } finally { Once(); }")
            && addin.Contains("try { return GhostChangesetBuild.NotPlaced(prep, filed, why); } finally { Once(); }")
-           && rev.Contains("or Ghost Builder is filing or withdrawing a build"),
+           && rev.Contains("or Ghost Builder is sending or withdrawing a build"),
            "review: Ghost Builder refuses while the review's guard is held, holds it from the filing until the build places or is withdrawn, and releases it once");
         Ok(win.Contains("_build.IsEnabled = !_building && ticked.Count > 0;") && At(win, "_building = true;") > At(win, "public void Build()")
            && At(win, "_building = false;") > At(win, "public void Reopen("),

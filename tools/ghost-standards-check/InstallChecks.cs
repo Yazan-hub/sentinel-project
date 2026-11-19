@@ -19,7 +19,7 @@ static class InstallChecks
         _ok(TypeCatalogExport.OfficeKeyFrom(orphan, "ma2a", out var e3) == null
             && e3 == "project ma2a belongs to no office — link it to an office in the web app first (a catalogue installed on a project would shadow its office's, for that project alone)",
             "a project with no office is refused, in words — never installed on the project");
-        _ok(TypeCatalogExport.OfficeKeyFrom("not json", "demo", out var e4) == null && e4 == "the bridge's answer to the scope read could not be read"
+        _ok(TypeCatalogExport.OfficeKeyFrom("not json", "demo", out var e4) == null && e4 == "Sentinel's answer to the scope read could not be read"
             && TypeCatalogExport.OfficeKeyFrom("{\"kind\":\"project\"}", "demo", out var e5) == null && e5!.StartsWith("project demo belongs to no office"),
             "an answer that is not the scope, or names no office, is refused in words");
 
@@ -35,10 +35,10 @@ static class InstallChecks
         var read = Sentinel.GhostBuilder.GuidelineMatcher.FromBodies(null, body, out _, out var err);
         _ok(read.HasCatalog && err == null, "…and still parses as type_catalog@n (the source key is ignored by the readers)");
         _ok(TypeCatalogExport.InstallLine("bds-office", 2, "3f0737600a1b9c8d7e6f5a4b3c2d1e0f3f0737600a1b9c8d7e6f5a4b3c2d1e0f", 1434, "BDS_Project Number_Project Name (Template)")
-            == "type_catalog@2 · office · 3f0737600a1b…: installed on bds-office — 1,434 types from BDS_Project Number_Project Name (Template). Ghost Builder, Promote and the bridge read it from here on; GET /cde/bds-office/artefacts/type_catalog answers the same sha.",
+            == "Installed on bds-office — 1,434 types from BDS_Project Number_Project Name (Template). Ghost Builder and Promote read it from here on.\nDetails: type_catalog@2 · office · 3f0737600a1b…; GET /cde/bds-office/artefacts/type_catalog answers the same sha.",
             "the window's line after an install: the artefact's label, the office, the count, where it is read from");
         _ok(TypeCatalogExport.NotInstalledLine("HTTP 403: this action requires the lead role (you are contributor)") == "Catalogue NOT installed: HTTP 403: this action requires the lead role (you are contributor)",
-            "the window's line after a refusal carries the bridge's own words (the role sentence included)");
+            "the window's line after a refusal carries Sentinel's own words (the role sentence included)");
         _ok(TypeCatalogExport.Message(2, "T", "C:\\x.json").Contains("Install catalogue on office"), "the export dialog names the window's button as the other way to install");
 
         string Src(params string[] parts) => File.ReadAllText(Path.Combine(new[] { root, "SentinelAddin" }.Concat(parts).ToArray()));
@@ -69,6 +69,6 @@ static class InstallChecks
             "SEC-7: the Build button's request goes through the event hub — staged and run on Revit's thread as one labelled job, said and raised again when Revit does not take it, a missing hub said in the window; one build at a time — a second press while one is queued or running is said, never a second job (review C3)");
         string notify = Src("Coordination", "GovernedNotify.cs");
         _ok(notify.Contains("public static (string? Json, string? Error) ProjectScope(string projectKey)") && notify.Contains("\"/cde/projects/\" + Uri.EscapeDataString(projectKey.Trim()) + \"/scope\""),
-            "GovernedNotify reads GET /cde/projects/:key/scope with the bridge's bearer, blocking, off the API thread");
+            "GovernedNotify reads GET /cde/projects/:key/scope with Sentinel's bearer, blocking, off the API thread");
     }
 }

@@ -20,7 +20,7 @@ public static class MepVoidManager
     public static string PVoidId(Document doc) => OrgNames.VoidId(App.OrgFor(doc));
     public static string PVoidStatus(Document doc) => OrgNames.VoidStatus(App.OrgFor(doc));
     public static bool TrackingConfigured(Document doc) => OrgNames.Configured(App.OrgFor(doc));
-    public const string NoOrgMessage = "No office code configured (ruleset 'org' is empty), so the void tracking parameters cannot be named.";
+    public const string NoOrgMessage = "The office code is not set in the project standards, so the void tracking parameters cannot be named.";
     private const double MergeToleranceFt = 0.150 / 0.3048;   // 150 mm
     private const double MatchToleranceFt = 0.500 / 0.3048;   // re-scan pairing radius
 

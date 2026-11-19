@@ -221,12 +221,12 @@ internal static class StandardsReview
             }
             if (doc is null || App.Events is null)
             {
-                window.SetStatus("Snapshot NOT sent: no open model to read the project and its ruleset from.");
+                window.SetStatus("Snapshot NOT sent: no open model to read the project and its standards from.");
                 return;
             }
             string title = src.Title;
             string kind = string.Equals(System.IO.Path.GetExtension(src.Path ?? ""), ".rte", StringComparison.OrdinalIgnoreCase) ? "template" : "model";
-            window.SetStatus("Reading this model's project and ruleset…");
+            window.SetStatus("Reading this model's project and standards…");
             App.Events.Enqueue(_ =>
             {
                 if (!doc.IsValidObject) { window.SetStatus("Snapshot NOT sent: the model this window was opened on is closed."); return; }
@@ -244,12 +244,12 @@ internal static class StandardsReview
                     rulesetRef: none ? null : from!.Ref,
                     rulesetSha256: none ? null : from!.Sha256);
                 string key = ctx.Key, judged = from?.Label ?? "none";
-                window.SetStatus($"Sending office snapshot to Sentinel ({dto.Catalog.Count} types, {dto.Pack.Worksets.Count} worksets, ruleset {judged}) → project {key}…");
+                window.SetStatus($"Sending office snapshot to Sentinel ({dto.Catalog.Count} types, {dto.Pack.Worksets.Count} worksets) → project {key}…"); App.PanelVm?.LogDoctor($"Office snapshot: judged by {judged}");
                 Task.Run(() =>
                 {
                     var error = GovernedNotify.OfficeSnapshot(dto, key);
                     window.SetStatus(error is null
-                        ? $"Office snapshot received by Sentinel — project {key}, ruleset {judged}. Open the web app → Documents → READINESS to see it measured."
+                        ? $"Office snapshot received by Sentinel — project {key}. Open the web app → Documents → READINESS to see it measured."
                         : $"Snapshot NOT sent: {error}");
                 });
             });

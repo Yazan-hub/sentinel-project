@@ -197,7 +197,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
     {
         var bytes = EvidenceClient.FetchCopy(cfg, key, PackPhotos.PackId, p.Id, out string err);
         if (bytes == null) return (null, $"its blurred copy could not be read ({err}) — {p.Id} not read");
-        if (!PackPhotos.IsCopy(bytes, p)) return (null, $"its blurred copy is not the one the pack names (sha256 differs) — {p.Id} not read");
+        if (!PackPhotos.IsCopy(bytes, p)) return (null, $"its blurred copy is not the one the pack names (it differs from the recorded copy) — {p.Id} not read");
         return (bytes, null);
     }
 
@@ -220,7 +220,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
         var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;
         var title = doc.Title;
         var fileCfg = BcfConfig.Load(); if (UserSession.IsSignedIn) fileCfg.FileToken = "";
-        App.PanelVm?.LogDoctor("Photo Massing: filing the changeset off Revit's thread — the review opens by itself in this model once the bridge has answered.");
+        App.PanelVm?.LogDoctor("Photo Massing: sending the proposed changes off Revit's thread — the review opens by itself in this model once Sentinel has answered.");
         Task.Run(() =>
         {
             ChangesetDto cs = null, waiting = null;
@@ -234,7 +234,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 // MA-7-14 review: one filed before 7-14 (no evidence on its mass) was read outside the pack - it is declined, not opened to apply.
                 if (waiting != null && waiting.Elements?.Any(e => e.Evidence != null && e.Evidence.Count > 0) != true)
                 {
-                    err = $"\"{waiting.Name}\", an older Photo Massing changeset read outside the evidence pack, waits - decline it in Review AI Proposals, then run Photo Massing again";
+                    err = $"\"{waiting.Name}\", an older set of Photo Massing proposed changes, read outside the evidence pack, waits - decline it in Review AI Proposals, then run Photo Massing again";
                     waiting = null;
                 }
                 else if (pending != null && waiting == null) cs = ChangesetClient.Propose(fileCfg, key, body, out err);
@@ -254,7 +254,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                 _ = review.Dispatcher.BeginInvoke(new Action(() =>
                 {
                     if (review.IsVisible) review.Reopen(MassingPlanner.ReopenStatus);
-                    TaskDialog.Show(Title, "Photo Massing was not filed — " + (err ?? "the bridge did not take it") + "\n\nNothing was placed; nothing in the model changed.");
+                    TaskDialog.Show(Title, "Photo Massing was not sent for review — " + (err is null ? "Sentinel did not take it" : ReviewChangesetsCommand.PlainErr(err)) + "\n\nNothing was placed; nothing in the model changed.");
                 }));
                 return;
             }
@@ -267,7 +267,7 @@ public sealed class MassingFromImagesCommand : IExternalCommand
                     GovernedNotify.Report("Photo Massing receipt", BuildReceipt.Run("photo-massing", BuildReceipt.AddinSha256, receipt, 0, new List<string> { cs.Id }, actor), key, pane);
                 }
                 catch (Exception ex) { App.PanelVm?.LogDoctor($"Photo Massing's receipt was not sent — {ex.GetType().Name}: {ex.Message}"); }
-                App.PanelVm?.LogDoctor($"Photo Massing: \"{cs.Name}\" filed (confirmed by the bridge) — the filing is done.");
+                App.PanelVm?.LogDoctor($"Photo Massing: \"{cs.Name}\" sent for review (confirmed by Sentinel) — done.");
                 _ = review.Dispatcher.BeginInvoke(new Action(() => { if (review.IsVisible) review.Close(); }));
             }
             string NotOpened(string why) => why + $"\n\n\"{cs.Name}\" waits for review — in \"{title}\", run Review AI Proposals.";

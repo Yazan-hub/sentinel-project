@@ -27,16 +27,16 @@ static partial class Check
         var run = PropertyPlanner.FileAll(new[] { Body("GR-FFL"), Body("01-FFL"), Body("MA0 Roof") }, PropertyPlanner.Stalling((body, retry) => ++calls == 1 ? null : noAnswer));
         Ok(calls == 2 && run.Failed.Count == 2 && run.Failed[0] == noAnswer && run.Failed[1].StartsWith("not sent: an earlier filing of this run", StringComparison.Ordinal),
            "F4 through FileAll: the third storey is never sent, and Promote's not-filed dialog counts it with why");
-        Ok(PropertyPlanner.PromoteFiling(3) == "Promote (DD): filing 3 changeset(s) off Revit's thread — Revit stays usable, and the review opens by itself in this model once the bridge has answered. Until then, Review AI Proposals and a second Promote say they wait."
-           && PropertyPlanner.PromoteReading.StartsWith("Promote (DD): reading the bridge", StringComparison.Ordinal) && PropertyPlanner.PromoteReading.Contains("Revit stays usable")
-           && PropertyPlanner.PromoteFiled(2, 3) == "Promote (DD): 2 of 3 changeset(s) filed (confirmed by the bridge) — the filing is done." // C14
+        Ok(PropertyPlanner.PromoteFiling(3) == "Promote (DD): sending 3 set(s) of proposed changes for review off Revit's thread — Revit stays usable, and the review opens by itself in this model once Sentinel has answered. Until then, Review AI Proposals and a second Promote say they wait."
+           && PropertyPlanner.PromoteReading.StartsWith("Promote (DD): reading from Sentinel", StringComparison.Ordinal) && PropertyPlanner.PromoteReading.Contains("Revit stays usable")
+           && PropertyPlanner.PromoteFiled(2, 3) == "Promote (DD): 2 of 3 set(s) of proposed changes sent for review (confirmed by Sentinel) — done." // C14
            && PropertyPlanner.PromoteReading.EndsWith("Until its dialog closes — or, after Yes, its filing is done — Review AI Proposals and a second Promote say they wait.", StringComparison.Ordinal) // C13
            && UnreportedResults.OpenHeld(1).Contains("a review window is open, a report is in flight, or Promote (DD) is reading or filing"),
            "the pane's Doctor log says when Promote reads, files and is done — Revit stays usable meanwhile; a model opened while Promote files says why its results wait (F3)");
         const string refusal = "Sentinel did not open the review of the changesets Promote filed: switch back to ma3b5-a — nothing was changed.";
-        Ok(PropertyPlanner.PromoteNotOpened(refusal, 3, "ma3b5-a") == refusal + "\n\n3 changeset(s) Promote filed wait for review — in \"ma3b5-a\", run Review AI Proposals (or Promote (DD): it opens a Promote storey waiting for review before it plans again)."
-           && PropertyPlanner.PromoteStopped("JsonException: bad", false) == "Promote's filing stopped — JsonException: bad\nWhat the bridge took before it stopped waits for review: run Promote (DD) again — it opens a Promote storey waiting for review before it plans again."
-           && PropertyPlanner.PromoteStopped("JsonException: bad", true) == "Promote's filing stopped — JsonException: bad\nWhat the bridge took before it stopped waits for review — it opens by itself while this model is in front.", // C6
+        Ok(PropertyPlanner.PromoteNotOpened(refusal, 3, "ma3b5-a") == refusal + "\n\n3 set(s) of proposed changes Promote sent wait for review — in \"ma3b5-a\", run Review AI Proposals (or Promote (DD): it opens a Promote storey waiting for review before it plans again)."
+           && PropertyPlanner.PromoteStopped("JsonException: bad", false) == "Promote's sending stopped — JsonException: bad\nWhat Sentinel took before it stopped waits for review: run Promote (DD) again — it opens a Promote storey waiting for review before it plans again."
+           && PropertyPlanner.PromoteStopped("JsonException: bad", true) == "Promote's sending stopped — JsonException: bad\nWhat Sentinel took before it stopped waits for review — it opens by itself while this model is in front.", // C6
            "H5: a model switched or closed before the review opened is said with what was filed and where to review it — never opened in the wrong model; a filing that throws is said, and its words follow whether its review opens (C6)");
     }
 }

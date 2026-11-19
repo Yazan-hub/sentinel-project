@@ -26,7 +26,7 @@ public sealed class BcfSyncManager : IDisposable
     private readonly string? _token; // the token at construction: a call given no bearer (the stream reads its own — SEC-6)
 
     /// <summary>SEC-6 (S20): what the live stream says when the bridge refuses it for a sign-in (HTTP 401).</summary>
-    internal const string LiveSignedOut = "Live sync paused — sign-in needed (signed out, or it expired): Sentinel ▸ Sign in; it resumes by itself.";
+    internal const string LiveSignedOut = "Live sync paused — sign-in needed (signed out, or it expired): Sentinel ▸ More ▸ Sign in; it resumes by itself.";
     /// <summary>SEC-6 (review C13): said once a paused live stream is back.</summary>
     internal const string LiveResumed = "Live sync resumed.";
     /// <summary>Review C17: the sign-in could not be read at all (not a signed-out session — that is <see cref="LiveSignedOut"/>).</summary>
@@ -82,7 +82,7 @@ public sealed class BcfSyncManager : IDisposable
                     int code = (int)resp.StatusCode;
                     string m = MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
                     string words = code == 401 ? LiveSignedOut
-                        : $"Live sync paused — the bridge answered HTTP {code}{(m.Length > 0 ? ": " + m : "")}; retrying every 30 s.";
+                        : $"Live sync paused — Sentinel answered HTTP {code}{(m.Length > 0 ? ": " + m : "")}; retrying every 30 s.";
                     if (words != lastSaid) { lastSaid = words; try { said(words); } catch { /* the window is gone */ } }
                     await Task.Delay(wait, ct).ConfigureAwait(false);
                     continue;
@@ -163,7 +163,7 @@ public sealed class BcfSyncManager : IDisposable
         {
             try { using var doc = JsonDocument.Parse(body); r.TopicGuid = doc.RootElement.TryGetProperty("guid", out var g) ? g.GetString() : null; }
             catch (JsonException) { r.TopicGuid = null; }
-            if (string.IsNullOrEmpty(r.TopicGuid)) { r.TopicStatus = 502; r.TopicMessage = "the bridge answered 201 without a topic guid"; return r; }
+            if (string.IsNullOrEmpty(r.TopicGuid)) { r.TopicStatus = 502; r.TopicMessage = "Sentinel answered 201 without a topic guid"; return r; }
         }
         else { r.TopicMessage = MessageOf(body); return r; }
         (r.ViewpointStatus, body) = await SendForBodyAsync(HttpMethod.Post, $"{topics}/{Uri.EscapeDataString(r.TopicGuid!)}/viewpoints", draft.ViewpointBody(), bearer, ct).ConfigureAwait(false);
@@ -184,7 +184,7 @@ public sealed class BcfSyncManager : IDisposable
             Authorize(msg, bearer);
             using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
             var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if (!resp.IsSuccessStatusCode) return $"Not imported — {Or(MessageOf(body), $"the bridge answered {(int)resp.StatusCode}")}";
+            if (!resp.IsSuccessStatusCode) return $"Not imported — {Or(MessageOf(body), $"Sentinel answered {(int)resp.StatusCode}")}";
             using var doc = JsonDocument.Parse(body);
             var r = doc.RootElement;
             int N(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
@@ -197,8 +197,8 @@ public sealed class BcfSyncManager : IDisposable
                 said += " Not kept: " + string.Join("; ", notes.EnumerateArray().Select(x => x.GetString())) + ".";
             return said;
         }
-        catch (TaskCanceledException) { return "Not imported in 10 minutes — the bridge may still be reading the file; press Refresh in a minute to see what arrived"; }
-        catch (Exception e) { return $"Not imported — could not reach the bridge ({e.Message})"; }
+        catch (TaskCanceledException) { return "Not imported in 10 minutes — Sentinel may still be reading the file; press Refresh in a minute to see what arrived"; }
+        catch (Exception e) { return $"Not imported — could not reach Sentinel ({e.Message})"; }
     }
 
     /// <summary>The project's issues as a .bcfzip in <paramref name="version"/> ("acc" = BCF 2.1 for ACC, "2.1" or "3.0"), one
@@ -213,7 +213,7 @@ public sealed class BcfSyncManager : IDisposable
             Authorize(msg, bearer);
             using HttpResponseMessage resp = await _files.SendAsync(msg, ct).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
-                return (null, $"Not exported — {Or(MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)), $"the bridge answered {(int)resp.StatusCode}")}", 0);
+                return (null, $"Not exported — {Or(MessageOf(await resp.Content.ReadAsStringAsync().ConfigureAwait(false)), $"Sentinel answered {(int)resp.StatusCode}")}", 0);
             var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
             var label = version == "acc" ? "ACC (BCF 2.1)" : $"BCF {version}";
             var said = label;
@@ -229,7 +229,7 @@ public sealed class BcfSyncManager : IDisposable
             }
             return (bytes, said, parts);
         }
-        catch (Exception e) { return (null, $"Not exported — could not reach the bridge ({e.Message})", 0); }
+        catch (Exception e) { return (null, $"Not exported — could not reach Sentinel ({e.Message})", 0); }
     }
 
     private static string Or(string s, string fallback) => string.IsNullOrWhiteSpace(s) ? fallback : s;

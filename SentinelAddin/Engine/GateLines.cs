@@ -15,7 +15,7 @@ namespace Sentinel.Engine;
 public static class GateLines
 {
     /// <summary>What an unbound document's gate reads (spec 4b-1).</summary>
-    public const string NotBoundVerdict = "NOT CHECKED — not bound — Sentinel ▸ Project Setup";
+    public const string NotBoundVerdict = "NOT CHECKED — not bound — Sentinel ▸ More ▸ Project Setup";
 
     /// <summary>"PASS · contract@1 · office · 3f9a0c1d2e4b… · Schema IFC4", "FAIL · … · Schema IFC2X3",
     /// "NOT CHECKED — contract: none — not installed for &lt;key&gt; or its office", or <see cref="NotBoundVerdict"/>
@@ -29,12 +29,12 @@ public static class GateLines
 
     /// <summary>Governed Publish's gate line, used by the accept/recorded dialog, the IDS/naming reject dialog and the
     /// bridge-unreachable dialog.</summary>
-    public static string PublishLine(GateResult r, string projectKey) => "Delivery gate: " + Verdict(r, projectKey);
+    public static string PublishLine(GateResult r, string projectKey) => "Pre-publish check: " + Verdict(r, projectKey);
 
     /// <summary>Governed Publish's accept dialog when the IDS accepted and no contract judged: intake's note, word for
     /// word (amendment A3).</summary>
     public static string JudgedAlone(GateResult r) =>
-        "The IDS judged alone — the delivery gate was not checked (contract: " + r.ContractLabel + ").";
+        "The data requirements were checked alone — the pre-publish check was not run (rules: " + r.ContractLabel + ").";
 
     /// <summary>The IFC Delivery Gate's first dialog. It names the contract that will judge (never a machine path)
     /// and says what an export produces. <paramref name="contractSchema"/> is null when no contract is in force.</summary>
@@ -56,7 +56,7 @@ public static class GateLines
                    "Nothing was judged — this file is NOT certified for CDE upload.\n" +
                    "Schema: " + Schema(r) + " (" + size + ")\n\n" + cert;
         var top = r.EntityCounts.OrderByDescending(kv => kv.Value).Take(6).Select(kv => kv.Key + ": " + kv.Value);
-        return (r.Outcome == GateOutcome.Pass ? "✓ contract PASS — IDS not checked here (Governed Publish judges ids@n)" : "✕ FAIL — DO NOT upload this file") + "\n\n" +
+        return (r.Outcome == GateOutcome.Pass ? "✓ contract PASS — data requirements not checked here (Publish judges them)" : "✕ FAIL — DO NOT upload this file") + "\n\n" +
                "Contract: " + r.ContractLabel + " · Schema: " + Schema(r) + "\n" +
                "Entities: " + r.TotalEntities + " (" + size + ")\n" +
                string.Join("\n", top) + "\n\n" +
@@ -70,11 +70,11 @@ public static class GateLines
     /// <summary>Governed Publish's reject dialog when the gate FAILED. It names the contract that judged, shows the
     /// first 12 failures and counts the rest.</summary>
     public static string PublishRejected(GateResult r) =>
-        "✕ REJECTED — delivery gate failed (not published)\n\n" +
+        "✕ REJECTED — the pre-publish check failed (not published)\n\n" +
         "Contract: " + r.ContractLabel + " · Schema: " + Schema(r) + "\n\n" +
         "FAILURES:\n• " + string.Join("\n• ", r.Failures.Take(12)) + "\n" +
         (r.Failures.Count > 12 ? "… and " + (r.Failures.Count - 12) + " more\n" : "") +
-        "\nFix the deliverable and run Governed Publish again.";
+        "\nFix the deliverable and publish again.";
 
     /// <summary>The most failures the delivery-gate route takes in one row (it refuses a longer list).</summary>
     public const int RouteFailures = 200;

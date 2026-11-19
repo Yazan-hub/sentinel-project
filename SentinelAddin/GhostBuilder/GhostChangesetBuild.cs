@@ -98,9 +98,9 @@ namespace Sentinel.GhostBuilder
         /// <summary>MA-3b7: what the pool thread filed. NotFiled null = every chunk filed; else its words, and Ledger says what was withdrawn.</summary>
         public sealed class Filed { public List<ChangesetDto> Changesets; public string NotFiled; public string Ledger; }
 
-        private const string localLedger = "Ledger: none — this model is not bound to a web project (Project Setup binds it); the build ran " +
-                                           "through the changeset executor as a local changeset (source dwg, stamped), as one Undo step.";
-        private const string noLedger = "Ledger: none — this model is not bound to a web project; nothing was filed.";
+        private const string localLedger = "History: nothing recorded — this model is not bound to a web project (Sentinel ▸ More ▸ Project Setup binds it); the build ran " +
+                                           "locally, stamped with its source DWG, as one Undo step.";
+        private const string noLedger = "History: nothing recorded — this model is not bound to a web project; nothing was sent for review.";
 
         /// <summary>MA-5b-2 (GHB-3): delete an import this run made, inside the caller's transaction — and its type when no other instance
         /// uses it (an import's type left behind would wait for a purge).</summary>
@@ -572,7 +572,7 @@ namespace Sentinel.GhostBuilder
             bool bound = p.Bound;
             var chunks = p.Chunks;
             var filed = new List<ChangesetDto>();
-            Filed Abandon(string line) => new Filed { Changesets = filed, NotFiled = line, Ledger = p.Bound && filed.Count > 0 ? "Ledger: " + WithdrawAll(p, filed) : null };
+            Filed Abandon(string line) => new Filed { Changesets = filed, NotFiled = line, Ledger = p.Bound && filed.Count > 0 ? "History: " + WithdrawAll(p, filed) : null };
             try
             {
                 for (int c = 0; c < chunks.Count; c++)
@@ -586,15 +586,15 @@ namespace Sentinel.GhostBuilder
                         bool signIn = err != null && (err.StartsWith("Bridge 401") || err.StartsWith("Bridge 403"));
                         // B4: only a 4xx says the bridge stored nothing; a timeout, a 5xx or an unreadable answer may have filed it.
                         bool maybeFiled = cs == null && !(err != null && err.StartsWith("Bridge 4"));
-                        return Abandon(GhostFailurePolicy.NotFiledLine((err ?? "the bridge answered with a different number of elements") +
-                                                                        (signIn ? " — sign in (Standards ▸ Sign in) as a contributor on this project" : "") +
-                                                                        (maybeFiled ? $" — changeset \"{name}\" may exist on the bridge anyway: check {r.Key} on the web and withdraw it" : "")));
+                        return Abandon(GhostFailurePolicy.NotFiledLine((err ?? "Sentinel answered with a different number of elements") +
+                                                                        (signIn ? " — sign in (Sentinel ▸ More ▸ Sign in) as a contributor on this project" : "") +
+                                                                        (maybeFiled ? $" — the proposed changes \"{name}\" may exist in Sentinel anyway: check {r.Key} on the web and withdraw them" : "")));
                     }
                     filed.Add(cs);
                     // MA-1b (GHB-1): the bridge must have kept each block's angle — the executor places what it returned.
                     if (GhostFiling.LostRotation(chunks[c], cs.Elements))
-                        return Abandon(GhostFailurePolicy.NotFiledLine("the bridge did not keep the door and window blocks' angle (place.Rotation) — it runs a build " +
-                                                                        "older than this add-in. Restart the bridge on the current build, then build again"));
+                        return Abandon(GhostFailurePolicy.NotFiledLine("Sentinel did not keep the door and window blocks' angle (place.Rotation) — it runs a version " +
+                                                                        "older than this add-in. Restart Sentinel on the current version, then build again"));
                 }
                 return new Filed { Changesets = filed };
             }
@@ -650,7 +650,7 @@ namespace Sentinel.GhostBuilder
                 foreach (var kv in warnings) report.RevitWarnings[kv.Key] = (report.RevitWarnings.TryGetValue(kv.Key, out int w) ? w : 0) + kv.Value;
             }
             string Unreported() => bound
-                ? $"Ledger: {filed.Count} changeset(s) left proposed and unreported — check the model, then withdraw them on the web."
+                ? $"History: {filed.Count} set(s) of proposed changes were sent but their result was not reported — check the model, then withdraw them on the web."
                 : noLedger;
 
             using var group = new TransactionGroup(doc, "Ghost Builder");
@@ -797,7 +797,7 @@ namespace Sentinel.GhostBuilder
                 else if (blockNote != null)
                 {
                     blockLine = blockNote;
-                    report.Warnings.Add(blockNote);
+                    report.Warnings.Add(BlockCheck.Shown(blockNote));
                 }
 
                 // MA-5b-2 (GHB-3): the drawing this run imported goes with the build — inside its Undo, so one Ctrl+Z brings both back.
@@ -858,7 +858,7 @@ namespace Sentinel.GhostBuilder
                 report.Ledger = !bound ? localLedger
                     : UnreportedResults.GhostReporting(r.Key, filed.Select(f => Short(f.Id)).ToList(), unsaved.Select(u => Short(u.ChangesetId)).ToList());
                 if (idsRejected > 0)
-                    report.Warnings.Insert(0, $"IDS: {idsRejected} element(s) did not pass the project's IDS — built as reviewed in Ghost's review (founder decision F2); each verdict is on its changeset.");
+                    report.Warnings.Insert(0, $"Data requirements: {idsRejected} element(s) did not pass the project's data requirements — built as reviewed in Ghost's review; each result is on its set of proposed changes.");
                 // MA-1a item 7: one ghost_build row for the build that was kept — the counts of the summary — sent off this
                 // thread; the pane's log says what the ledger answered. Only when an element is still in the model (review
                 // amendment C19): a build whose every element Revit removed at commit is not an action to report.

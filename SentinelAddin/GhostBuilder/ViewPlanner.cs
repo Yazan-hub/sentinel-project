@@ -202,8 +202,8 @@ namespace Sentinel.GhostBuilder
         {
             var ids = Rules(ruleset, RuleTarget.View).Select(r => r.Id).ToList();
             return ids.Count > 0
-                ? $"View names are checked against {string.Join(", ", ids)} (ruleset {rulesetLabel}) — Scan Now's own rule."
-                : $"View names not checked: no View rule with tokens or a whitelist in the ruleset ({rulesetLabel}).";
+                ? $"View names are checked against {string.Join(", ", ids)} (project standards {rulesetLabel}) — Scan Now's own rule."
+                : $"View names not checked: no View rule with tokens or a whitelist in the project standards ({rulesetLabel}).";
         }
 
         /// <summary>MA-8-11 (amendment 7): the distinct view templates the creatable rows name that the model lacks, in row order. MA-8-12:
@@ -256,7 +256,7 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>S1 (review C3): B31's exception to one Undo per action, in words, in every model — "may" is true in all of them.</summary>
         public static string UndoWords() =>
-            "Revit may empty its Undo list after views are named (B31) — if Edit ▸ Undo does not list \"Sentinel: Annotate views\", the annotate ledger row is the record: it names the views and datums to delete or unpin by hand.";
+            "Revit may empty its Undo list after views are named (B31) — if Edit ▸ Undo does not list \"Sentinel: Annotate views\", the History entry for this run is the record: it names the views and datums to delete or unpin by hand.";
 
         /// <summary>Why Annotate has nothing to plan, or null when it has: the guideline is none — its label says why
         /// ("none — not installed for demo or its office") — or it has no views section. Annotate never plans another

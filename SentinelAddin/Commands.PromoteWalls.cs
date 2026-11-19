@@ -92,18 +92,18 @@ public sealed class PromoteWallsCommand : IExternalCommand
         // with the old key's standards and file into the old key.
         if (ProjectContext.For(doc).Key != key)
         {
-            TaskDialog.Show(Title, $"This model's project changed while Promote read the bridge (was {key}) — nothing was planned or filed. Run Promote (DD) again.");
+            TaskDialog.Show(Title, $"This model's project changed while Promote read from Sentinel (was {key}) — nothing was planned or sent for review. Run Promote (DD) again.");
             return false;
         }
         if (read.Status != TaskStatus.RanToCompletion)
         {
-            TaskDialog.Show(Title, "Promote could not read the bridge — " + (read.Exception?.GetBaseException().Message ?? "the read did not finish") + "\nNothing was planned or filed.");
+            TaskDialog.Show(Title, "Promote could not read from Sentinel — " + (read.Exception?.GetBaseException().Message ?? "the read did not finish") + "\nNothing was planned or sent for review.");
             return false;
         }
         var (pending, fetchErr, pc) = read.Result;
         if (pending == null)
         {
-            TaskDialog.Show(Title, $"Couldn't reach the bridge:\n{fetchErr}");
+            TaskDialog.Show(Title, ReviewChangesetsCommand.Unanswered(fetchErr, "\n"));
             return false;
         }
         var unreviewed = pending.FirstOrDefault(ReviewChangesetsCommand.StoreyRun); // review round 3: a pending stair or terrain is not a storey run
@@ -197,18 +197,18 @@ public sealed class PromoteWallsCommand : IExternalCommand
         var lodLines = lod == null ? new List<string>() : lod.LevelLines();
         var lodText = lodErr != null ? "LOD state: not read — " + lodErr
             : lod == null ? $"LOD state: not measured — no lod_matrix@n to measure against ({pc.MxLabel})"
-            : "LOD state now (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line + "\n" + string.Join("\n", lodLines.Take(12)) + (lodLines.Count > 12 ? $"\n… and {lodLines.Count - 12} more" : "");
+            : "LOD state now (sent to History — the pane's Doctor log says whether it was recorded): " + lod.Line + "\n" + string.Join("\n", lodLines.Take(12)) + (lodLines.Count > 12 ? $"\n… and {lodLines.Count - 12} more" : "");
         // MA-2c (design §6.4): the run's type gaps — the held elements the office has no type for, grouped — as one type_gap row (the
         // Holding Area lists each group until a lead dismisses it or a catalogue with the type is installed); the read-only run too.
         var gaps = TypeGaps.Group(plans);
         if (gaps.Count > 0) GovernedNotify.Report("Type gaps", CommandReports.TypeGaps(gaps, standards.CatalogSource.Label, standards.GuidelineSource.Label, actor), key);
         var gapText = gaps.Count == 0 ? ""
-            : $"\n\nType gaps (sent to the ledger — the Holding Area lists them; the pane's Doctor log says whether it was recorded): {gaps.Count} group(s), {gaps.Sum(g => g.Elements)} element(s)\n" +
+            : $"\n\nType gaps (sent to History — Waiting for approval lists them; the pane's Doctor log says whether it was recorded): {gaps.Count} group(s), {gaps.Sum(g => g.Elements)} element(s)\n" +
               string.Join("\n", gaps.Take(8).Select(TypeGaps.Line)) + (gaps.Count > 8 ? $"\n… and {gaps.Count - 8} more" : "");
         // MA-8-7: the foreign classifier again, now with the plans (a ghost covers an element; a hold says why not) - one foreign_types row per run, the read-only one too.
         var foreign = foreignFacts == null ? null : ForeignTypes.Classify(foreignFacts, plans, standards.Guideline);
         if (foreign != null) GovernedNotify.Report("Foreign types", CommandReports.ForeignTypes(foreign, standards.CatalogSource.Label, actor), key);
-        var foreignText = foreign != null ? "\n\n" + foreign.Line + (foreign.NotChecked == null && foreign.Foreign > 0 ? " (sent to the ledger; the pane's Doctor log says whether it was recorded)" : "")
+        var foreignText = foreign != null ? "\n\n" + foreign.Line + (foreign.NotChecked == null && foreign.Foreign > 0 ? " (sent to History; the pane's Doctor log says whether it was recorded)" : "")
             : foreignErr != null ? "\n\nForeign types: not read — " + foreignErr : "";
         var bodies = PromoteWallsPlanner.Bodies(plans, actor, title: pc.Classes.Count == 1 && pc.Classes[0] == "Walls" ? "Promote walls (DD)" : "Promote (DD)");
 
@@ -264,19 +264,19 @@ public sealed class PromoteWallsCommand : IExternalCommand
             var toFile = PropertyPlanner.WithoutCarried(bodies, pv);
             var skipped = bodies.Count - toFile.Count;
             var declinedBefore = bodies.Count == 0 ? null : pv == null ? PropertyPlanner.PreviewNotRead(pvErr)
-                : pv.Count != bodies.Count ? PropertyPlanner.PreviewNotRead("the bridge's preview did not match the storeys") : PropertyPlanner.CarriedLine(pv); // review: as WithoutCarried
+                : pv.Count != bodies.Count ? PropertyPlanner.PreviewNotRead("Sentinel's preview did not match the storeys") : PropertyPlanner.CarriedLine(pv); // review: as WithoutCarried
             var dlg = new TaskDialog(Title)
             {
                 MainInstruction = bodies.Count == 0 ? "Nothing to file: no element needs a change Sentinel can propose."
                                                     : PropertyPlanner.FileQuestion(toFile.Count, skipped),
                 MainContent = header + (standards.Guideline.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") +
                               "\n\n" + string.Join("\n", lines) + "\n\n" + ddNow + "\n" + lodText + propText + gapText + (declinedBefore != null ? "\n\n" + declinedBefore : "") + foreignText +
-                              (asks.Count > 0 ? "\n\nDD also asks (the DD IDS: counted in the LOD state, checked again before commit" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) +
-                                                (pc.Ids == null ? "\nDD IDS: not read — " + pc.IdsWhy : pc.Ids.Unmatched.Count > 0 ? "\nNot in the DD IDS: " + string.Join("; ", pc.Ids.Unmatched) : "") : "") +
+                              (asks.Count > 0 ? "\n\nDD also asks (the DD data requirements: counted in the LOD state, checked again before commit" + (mx.Draft ? "; DRAFT, decision LM-1" : "") + "):\n" + string.Join("\n", asks) +
+                                                (pc.Ids == null ? "\nDD data requirements: not read — " + pc.IdsWhy : pc.Ids.Unmatched.Count > 0 ? "\nNot in the DD data requirements: " + string.Join("; ", pc.Ids.Unmatched) : "") : "") +
                               (notRun.Count > 0 ? "\n\n" + string.Join("\n", notRun) : "") +
                               (notes.Count > 0 ? "\n\nTemplate check (the office's template should fix these):\n" + string.Join("\n", notes) : "") +
-                              (toFile.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing in the model changes" + (lod != null ? " (the LOD state above was sent to the ledger)." : ".")
-                               : held.Count > 0 ? "\n\nNothing is filed, so the elements sent to a person are listed only here, not on the ledger." : ""),
+                              (toFile.Count > 0 ? "\n\nNo = a read-only run: nothing is sent for review, nothing in the model changes" + (lod != null ? " (the LOD state above was sent to History)." : ".")
+                               : held.Count > 0 ? "\n\nNothing is sent for review, so the elements sent to a person are listed only here, not in History." : ""),
                 CommonButtons = toFile.Count == 0 ? TaskDialogCommonButtons.Ok : TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
             };
             if (held.Count > 0)
@@ -322,9 +322,9 @@ public sealed class PromoteWallsCommand : IExternalCommand
                     var failed = run.Failed;
                     var typeEditsNotFiled = run.TypeEditsNotFiled;
                     said = failed.Count == 0 && typeEditsNotFiled == 0 ? ""
-                        : (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not filed — see Sent to a person (the bridge refused their source; a person fills them in Revit)\n" : "") +
-                          (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no changeset — they are listed only in Promote's dialog\n" : "") +
-                          (failed.Count > 0 ? $"{failed.Count} of {toFile.Count} changeset(s) were not confirmed filed (one the bridge did not answer may still be held — the next Promote (DD) opens it as a waiting storey if so):\n" + string.Join("\n", failed.Take(5)) : "");
+                        : (typeEditsNotFiled > 0 ? $"{typeEditsNotFiled} type edit(s) not sent for review — see Sent to a person (Sentinel refused their source; a person fills them in Revit)\n" : "") +
+                          (run.RowsNotFiled > 0 ? $"{run.RowsNotFiled} row(s) sent to a person reached no proposed changes — they are listed only in Promote's dialog\n" : "") +
+                          (failed.Count > 0 ? $"{failed.Count} of {toFile.Count} set(s) of proposed changes were not confirmed as sent (one Sentinel did not answer may still be held — the next Promote (DD) opens it as a waiting storey if so):\n" + string.Join("\n", failed.Take(5)) : "");
                 }
                 catch (Exception ex) { said = PropertyPlanner.PromoteStopped($"{ex.GetType().Name}: {ex.Message}", first != null); }
                 finally { release(); }
@@ -370,7 +370,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
                 var handed = false;
                 try
                 {
-                    if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, $"This model's project changed while Promote read the bridge (was {key}) — nothing was filed. Run Promote (DD) again."); return; }
+                    if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, $"This model's project changed while Promote read from Sentinel (was {key}) — nothing was sent for review. Run Promote (DD) again."); return; }
                     var (pv, e) = t.Status == TaskStatus.RanToCompletion ? t.Result : (null, t.Exception?.GetBaseException().Message ?? "the read did not finish");
                     handed = AskAndFile(pv, e);
                 }
@@ -427,7 +427,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         if (r.NotChecked != null || r.Foreign == 0) return "";
         var top = string.Join(", ", r.TopCategories().Take(4).Select(c => $"{c.Category} {c.Count}"));
         return $"\n\nThis model holds {r.Foreign} element(s) on {r.Types} type(s) that are not the office's — {top}. Load the office's types (Manage ▸ Transfer Project Standards " +
-               "from the office template; families by Load Family), then run Promote again. The foreign types were sent to the ledger (the pane's Doctor log says whether it was recorded).";
+               "from the office template; families by Load Family), then run Promote again. The foreign types were sent to History (the pane's Doctor log says whether it was recorded).";
     }
 
     // Category parts (curtain panels and mullions, stair runs, landings and supports, railing parts), lines and the spatial and system elements are no type the
@@ -577,7 +577,7 @@ public sealed class PromoteWallsCommand : IExternalCommand
         r.Matrix = pc.MxLabel;
         r.MatrixSha = pc.MxSha; // the gate and the journey read the row only while this matrix is in force (review C3)
         r.Guideline = pc.Standards.GuidelineSource.Label;
-        r.Ids = pc.Ids != null ? "DD IDS made from " + pc.Ids.Matrix : "DD IDS not read — " + pc.IdsWhy;
+        r.Ids = pc.Ids != null ? "DD data requirements made from " + pc.Ids.Matrix : "DD data requirements not read — " + pc.IdsWhy;
         return r;
     }
 

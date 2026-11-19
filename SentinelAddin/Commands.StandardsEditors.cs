@@ -167,8 +167,8 @@ public abstract class StandardEditorWindow : Window
         {
             _inForce.Text = "In force now: " + (a.Origin != "none" ? a.Label : a.NotInstalled || a.NoProject ? $"none saved yet — Save makes {Kind}@1" : a.Label);
             // Only the bridge's answer is edited: a cached copy may be older than what is in force, and a none it did not confirm may hide one.
-            string blocked = a.Origin == "cache" ? "the bridge was not reached, so this is the copy cached on this PC — it may be older than the one in force"
-                           : a.Origin == "none" && !a.NotInstalled && !a.NoProject ? "the bridge did not answer (" + a.Reason + ")" : null;
+            string blocked = a.Origin == "cache" ? "Sentinel was not reached, so this is the copy cached on this PC — it may be older than the one in force"
+                           : a.Origin == "none" && !a.NotInstalled && !a.NoProject ? "Sentinel did not answer (" + a.Reason + ")" : null;
             try { Fill(a.Origin != "none" ? a.BodyJson : null); }
             catch (Exception e) { blocked ??= $"{a.Label} did not read ({e.Message})"; }
             _readSha = a.Origin == "bridge" ? a.Sha256 : null;
@@ -204,7 +204,7 @@ public abstract class StandardEditorWindow : Window
             {
                 _save.IsEnabled = true;
                 if (put.Error != null) { Say($"Not saved on {target}: {put.Error}", true); return; }
-                Say($"✓ Saved as {Kind}@{put.Version} on {target}, recorded in the ledger. Sentinel uses it from the next command you run.", false);
+                Say($"✓ Saved on {target} and recorded in History. Sentinel uses it from the next command you run.", false); App.PanelVm?.LogDoctor($"Saved {Kind}@{put.Version} on {target}.");
                 if (target != Key) _officeSha = put.Sha256;
                 if (target == Key || !_projectHasOwn) { _readSha = put.Sha256; _inForce.Text = $"In force now: {Kind}@{put.Version} · " + (target == Key ? "project" : "office"); }
                 if (target == Key) _projectHasOwn = true;
@@ -449,7 +449,7 @@ public sealed class IfcExportWindow : StandardEditorWindow
     private bool _quiet;
 
     public IfcExportWindow(string key, List<string> parameterNames, List<string> families) : base(key, "ifc_export", "IFC Export Mapping",
-        "The property sets Governed Publish asks Revit's IFC exporter to write: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter of this model (blank = the parameter of the property's name). Below them, the IFC class chosen families export as.")
+        "The property sets Publish model asks Revit's IFC exporter to write: each set's name, the IFC classes it goes on and its properties, each read from a Revit parameter of this model (blank = the parameter of the property's name). Below them, the IFC class chosen families export as.")
     {
         _params = parameterNames;
         _families = families;

@@ -58,7 +58,7 @@ public sealed class AppliedChangesCommand : IExternalCommand
             SavedCheck.RememberRevert(key, cs.Id, cs.Name, d.PathName, rows);
             Task.Run(() =>
             {
-                var words = $"Reverted in this model: {o.Reverted.Count} row(s) back, {o.Kept.Count} kept (one Undo step: \"{o.Tx}\").{Recreated(o)}\n" + RevertPlan.Send(BcfConfig.Load(), r)
+                var words = $"Undone in this model: {o.Reverted.Count} row(s) back, {o.Kept.Count} kept (one Undo step: \"{o.Tx}\").{Recreated(o)}\n" + RevertPlan.Send(BcfConfig.Load(), r)
                             + (kept ? "" : "\nThis PC could not keep a record of it — if the line above says NOT posted, tell the project lead.");
                 App.PanelVm?.LogDoctor("Applied AI Changes: " + words.Replace('\n', ' '));
                 Load(win, key, null, words);
@@ -88,13 +88,13 @@ public sealed class AppliedChangesCommand : IExternalCommand
             var role = UserSession.IsSignedIn ? ChangesetClient.MyRole(cfg, key, out _) : null;
             var may = role != null && Revertors.Contains(role);
             var all = ChangesetClient.FetchAll(cfg, key, out var error);
-            if (all == null) { win.SetList(new List<(string, ChangesetDto)>(), string.Join("\n", said.Append($"The bridge did not answer: {error}")), false); return; }
+            if (all == null) { win.SetList(new List<(string, ChangesetDto)>(), string.Join("\n", said.Append(ReviewChangesetsCommand.Unanswered(error))), false); return; }
             var rows = all.Where(cs => cs.Status is "applied" or "partially_applied").OrderByDescending(cs => cs.CreatedAt ?? "", StringComparer.Ordinal)
-                .Select(cs => ($"{cs.Name} · {cs.Source} · {RevertPlan.Applied(cs).Count} applied · filed {(cs.CreatedAt ?? "?").Replace('T', ' ').Split('.')[0]}\n{RevertPlan.State(cs)}", cs)).ToList();
-            var who = !UserSession.IsSignedIn ? "You are not signed in — a revert is a signed-in person's act (Standards ▸ Sign in). You can read the list."
-                    : !may ? $"Your role on {key} is {role ?? "unknown"} — a revert needs a contributor, lead or owner. You can read the list."
-                    : "Select a changeset, press Check revert, read what would happen, type your reason, then Revert.";
-            win.SetList(rows, string.Join("\n", said.Append(rows.Count == 0 ? "No applied changeset on this project." : $"{rows.Count} applied changeset(s), newest first. {who}")), may);
+                .Select(cs => ($"{cs.Name} · {cs.Source} · {RevertPlan.Applied(cs).Count} applied · sent {(cs.CreatedAt ?? "?").Replace('T', ' ').Split('.')[0]}\n{RevertPlan.State(cs)}", cs)).ToList();
+            var who = !UserSession.IsSignedIn ? "You are not signed in — an undo is a signed-in person's act (Sentinel ▸ More ▸ Sign in). You can read the list."
+                    : !may ? $"Your role on {key} is {role ?? "unknown"} — an undo needs a contributor, lead or owner. You can read the list."
+                    : "Select a set of proposed changes, press Check undo, read what would happen, type your reason, then Undo.";
+            win.SetList(rows, string.Join("\n", said.Append(rows.Count == 0 ? "No applied proposed changes on this project." : $"{rows.Count} applied set(s) of proposed changes, newest first. {who}")), may);
             if (after != null) win.Say(after);
         }
         catch (Exception ex) { win.SetList(new List<(string, ChangesetDto)>(), $"The list could not be read — {ex.GetType().Name}: {ex.Message}", false); }

@@ -205,9 +205,9 @@ namespace Sentinel.GhostBuilder
 
         /// <summary>Final verification round 1: the question put to the person before an absent terrain is recorded as undone - the bridge cannot tell this model from another.</summary>
         public static string GoneQuestion(string name, string model) =>
-            $"\"{name}\" was applied from this scan and the bridge holds the scan for it, but its Toposolid is not in this model ({model}).\n\n"
+            $"\"{name}\" was applied from this scan and Sentinel holds the scan for it, but its Toposolid is not in this model ({model}).\n\n"
             + "Was it applied in THIS model and then deleted, or undone after Revit was restarted? If it may stand in another model, a copy, another person's local, or a closed workset, answer No.\n\n"
-            + $"Yes records an Undo of \"{name}\" on the ledger in your name, on your word, and files the terrain again.";
+            + $"Yes records an Undo of \"{name}\" in History in your name, on your word, and sends the terrain for review again.";
 
         /// <summary>Final verification round 1: a workshared local not up to date with central cannot say a terrain is gone - it may never have received it.</summary>
         public const string StaleLocal = "this local is not up to date with central — Reload Latest, then press again; nothing was recorded";
@@ -215,6 +215,6 @@ namespace Sentinel.GhostBuilder
         /// <summary>The line the review window reads beside a terrain row.</summary>
         public static string RowWords(int points, bool supported) =>
             // review round 2: only what the bridge checks is claimed (as the desk) - a member's filing, not "read off the scan"
-            $"Toposolid from {points} ground points filed by a signed-in member from the survey changeset (the bridge checked its level, footprint and height band, not the points; not re-measured); {Shape} — check it against the site survey" + (supported ? "" : " — " + OldRevit);
+            $"Toposolid from {points} ground points sent for review by a signed-in member from the survey's proposed changes (Sentinel checked its level, footprint and height band, not the points; not re-measured); {Shape} — check it against the site survey" + (supported ? "" : " — " + OldRevit);
     }
 }

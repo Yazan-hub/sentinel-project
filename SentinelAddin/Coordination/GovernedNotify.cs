@@ -45,7 +45,7 @@ namespace Sentinel.Coordination
         /// <summary>The document's project key, trimmed; empty when the document is not bound. No fallback.</summary>
         private static string KeyOf(string? projectKey) => (projectKey ?? "").Trim();
 
-        private const string NotBoundError = "this model is not bound to a web project — Sentinel ▸ Project Setup";
+        private const string NotBoundError = "this model is not bound to a web project — Sentinel ▸ More ▸ Project Setup";
 
         /// <summary>
         /// POST one governed event to <c>{ServiceUrl}/cde/{key}{path}</c> and return what the ledger answered —

@@ -22,26 +22,26 @@ static partial class Check
         var entries = StoreyBatch.Entries(new List<ChangesetDto> { g1, agent, g2, l1 });
         Ok(entries.Count == 3 && entries[0].SequenceEqual(new[] { g1, g2 }) && entries[1].SequenceEqual(new[] { agent }) && entries[2].SequenceEqual(new[] { l1 })
            && StoreyBatch.Entries(new List<ChangesetDto>()).Count == 0,
-           "the picker lists every pending changeset once, oldest first — a Promote storey's parts as one entry (StoreyBatch.Of's rule)");
+           "the picker lists every pending set of proposed changes once, oldest first — a Promote storey's parts as one entry (StoreyBatch.Of's rule)");
 
         var now = new DateTime(2026, 10, 4, 12, 0, 0, DateTimeKind.Utc);
         g2.Elements[0].Review = new ReviewDto { State = "declined", Action = "decline", Reason = "no", By = "r@example.com", Role = "contributor" };
-        Ok(StoreyBatch.Line(entries[0], now) == "Promote (DD) · GR-FFL (2 changesets, one Undo) — promote (claimed) · 2 h ago · 3 ghost(s): 0 accepted, 0 rejected, 3 recorded · 1 declined on the web"
+        Ok(StoreyBatch.Line(entries[0], now) == "Promote (DD) · GR-FFL (2 sets of proposed changes, one Undo) — promote (claimed) · 2 h ago · 3 ghost(s): 0 accepted, 0 rejected, 3 recorded · 1 declined on the web"
            && StoreyBatch.Line(entries[1], now) == "Core walls — agent (claimed) · 1 h ago · 2 ghost(s): 1 accepted, 1 rejected, 0 recorded",
            "an entry's line: its name, source, age, its ghosts by the referee's verdict, and the web's declines");
         Ok(StoreyBatch.Age("2026-10-04T11:59:40Z", now) == "just now" && StoreyBatch.Age("2026-10-04T11:47:30.5+00:00", now) == "12 min ago"
            && StoreyBatch.Age("2026-10-01T09:00:00Z", now) == "3 d ago" && StoreyBatch.Age("not a time", now) == "age unknown" && StoreyBatch.Age(null, now) == "age unknown",
-           "the age reads the bridge's created_at as UTC — and says so when it cannot read it");
+           "the age reads Sentinel's created_at as UTC — and says so when it cannot read it");
 
         Ok(ChangesetTrust.GroupOf(g1.Elements[0]) == "retype wall" && ChangesetTrust.GroupOf(agent.Elements[0]) == "create wall"
            && StoreyBatch.Merge(entries[0]).Elements.GroupBy(ChangesetTrust.GroupOf).Select(g => $"{g.Key} ({g.Count()})").SequenceEqual(new[] { "retype wall (2)", "attach wall (1)" }),
            "the window groups a storey's ghosts by what they do, in the web desk's words (review-desk.ts whatOf), in the order they come");
 
-        const string none = "the bridge named no ledger row";
+        const string none = "Sentinel named no History entry";
         Ok(ChangesetTrust.LedgerOf("{\"id\":\"x\",\"status\":\"declined\",\"ledger\":{\"id\":1731,\"hash\":\"ab\"}}") == "ledger #1731"
            && ChangesetTrust.LedgerOf("{\"id\":\"x\",\"ledger\":{\"id\":null,\"hash\":null}}") == none && ChangesetTrust.LedgerOf("{\"id\":\"x\",\"ledger\":null}") == none
            && ChangesetTrust.LedgerOf("{\"id\":\"x\"}") == none && ChangesetTrust.LedgerOf("not json") == none && ChangesetTrust.LedgerOf(null) == none,
-           "a reported result names its ledger row; a bridge before MA-3b (no ledger), a row with no id and a reply that is not JSON say the web desk's words");
+           "a reported result names its History entry; a bridge before MA-3b (no ledger), a row with no id and a reply that is not JSON say the web desk's words");
 
         // The record: written before the report is sent, read back whole, never another changeset's or key's.
         var root = Path.Combine(Path.GetTempPath(), "ma3b-check-" + Guid.NewGuid().ToString("N"));
@@ -53,7 +53,7 @@ static partial class Check
             {
                 Key = "ma3b", ChangesetId = "e1000000-a", Name = "Promote (DD) · GR-FFL (1/2)", Doc = @"C:\models\a.rvt",
                 Applied = new List<AppliedEntry> { new AppliedEntry { ProposalGuid = "a", RevitElementId = 401, RevitUniqueId = "u-a" } }, Rejected = new List<string> { "b" },
-                Note = "DD IDS: 1 failing, placed anyway | reviewer: drill", ReviewRev = 2, Undo = new List<string> { "Sentinel AI changeset: Promote (DD) · GR-FFL [e1000000]" },
+                Note = "DD IDS: 1 failing, placed anyway | reviewer: drill", ReviewRev = 2, Undo = new List<string> { "Sentinel AI set of proposed changes: Promote (DD) · GR-FFL [e1000000]" },
                 At = "2026-10-04T12:00:00Z",
             };
             Ok(UnreportedResults.Write(rec) && File.Exists(UnreportedResults.PathFor("ma3b", "e1000000-a")) && UnreportedResults.PathFor("ma3b", "e1000000-a") == Path.Combine(root, "ma3b", "e1000000-a.json"),
@@ -66,9 +66,9 @@ static partial class Check
             File.WriteAllText(UnreportedResults.PathFor("ma3b", "other"), File.ReadAllText(UnreportedResults.PathFor("ma3b", "e1000000-a")));
             Ok(UnreportedResults.ForKey("ma3b").Select(r => r.ChangesetId).SequenceEqual(new[] { "e1000000-a" }) && UnreportedResults.Read("ma3b", "other") == null
                && UnreportedResults.Read("ma3b-x", "e1000000-a") == null && UnreportedResults.ForKey("nothing-here").Count == 0,
-               "a file that is not a record, or another changeset's or key's record under this name, is no record (never sent as this one)");
+               "a file that is not a record, or another proposed changes' or key's record under this name, is no record (never sent as this one)");
             UnreportedResults.Delete("ma3b", "e1000000-a");
-            Ok(UnreportedResults.Read("ma3b", "e1000000-a") == null && !UnreportedResults.ForKey("ma3b").Any(), "a result the bridge took loses its record");
+            Ok(UnreportedResults.Read("ma3b", "e1000000-a") == null && !UnreportedResults.ForKey("ma3b").Any(), "a result Sentinel took loses its record");
             var file = Path.Combine(root, "a-file");
             File.WriteAllText(file, "x");
             UnreportedResults.Root = file;
@@ -93,7 +93,7 @@ static partial class Check
         Ok(all.Report && !all.Ask && all.Words == null && decline.Report && !decline.Ask,
            "a result whose every element still carries its stamp is sent again (a decline, which placed nothing, too)");
         Ok(!gone.Report && gone.Ask && gone.Words == null,
-           "a result none of whose elements carries its stamp any more is never reported as applied — the bridge is asked first (review C9)");
+           "a result none of whose elements carries its stamp any more is never reported as applied — Sentinel is asked first (review C9)");
         Ok(!some.Report && !some.Ask && some.Words == $"\"Promote (DD) · GR-FFL\": 1 of 2 element(s) Apply placed carry its stamp in this model — nothing reported, and the record is kept ({UnreportedResults.PathFor("k", "c")}): check the model (finish the Undo, or delete what is left), then close this window and run Review AI Proposals again.",
            "a result only part of which is in the model is neither reported nor forgotten — said, with the record's path");
 
@@ -101,18 +101,18 @@ static partial class Check
         var signIn = UnreportedResults.Outcome("Bridge 403: {\"message\":\"result requires the contributor role (you are viewer)\"}", 2);
         var down = UnreportedResults.Outcome("No connection could be made because the target machine actively refused it. (127.0.0.1:4101)", 2);
         var downDecline = UnreportedResults.Outcome(null, 0);
-        Ok(refused.Drop && refused.Words == "the bridge refused it (retrying cannot fix this): Bridge 409: {\"message\":\"changeset is partially_applied — a result can be reported exactly once, from proposed\"}\nThis PC's record is removed; the 2 element(s) Apply placed are still in this model — check the changeset's status on the bridge before any re-review.",
-           "a result the bridge refuses for good (400, 404, 409) loses its record, said with the bridge's words and what is still in the model");
-        Ok(!signIn.Drop && signIn.Words == "not reported: Bridge 403: {\"message\":\"result requires the contributor role (you are viewer)\"}\nSign in (Standards ▸ Sign in) as a contributor on this project, then press Retry report.\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.",
+        Ok(refused.Drop && refused.Words == "Sentinel refused it (retrying cannot fix this): Bridge 409: {\"message\":\"changeset is partially_applied — a result can be reported exactly once, from proposed\"}\nThis PC's record is removed; the 2 element(s) Apply placed are still in this model — check the proposed changes' status on Sentinel before any re-review.",
+           "a result Sentinel refuses for good (400, 404, 409) loses its record, said with Sentinel's words and what is still in the model");
+        Ok(!signIn.Drop && signIn.Words == "not reported: Bridge 403: {\"message\":\"result requires the contributor role (you are viewer)\"}\nSign in (Sentinel ▸ More ▸ Sign in) as a contributor on this project, then press Retry report.\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this set of proposed changes is not opened for review until Sentinel takes it, so nothing is applied twice.",
            "a 401 or 403 keeps the record and says to sign in");
-        Ok(!down.Drop && down.Words == "not reported: No connection could be made because the target machine actively refused it. (127.0.0.1:4101)\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
+        Ok(!down.Drop && down.Words == "not reported: No connection could be made because the target machine actively refused it. (127.0.0.1:4101)\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this set of proposed changes is not opened for review until Sentinel takes it, so nothing is applied twice."
            && !downDecline.Drop && downDecline.Words == "not reported: the bridge did not answer\nNothing in the model changed; Retry report sends it again.",
            "a bridge that does not answer keeps the record (AI-2) — and a decline, which placed nothing, says so");
         var waiting = new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "Promote (DD) · GR-FFL", Doc = @"C:\models\a.rvt", At = "2026-10-04T12:00:00Z" };
-        Ok(UnreportedResults.Blocked(new[] { waiting }) == "\"Promote (DD) · GR-FFL\" was applied in C:\\models\\a.rvt (2026-10-04T12:00:00Z) and the bridge has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first."
-           + $" If that model is gone, check the changeset's status on the bridge, then delete {UnreportedResults.PathFor("k", "c")}."
-           && UnreportedResults.DeleteOnce(waiting) == $"If that model is gone, check the changeset's status on the bridge, then delete {UnreportedResults.PathFor("k", "c")}.",
-           "a changeset with a waiting result is not opened, and the words say where it was applied, what reports it, and the file to delete once the person has checked (founder decision F4, review C14)");
+        Ok(UnreportedResults.Blocked(new[] { waiting }) == "\"Promote (DD) · GR-FFL\" was applied in C:\\models\\a.rvt (2026-10-04T12:00:00Z) and Sentinel has not taken its result yet — it is not opened for review again, so nothing is applied twice. Run Review AI Proposals in that model: it checks the model and reports it first."
+           + $" If that model is gone, check the proposed changes' status on Sentinel, then delete {UnreportedResults.PathFor("k", "c")}."
+           && UnreportedResults.DeleteOnce(waiting) == $"If that model is gone, check the proposed changes' status on Sentinel, then delete {UnreportedResults.PathFor("k", "c")}.",
+           "a set of proposed changes with a waiting result is not opened, and the words say where it was applied, what reports it, and the file to delete once the person has checked (founder decision F4, review C14)");
 
         // Review C1: a 409 on a result the bridge already holds (its reply was lost: the 120 s timeout, Revit closed mid-report, or the
         // audit row threw after the doc was written) is landed — never "refused" — when the stored result applied exactly the record's ghosts.
@@ -123,12 +123,12 @@ static partial class Check
         };
         ChangesetDto Stored(string status, string result) => System.Text.Json.JsonSerializer.Deserialize<ChangesetDto>($"{{\"id\":\"c\",\"status\":\"{status}\",\"result\":{result}}}");
         const string ab = "{\"applied\":[{\"proposal_guid\":\"b\",\"revit_element_id\":2},{\"proposal_guid\":\"a\",\"revit_element_id\":1}],\"rejected\":[]}";
-        Ok(UnreportedResults.AlreadyTaken(held, Stored("partially_applied", ab)) == "\"Promote (DD) · GR-FFL\": the bridge had already taken it (its reply did not reach Revit) — partially_applied; the bridge named no ledger row for it here."
+        Ok(UnreportedResults.AlreadyTaken(held, Stored("partially_applied", ab)) == "\"Promote (DD) · GR-FFL\": Sentinel had already taken it (its reply did not reach Revit) — partially_applied; Sentinel named no History entry for it here."
            && UnreportedResults.AlreadyTaken(held, Stored("proposed", "null")) == null
            && UnreportedResults.AlreadyTaken(held, Stored("applied", "{\"applied\":[{\"proposal_guid\":\"a\",\"revit_element_id\":1}]}")) == null
            && UnreportedResults.AlreadyTaken(held, Stored("withdrawn", "null")) == null && UnreportedResults.AlreadyTaken(held, null) == null
            && UnreportedResults.AlreadyTaken(new UnreportedResults.Record { Key = "k", ChangesetId = "c", Name = "x" }, Stored("declined", "{\"applied\":[]}")) == null,
-           "review C1: a result the bridge already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result is not, nor a record that applied and rejected nothing (a decline: MA-3b2b, section 46)");
+           "review C1: a result Sentinel already holds with exactly the record's applied ghosts is taken (said); a proposed, withdrawn or different result is not, nor a record that applied and rejected nothing (a decline: MA-3b2b, section 46)");
 
         // Review C9: a result none of whose elements this model holds is removed only after the bridge says what it holds — a record stays
         // exactly when its reply was lost, so the bridge may already hold it (then the Undo it never heard of is posted).
@@ -137,13 +137,13 @@ static partial class Check
         var tookIt = UnreportedResults.Gone(held, Stored("partially_applied", ab), null);
         var other = UnreportedResults.Gone(held, Stored("applied", "{\"applied\":[{\"proposal_guid\":\"z\"}]}"), null);
         var unread = UnreportedResults.Gone(held, null, "Bridge 502: bad gateway");
-        Ok(stillProposed.Drop && !stillProposed.Revert && stillProposed.Words == why + " — nothing reported; the bridge holds the changeset as proposed, so it opens for review again. This PC's record is removed."
-           && tookIt.Drop && tookIt.Revert && tookIt.Words == why + ", but the bridge had already taken it (its reply did not reach Revit) — partially_applied; a changeset_reverted row (undo) for its 2 element(s) was "
+        Ok(stillProposed.Drop && !stillProposed.Revert && stillProposed.Words == why + " — nothing reported; Sentinel holds the set of proposed changes as proposed, so it opens for review again. This PC's record is removed."
+           && tookIt.Drop && tookIt.Revert && tookIt.Words == why + ", but Sentinel had already taken it (its reply did not reach Revit) — partially_applied; a changeset_reverted row (undo) for its 2 element(s) was "
            && UnreportedResults.RevertPosted(null) == "posted. This PC's record is removed."
-           && UnreportedResults.RevertPosted("Bridge 503: down") == "NOT posted: Bridge 503: down\nThe record is kept on this PC; Retry report or the next Review AI Proposals asks the bridge again."
-           && other.Drop && !other.Revert && other.Words == why + ", and the bridge holds the changeset as applied with a result that is not this one — nothing reported. This PC's record is removed."
-           && !unread.Drop && !unread.Revert && unread.Words.StartsWith(why + ", and the bridge could not be re-read to say whether it took it (Bridge 502: bad gateway) — nothing reported.\nThe result is kept on this PC", StringComparison.Ordinal),
-           "review C9: a result gone from the model is removed as 'stays proposed' only when the bridge says so; one the bridge already took gets its changeset_reverted row; one that cannot be re-read is kept");
+           && UnreportedResults.RevertPosted("Bridge 503: down") == "NOT posted: Bridge 503: down\nThe record is kept on this PC; Retry report or the next Review AI Proposals asks Sentinel again."
+           && other.Drop && !other.Revert && other.Words == why + ", and Sentinel holds the set of proposed changes as applied with a result that is not this one — nothing reported. This PC's record is removed."
+           && !unread.Drop && !unread.Revert && unread.Words.StartsWith(why + ", and Sentinel could not be re-read to say whether it took it (Bridge 502: bad gateway) — nothing reported.\nThe result is kept on this PC", StringComparison.Ordinal),
+           "review C9: a result gone from the model is removed as 'stays proposed' only when Sentinel says so; one Sentinel already took gets its changeset_reverted row; one that cannot be re-read is kept");
 
         // MA-3b2 review C16: a record is dropped only on the evidence of the file it was applied in — every local of one central shares
         // the central's path, and every never-saved model is "Project1".
@@ -154,29 +154,29 @@ static partial class Check
         int elsewhereAt = src.IndexOf("else if (ask && UnreportedResults.Elsewhere(r, doc.PathName) is { } elsewhere) { rep.Words.Add(elsewhere); rep.Left.Add(r); }", StringComparison.Ordinal);
         int pathAt = src.IndexOf("foreach (var r in records) r.Path = doc.PathName ?? \"\";", StringComparison.Ordinal);
         Ok(UnreportedResults.Elsewhere(In(@"C:\locals\L1.rvt"), @"c:\LOCALS\l1.rvt") == null && UnreportedResults.Elsewhere(In(null), @"C:\locals\L2.rvt") == null
-           && UnreportedResults.Elsewhere(In(@"C:\locals\L1.rvt"), @"C:\locals\L2.rvt") == "\"Promote (DD) · GR-FFL\": applied in C:\\locals\\L1.rvt, and this file (C:\\locals\\L2.rvt) holds none of it — another copy of the same model. Nothing reported, and the record is kept: open that file and run Review AI Proposals there, or synchronise it and reload this one. If that file is gone, or it was undone there, check the changeset's status on the bridge, then delete " + kept + "."
-           && UnreportedResults.Elsewhere(In(""), "") == "\"Promote (DD) · GR-FFL\": applied in a model that was never saved, and this model holds none of it — a title cannot tell whether this is that model. Nothing reported, and the record is kept. If it was undone, or that model is gone, check the changeset's status on the bridge, then delete " + kept + "."
+           && UnreportedResults.Elsewhere(In(@"C:\locals\L1.rvt"), @"C:\locals\L2.rvt") == "\"Promote (DD) · GR-FFL\": applied in C:\\locals\\L1.rvt, and this file (C:\\locals\\L2.rvt) holds none of it — another copy of the same model. Nothing reported, and the record is kept: open that file and run Review AI Proposals there, or synchronise it and reload this one. If that file is gone, or it was undone there, check the proposed changes' status on Sentinel, then delete " + kept + "."
+           && UnreportedResults.Elsewhere(In(""), "") == "\"Promote (DD) · GR-FFL\": applied in a model that was never saved, and this model holds none of it — a title cannot tell whether this is that model. Nothing reported, and the record is kept. If it was undone, or that model is gone, check the proposed changes' status on Sentinel, then delete " + kept + "."
            && withPath.RootElement.GetProperty("path").GetString() == @"C:\locals\L1.rvt"
            && elsewhereAt > 0 && elsewhereAt < src.IndexOf("else if (ask) gone.Add(r);", StringComparison.Ordinal)
            && pathAt > 0 && pathAt < src.IndexOf("!UnreportedResults.Write(r)", StringComparison.Ordinal),
            "MA-3b2 review C16: a result none of whose elements this model holds is dropped only in the file it was applied in — another local of the same central, or a never-saved model matched by its title, keeps the record and says so; a record from before this field reads as before");
-        Ok(UnreportedResults.NotReRead("A task was canceled.", 2) == "not reported: the bridge answered 409 and the changeset could not be re-read to tell whether it already holds this result (A task was canceled.).\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice.",
-           "review C10: a 409 whose changeset cannot be re-read is never called refused — the record is kept, said");
+        Ok(UnreportedResults.NotReRead("A task was canceled.", 2) == "not reported: Sentinel answered 409 and the set of proposed changes could not be re-read to tell whether it already holds this result (A task was canceled.).\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this set of proposed changes is not opened for review until Sentinel takes it, so nothing is applied twice.",
+           "review C10: a 409 whose set of proposed changes cannot be re-read is never called refused — the record is kept, said");
 
         // Review M4, C6: a write that timed out says so; after the first report of a round that did not land, the rest are not sent.
         var net48 = UnreportedResults.Outcome("A task was canceled.", 2);
         var net8 = UnreportedResults.Outcome("The request was canceled due to the configured HttpClient.Timeout of 120 seconds elapsing.", 0);
         Ok(!net48.Drop && net48.Words.StartsWith("not reported: the bridge did not answer within 120 s\nThe result is kept on this PC", StringComparison.Ordinal)
            && !net8.Drop && net8.Words == "not reported: the bridge did not answer within 120 s\nNothing in the model changed; Retry report sends it again."
-           && UnreportedResults.Outcome("Bridge 409: {\"message\":\"canceled\"}", 0).Words.StartsWith("the bridge refused it", StringComparison.Ordinal)
-           && UnreportedResults.NotSent(2) == "not sent: the first report of this round did not land.\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this changeset is not opened for review until the bridge takes it, so nothing is applied twice."
+           && UnreportedResults.Outcome("Bridge 409: {\"message\":\"canceled\"}", 0).Words.StartsWith("Sentinel refused it", StringComparison.Ordinal)
+           && UnreportedResults.NotSent(2) == "not sent: the first report of this round did not land.\nThe result is kept on this PC and sent again by Retry report or the next Review AI Proposals; this set of proposed changes is not opened for review until Sentinel takes it, so nothing is applied twice."
            && UnreportedResults.NotSent(0) == "not sent: the first report of this round did not land.\nNothing in the model changed; Retry report sends it again.",
            "review M4, C6: a report that timed out reads \"did not answer within 120 s\" (net48's and net8's words; a bridge's own words are kept); a result not sent after the round's first failure is kept, said");
 
         const string stamp = "{\"v\":2,\"changeset_id\":\"c2\",\"source\":\"promote\",\"proposal_guids\":[\"a\",\"x\"],\"unique_id_at_placement\":\"u-a\",\"changeset_ids\":[\"c1\",\"c2\"]}";
         Ok(ProvenanceStamp.Holds(stamp, "c2", "a") && ProvenanceStamp.Holds(stamp, "c1", "x") && !ProvenanceStamp.Holds(stamp, "c3", "a") && !ProvenanceStamp.Holds(stamp, "c2", "z")
            && !ProvenanceStamp.Holds(null, "c2", "a") && !ProvenanceStamp.Holds("not json", "c2", "a") && !ProvenanceStamp.Holds("[1]", "c2", "a") && !ProvenanceStamp.Holds(stamp, null, "a"),
-           "the stamp holds a waiting result's element only when it lists both the changeset and the proposal (written inside the placement's transaction: an Undo takes it away)");
+           "the stamp holds a waiting result's element only when it lists both the set of proposed changes and the proposal (written inside the placement's transaction: an Undo takes it away)");
         Ok(ProvenanceStamp.Holds(ProvenanceStamp.Json("c9", "promote", new[] { "g9" }, "u-9"), "c9", "g9"),
            "…as the executor writes it (ProvenanceStamp.Json)");
 
@@ -195,7 +195,7 @@ static partial class Check
         var quiet = UndoWatcher.Land(new[] { "c8 tx c" }, "ma3b", "c8000000-c", new[] { "g10" });
         Ok(during.Count == 0 && undoneInFlight && afterLanding.Count == 1 && afterLanding[0].ChangesetId == "c8000000-a" && !redoneInFlight && !quiet
            && UnreportedResults.UndoneInFlight(held, null) == "\"Promote (DD) · GR-FFL\": undone in Revit while its report was in flight — a changeset_reverted row (undo) was posted for its 2 element(s)."
-           && UnreportedResults.UndoneInFlight(held, "Bridge 503: down") == "\"Promote (DD) · GR-FFL\": undone in Revit while its report was in flight — the changeset_reverted row (undo) was NOT posted: Bridge 503: down\nThe bridge holds it as applied and the model does not — check the changeset on the bridge.",
+           && UnreportedResults.UndoneInFlight(held, "Bridge 503: down") == "\"Promote (DD) · GR-FFL\": undone in Revit while its report was in flight — the changeset_reverted row (undo) was NOT posted: Bridge 503: down\nSentinel holds it as applied and the model does not — check the set of proposed changes on Sentinel.",
            "review C8: an Undo while the report is in flight is noted and posted by the report once it lands (an Undo then Redo is not); after landing the watcher posts it; said");
     }
 
@@ -219,7 +219,7 @@ static partial class Check
         int write = At(review, "var unsaved = records.Where(r => r.Applied.Count > 0 && !UnreportedResults.Write(r)).Select(r => $\"\\\"{r.Name}\\\"\").ToList();"), send = At(review, "Send(ReportAll(cfg, records), rep =>");
         Ok(write > At(review, "onDone = result =>") && send > write && review.Contains("UnreportedResults.Delete(r.Key, r.ChangesetId);")
            && At(review, "if (!UndoWatcher.Land(r.Undo, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid)))") > At(review, "var landed = ChangesetClient.ReportResult(cfg, r.Key"),
-           "AI-2: the result is written on this PC before its report is sent, deleted when the bridge takes it, and only then remembered for the undo watcher");
+           "AI-2: the result is written on this PC before its report is sent, deleted when Sentinel takes it, and only then remembered for the undo watcher");
         int expect = At(review, "foreach (var r in records.Where(x => x.Applied.Count > 0)) UndoWatcher.Expect(r.Undo, r.ChangesetId);");
         string watcher = Src("Engine", "UndoWatcher.cs");
         Ok(expect > reportAll && expect < pool && review.Contains("ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), \"undo\", out var undoErr)")
@@ -230,7 +230,7 @@ static partial class Check
         Ok(open > 0 && refuse > open && refuse < At(review, "var window = new ChangesetReviewWindow(cs, reach, notLoaded, guards);")
            && Src("Commands.PromoteWalls.cs").Contains("ReviewChangesetsCommand.Open(ui, doc, cfg, key, StoreyBatch.Of(pending, unreviewed));") // MA-3b5: Promote's Open is the UIApplication one
            && review.Contains("StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e))"),
-           "AI-2: a changeset whose result waits on this PC is never opened for review again — by the picker (listed, not openable) or by Promote (Open refuses it)");
+           "AI-2: a set of proposed changes whose result waits on this PC is never opened for review again — by the picker (listed, not openable) or by Promote (Open refuses it)");
         Ok(review.Contains("ProvenanceStamp.Holds(ProvenanceStamp.Read(e), r.ChangesetId, a.ProposalGuid)") && review.Contains("var (report, ask, words) = UnreportedResults.Verified(r, found);")
            && review.Contains("var mine = waiting.Where(r => string.Equals(r.Doc, here, StringComparison.OrdinalIgnoreCase)).ToList();") && review.Contains("Load(picker, cfg, key, Retry(doc, cfg, mine),") // review C4
            && !review.Contains("r.Doc == here") && !review.Contains("r.Doc != here")
@@ -240,10 +240,10 @@ static partial class Check
         Ok(!review.Contains("_reviewOpen") && Count(review, "Hold();") == 3 && Count(review, "Release();") == 3 && review.Contains("finally { Release(); }")
            && review.Contains("picker.Closed += (_, _) => Release();") && review.Contains("window.Closed += (_, _) => Release();"),
            "AI-2: the one-review guard is held while the picker or the window is open and while a report is in flight — not released when the window closes with a report still out");
-        Ok(At(review, "if (ChangesetTrust.Blank(note))") > 0 && At(review, "if (ChangesetTrust.Blank(note))") < At(review, "window.Applying(\"Declining — reporting to the bridge…\");")
+        Ok(At(review, "if (ChangesetTrust.Blank(note))") > 0 && At(review, "if (ChangesetTrust.Blank(note))") < At(review, "window.Applying(\"Declining — telling Sentinel…\");")
            && review.Contains("window.Refused(ChangesetTrust.DeclineNeedsReason);")
            && review.Contains("rep.Words.Add((taken ?? $\"\\\"{r.Name}\\\": reported ({ChangesetTrust.LedgerOf(reply)}).\")"),
-           "AI-5: Decline all needs a reason (the note), and every report says the ledger row the bridge named");
+           "AI-5: Decline all needs a reason (the note), and every report says the History entry Sentinel named");
         Ok(!window.Contains("Close();") && window.Contains("public void Refused(string words) => Ui(() => { Say(words); _go.IsEnabled = !_applied; if (!_applied) Reasons(false); });")
            && window.Contains("public void Applying(string words) => Ui(() => { _applied = true; Ticks(); _go.IsEnabled = false; Reasons(true); Say(words); });")
            && window.Contains("if (Dispatcher.CheckAccess()) a();"),
@@ -264,11 +264,11 @@ static partial class Check
         Ok(review.Contains("else if (ask) gone.Add(r);") && review.Contains("return ReportAll(cfg, send, rep, gone);") && askGone > pool && Count(review, "UnreportedResults.Delete(") == 3
            && review.Contains("drop = ChangesetClient.ReportReverted(cfg, r.Key, r.ChangesetId, r.Applied.Select(a => a.ProposalGuid).ToList(), \"undo\", out var revertErr);")
            && review.Contains("if (unread != null) { rep.Left.Add(r); stalled = true; rep.Words.Add($\"\\\"{r.Name}\\\": {UnreportedResults.NotReRead(unread, r.Applied.Count)}\"); continue; }"),
-           "review C9, C10: a waiting result gone from the model is removed only after the bridge was asked, on the pool thread (one it took gets its changeset_reverted row); a 409 that cannot be re-read keeps its record and stops the round");
+           "review C9, C10: a waiting result gone from the model is removed only after Sentinel was asked, on the pool thread (one it took gets its changeset_reverted row); a 409 that cannot be re-read keeps its record and stops the round");
         Ok(review.Contains("else taken = UnreportedResults.AlreadyTaken(r, stored);") && review.Contains("if (landed || taken != null)")
            && review.Contains("if (stalled) { rep.Left.Add(r); rep.Words.Add($\"\\\"{r.Name}\\\": {UnreportedResults.NotSent(r.Applied.Count)}\"); continue; }")
            && review.Contains("else { rep.Left.Add(r); stalled = true; }"),
-           "review C1, C6: a 409 on a result the bridge already holds is landed and watched for Undo, never 'refused'; after the first report of a round that did not land, the rest wait for Retry report (one 120 s wait, not n)");
+           "review C1, C6: a 409 on a result Sentinel already holds is landed and watched for Undo, never 'refused'; after the first report of a round that did not land, the rest wait for Retry report (one 120 s wait, not n)");
         int gone = At(review, "if (window.Gone) { App.PanelVm?.LogDoctor(\"Review AI Proposals: the window was closed before Apply ran — nothing was placed.\");");
         Ok(gone > At(review, "async Task Decide(") && gone < At(review, "window.Applying(\"Applying in Revit…\");") && window.Contains("Closed += (_, _) => _gone = true;")
            && review.Contains("if (!interim) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));") && Count(review, "window.Say(") == 3 // MA-3b2b: no DocPin, no swallowed refusal
@@ -300,7 +300,7 @@ static partial class Check
         Ok(review.Contains("words = words.Replace(UnreportedResults.DeclineKept, UnreportedResults.DeclineLost);")
            && review.Contains("window.Closed += (_, _) => { if (left.Any(r => r.Applied.Count == 0)) App.PanelVm?.LogDoctor(")
            && UnreportedResults.Outcome(null, 0).Words.EndsWith("\n" + UnreportedResults.DeclineKept, StringComparison.Ordinal)
-           && UnreportedResults.DeclineLost.StartsWith("Nothing in the model changed; the bridge may or may not have taken the decline", StringComparison.Ordinal),
-           "review C13: a decline that did not land has no Retry report once its window is closed (E4) — said so, never 'Retry report sends it again' with no window left (MA-3b2b C8: nor 'stays proposed' — the bridge may hold it)");
+           && UnreportedResults.DeclineLost.StartsWith("Nothing in the model changed; Sentinel may or may not have taken the decline", StringComparison.Ordinal),
+           "review C13: a decline that did not land has no Retry report once its window is closed (E4) — said so, never 'Retry report sends it again' with no window left (MA-3b2b C8: nor 'stays proposed' — Sentinel may hold it)");
     }
 }

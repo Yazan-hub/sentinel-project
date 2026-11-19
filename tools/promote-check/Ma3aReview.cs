@@ -17,17 +17,17 @@ static partial class Check
         Ok(after.ReviewRev == 1 && before.ReviewRev == 0 && G(after, "g-1").Review.State == "declined" && G(after, "g-1").Review.Rev == 1
            && G(after, "g-1").Review.By == "reviewer@example.com" && G(after, "g-1").Review.Role == "contributor"
            && G(after, "g-2").Review.State == "accepted" && G(after, "g-2").Review.Reason == null && G(after, "g-3").Review == null,
-           "the changeset's review_rev and each ghost's review are read as the bridge stores them; a ghost nobody decided reads null");
+           "the proposed changes' review_rev and each ghost's review are read as Sentinel stores them; a ghost nobody decided reads null");
         var old = JsonSerializer.Deserialize<ChangesetDto>("{\"id\":\"c\",\"elements\":[{\"proposal_guid\":\"g\",\"op\":\"attach\"}]}");
-        Ok(old.ReviewRev == null && old.Elements[0].Review == null, "a changeset from a bridge before MA-3a reads with no review_rev and no review");
+        Ok(old.ReviewRev == null && old.Elements[0].Review == null, "a set of proposed changes from a bridge before MA-3a reads with no review_rev and no review");
         // MA-7-10 (R20): an accept that cites a photo carries evidence and evidence_copies on its review; the add-in ignores both and reads the rest
         var cited = JsonSerializer.Deserialize<ReviewDto>("{\"state\":\"accepted\",\"action\":\"accept\",\"reason\":null,\"by\":\"r@example.test\",\"role\":\"contributor\",\"at\":\"2026-10-13T10:00:00.000Z\",\"rev\":1,\"evidence\":[\"ev-000C\"],\"evidence_copies\":{\"ev-000C\":\"abc\"}}");
         Ok(cited.State == "accepted" && cited.By == "r@example.test" && cited.Rev == 1, "MA-7-10: a review that cites a photo (evidence, evidence_copies) still reads - the add-in ignores the unknown fields");
 
         Ok(ChangesetTrust.PreTick(before, G(before, "g-1")) && !ChangesetTrust.PreTick(after, G(after, "g-1")) && !ChangesetTrust.PreTick(after, G(after, "g-4")),
-           "a web decline binds: the retype the bridge pre-ticked opens unticked once it is declined");
+           "a web decline binds: the retype Sentinel pre-ticked opens unticked once it is declined");
         Ok(ChangesetTrust.PreTick(after, G(after, "g-2")) && ChangesetTrust.PreTick(after, G(after, "g-3")),
-           "a web accept is advice: an accepted ghost keeps the bridge's pre-tick, and a ghost nobody decided keeps its own");
+           "a web accept is advice: an accepted ghost keeps Sentinel's pre-tick, and a ghost nobody decided keeps its own");
         Ok(ChangesetTrust.DeclinedOnWeb(G(after, "g-1")) && !ChangesetTrust.DeclinedOnWeb(G(after, "g-2")) && !ChangesetTrust.DeclinedOnWeb(G(after, "g-3")),
            "DeclinedOnWeb is the decline alone");
 
@@ -43,9 +43,9 @@ static partial class Check
            "a lead's re-open: the row says so, and the ghost may be ticked again (its pre-tick back)");
         reopened.Review = JsonSerializer.Deserialize<ReviewDto>(fx.RootElement.GetProperty("after").GetProperty("elements")[0].GetProperty("review").GetRawText());
 
-        Ok(ChangesetTrust.DeclinedHeader(after) == "2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead re-opens one on the web desk while its changeset is still proposed). Apply reports them as rejected; the changeset stays proposed until Revit reports it. A decline is carried: the next changeset that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason)."
+        Ok(ChangesetTrust.DeclinedHeader(after) == "2 ghost(s) declined on the web — shown unticked with the reason; they cannot be ticked here (a lead re-opens one on the web while its set of proposed changes is still proposed). Apply reports them as rejected; the set of proposed changes stays proposed until Revit reports it. A decline is carried: the next set of proposed changes that proposes the same change files the ghost already declined (a web decline, or a Revit decline with a reason)."
            && ChangesetTrust.DeclinedHeader(before) == null,
-           "the window's header counts the web's declines and says a changeset stays proposed until Revit reports it");
+           "the window's header counts the web's declines and says a set of proposed changes stays proposed until Revit reports it");
 
         var refused = ChangesetTrust.DeclinedTicked(new[] { after }, new HashSet<string> { "g-1", "g-2", "g-3" });
         Ok(refused == "1 ticked ghost(s) were declined after this window opened:\n· retype wall \"W 1\" — declined on the web by reviewer@example.com (contributor): wrong type: W 1 is a party wall · a lead may re-open it on the web desk\n\nNothing was created. They are unticked here and cannot be ticked — press Apply again for the rest, or close this window.",
@@ -54,13 +54,13 @@ static partial class Check
            "…and nothing is refused when no ticked ghost is declined");
 
         string late = ChangesetTrust.LateDeclines(fx.RootElement.GetProperty("late_reply").GetRawText());
-        Ok(late == "1 ghost(s) were declined on the web after Apply re-checked them, and were applied:\n· retype wall \"W 2\" — declined on the web by reviewer@example.com (contributor): W 2 is demolished\n\nThe bridge recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.",
-           "a result the bridge took over a late decline is said, ghost by ghost (Q2)");
+        Ok(late == "1 ghost(s) were declined on the web after Apply re-checked them, and were applied:\n· retype wall \"W 2\" — declined on the web by reviewer@example.com (contributor): W 2 is demolished\n\nSentinel recorded the apply over the decline (changeset_applied). Undo in Revit if the decline should stand.",
+           "a result Sentinel took over a late decline is said, ghost by ghost (Q2)");
         Ok(ChangesetTrust.LateDeclines("{\"id\":\"c\",\"result\":{\"applied\":[]}}") == null && ChangesetTrust.LateDeclines("{\"result\":{\"applied_over_late_decline\":[]}}") == null
            && ChangesetTrust.LateDeclines("not json") == null && ChangesetTrust.LateDeclines(null) == null,
            "…and nothing is said for a reply without one, or one that is not JSON");
         Ok(ChangesetTrust.LateDeclines("{\"result\":{\"applied_over_late_decline\":[],\"applied_over_decline_unchecked\":[{\"name\":\"retype wall \\\"W 1\\\"\",\"by\":\"r@example.com\",\"role\":\"contributor\",\"reason\":\"no\"}]}}")
-           == "1 ghost(s) declined on the web were applied, and this result carried no review_rev — the bridge cannot tell whether the decline was seen:\n· retype wall \"W 1\" — declined on the web by r@example.com (contributor): no\n\nThe bridge recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.",
+           == "1 ghost(s) declined on the web were applied, and this result carried no review_rev — Sentinel cannot tell whether the decline was seen:\n· retype wall \"W 1\" — declined on the web by r@example.com (contributor): no\n\nSentinel recorded it as unchecked (changeset_applied). Undo in Revit if the decline should stand.",
            "a decline applied by a result with no review_rev is said as unchecked, never as late (review amendment C2)");
     }
 
@@ -83,6 +83,6 @@ static partial class Check
            && review.Contains("(ChangesetTrust.LateDeclines(reply) is { } late ? \"\\n\" + late : \"\")")
            && client.Contains("JsonSerializer.Serialize(new { applied, rejected, note, actor = UserSession.Actor, review_rev = reviewRev, reasons, session = Session, attempt_key = attemptKey,") // MA-3b2: and the reasons
            && ghost.Contains("res.Gone.Select(g => g.ProposalGuid).ToList(), Note(r, level, report, blockLine), cs.ReviewRev,"),
-           "the result carries the review_rev Apply re-checked (Ghost Builder's, the one its filing reply carried — C2), and a late or unchecked decline the bridge recorded is said");
+           "the result carries the review_rev Apply re-checked (Ghost Builder's, the one its filing reply carried — C2), and a late or unchecked decline Sentinel recorded is said");
     }
 }

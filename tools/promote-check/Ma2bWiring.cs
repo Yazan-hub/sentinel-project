@@ -17,7 +17,7 @@ static partial class Check
         Ok(promote.Contains("try { lod = LodStateOf(doc, plans, pc, \"now\"); }") && promote.Contains("catch (Exception ex) { lodErr = ex.Message; }")
            && promote.Contains("lodErr != null ? \"LOD state: not read — \" + lodErr") && promote.IndexOf("GovernedNotify.Report(\"LOD state now\"", StringComparison.Ordinal) > 0
            && promote.IndexOf("GovernedNotify.Report(\"LOD state now\"", StringComparison.Ordinal) < promote.IndexOf("dlg.Show()", StringComparison.Ordinal)
-           && promote.Contains("\"\\n\\n\" + ddNow + \"\\n\" + lodText") && promote.Contains("LOD state now (sent to the ledger — the pane's Doctor log says whether it was recorded): ")
+           && promote.Contains("\"\\n\\n\" + ddNow + \"\\n\" + lodText") && promote.Contains("LOD state now (sent to History — the pane's Doctor log says whether it was recorded): ")
            && !promote.Contains("recorded on the ledger") && !review.Contains("recorded on the ledger"),
            "Promote's header shows the LOD state now (step 2), and its lod_state row is posted on every run with a matrix — the read-only run too; a read that throws is said, never the end of Promote (review)");
         Ok(promote.Contains("GovernedElementExtractor.ExtractByIds(doc, doc.Title, ruled.Select(x => x.Element.Id), org)")

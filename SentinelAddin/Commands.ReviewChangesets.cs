@@ -35,7 +35,34 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
     internal static void Hold() => Interlocked.Increment(ref _holds);
     internal static void Release() => Interlocked.Decrement(ref _holds);
     private const string Title = "Sentinel — AI proposals";
-    internal const string Busy = "A review window is open, a result is still being reported to the bridge, or Promote (DD) or Shell a Mass is reading or filing, or Ghost Builder is filing or withdrawing a build — finish or close the window, or wait until the pane's Doctor log says the report, Promote's filing or Shell a Mass's filing is done (a Promote or a Shell a Mass that files nothing is done when its dialog closes), or until the Ghost build's dialog shows (and, after one that was not placed, the Doctor log says its withdrawals), then run the command again. Applied AI Changes holds it too while its window is open — close that window first.";
+    // UX slice 4: an error from the clients (out string error) in plain words for a one-line status; the technical part goes to the Doctor log.
+    internal static string PlainErr(string? e)
+    {
+        if (string.IsNullOrEmpty(e)) return "Sentinel did not answer.";
+        var (line, detail) = ChangesetTrust.Plain(e);
+        if (detail.Length > 0) App.PanelVm?.LogDoctor("Sentinel answered: " + e);
+        return line;
+    }
+
+    /// <summary>PlainErr as a sentence: ends in a full stop, so a line may continue after it.</summary>
+    internal static string PlainSentence(string? e) { var p = PlainErr(e).TrimEnd(); return p.EndsWith(".") || p.EndsWith("!") || p.EndsWith("?") ? p : p + "."; }
+
+    // "Sentinel did not answer" is for a missing answer; a refused sign-in or permission is said as it is (UX slice 4 review, L3).
+    internal static string Unanswered(string? e, string sep = " ")
+    {
+        var p = PlainErr(e);
+        return p.StartsWith("Your sign-in") || p.StartsWith("You do not have") ? p : "Sentinel did not answer:" + sep + p;
+    }
+
+    // The History line of a one-line status: plain words; the number and receipt go to the Doctor log.
+    internal static string HistWords(LedgerResult r, string who)
+    {
+        var (line, detail) = LedgerLine.Display(r);
+        if (detail.Length > 0) App.PanelVm?.LogDoctor(who + ": " + line + " (" + detail + ")");
+        return line;
+    }
+
+    internal const string Busy = "A review window is open, a result is still being reported to Sentinel, or Promote (DD) or Shell a Mass is reading or sending, or Ghost Builder is sending or withdrawing a build — finish or close the window, or wait until the pane's Doctor log says the report, Promote's sending or Shell a Mass's sending is done (a Promote or a Shell a Mass that sends nothing is done when its dialog closes), or until the Ghost build's dialog shows (and, after one that was not placed, the Doctor log says its withdrawals), then run the command again. Applied AI Changes holds it too while its window is open — close that window first.";
     // The roles POST /changesets/:key/:id/result accepts (changesets-store.mjs reportResult: contributor or above; the
     // machine credential reads as service).
     private static readonly string[] Reporters = { "service", "contributor", "lead", "owner" };
@@ -115,9 +142,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         picker.Show();
         // Review C7: said while this model's waiting results are checked and sent (one round waits up to 120 s for the bridge).
         if (mine.Count > 0) picker.SetEntries(new List<(string Line, string Blocked, List<ChangesetDto> Entry)>(),
-            $"Checking this model and sending {mine.Count} result(s) it applied that the bridge has not taken (the bridge has up to two minutes to answer)…");
+            $"Checking this model and sending {mine.Count} result(s) it applied that Sentinel has not taken (Sentinel has up to two minutes to answer)…");
         Load(picker, cfg, key, Retry(doc, cfg, mine),
-             away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for the bridge — close this list, open that model and run Review AI Proposals there:\n" +
+             away.Count == 0 ? null : $"{away.Count} result(s) applied in another model wait on this PC for Sentinel — close this list, open that model and run Review AI Proposals there:\n" +
                                       string.Join("\n", away.Select(r => $"\"{r.Name}\" in {r.Doc}. {UnreportedResults.DeleteOnce(r)}")));
         return Result.Succeeded;
     }
@@ -156,7 +183,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             if (away != null) said.Add(away);
             if (pending == null)
             {
-                picker.SetEntries(none, string.Join("\n\n", new[] { $"Couldn't reach the bridge:\n{fetchErr}" }.Concat(said)), lost);
+                picker.SetEntries(none, string.Join("\n\n", new[] { Unanswered(fetchErr, "\n") }.Concat(said)), lost);
                 return;
             }
             var rows = StoreyBatch.Entries(pending).Select(e => (StoreyBatch.Line(e, DateTime.UtcNow), Waiting(key, e), e)).ToList();
@@ -352,7 +379,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             if (!done || ask(t.Result)) App.Events.Enqueue(_ => TaskDialog.Show(Title, words));
             try { App.PanelVm?.LogDoctor(words); } catch { }
         }
-        catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what the bridge holds.")); }
+        catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what Sentinel holds.")); }
     }, TaskScheduler.Default);
 
     /// <summary>Open the review window on proposed changesets of <paramref name="doc"/> (bound to <paramref name="key"/>): one, or (MA-2d)
@@ -372,7 +399,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         if (waiting.Count > 0) { TaskDialog.Show(Title, UnreportedResults.Blocked(waiting)); return false; }
         // Review C7: a Promote part reviewed alone — a part of its storey waits twice (two Promote runs) or is missing — is said.
         if (batch.Count == 1 && cs.Source == "promote" && StoreyBatch.StoreyOf(cs.Name) != cs.Name)
-            TaskDialog.Show(Title, $"\"{cs.Name}\" is reviewed alone: another part of its storey is missing (not filed, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.");
+            TaskDialog.Show(Title, $"\"{cs.Name}\" is reviewed alone: another part of its storey is missing (not sent for review, or reviewed already) or waits twice (two Promote runs) — applying it is its own Undo entry, not the storey's.");
 
         // Per-invocation handler (every sibling command does the same): a static one would let a second open review
         // window clobber the staged request and double-fire callbacks. The closure below keeps it alive for the window's
@@ -481,7 +508,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             ScanOff(on ? "ticked again" : "unticked");
             // MA-3c's ghost line and the scan's share the window's line: unticking puts the ghost's back (none after Apply: its overlay is gone).
             if (!on) { window.Shown(window.Applied ? "" : GhostOverlayGeometry.Line(creates, outlined)); return; }
-            window.Shown("Reading the scan on the bridge…");
+            window.Shown("Reading the scan from Sentinel…");
             Task.Run(() =>
             {
                 var got = ChangesetClient.FetchScan(cfg, key, cs.Id, out var err);
@@ -506,7 +533,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             var ask = ++scanAsk;
             ScanOff(on ? "a slice ticked" : "a slice unticked");
             if (!on) { window.Shown(window.Applied ? "" : GhostOverlayGeometry.Line(creates, outlined)); return; }
-            window.Shown("Reading the scan slice on the bridge…");
+            window.Shown("Reading the scan slice from Sentinel…");
             Task.Run(() =>
             {
                 var slice = ChangesetClient.FetchScan(cfg, key, cs.Id, flagUid, out var sliceErr);
@@ -527,7 +554,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         // filed on this changeset by the bridge as a flag for a person (POST …/flags, off Revit's thread). Nothing is written to the model.
         window.FlagStairRequested += () => App.Events.Enqueue(doc, "pick a stair", (ua, d) =>
         {
-            if (!UserSession.IsSignedIn) { window.Shown("A stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved."); return; }
+            if (!UserSession.IsSignedIn) { window.Shown("A stair flag is a person's pick — sign in (Sentinel ▸ More ▸ Sign in); nothing was saved."); return; }
             var uidoc = ua.ActiveUIDocument;
             if (uidoc.ActiveView is not ViewPlan viewPlan || viewPlan.GenLevel is not Level lvl)
             { window.Shown("Flag a stair from a floor plan: open the plan of the storey it starts on, then press Flag a stair… again; nothing was saved."); return; }
@@ -546,13 +573,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
             const double ft = 304.8;
             var flag = StairFlag.FromPick(here.Name, here.ElevationMm, next?.ElevationMm, new[] { c1.X * ft, c1.Y * ft }, new[] { c2.X * ft, c2.Y * ft }, out var why);
             if (flag == null) { window.Shown(why); return; }
-            window.Shown("Saving the stair flag on the bridge…");
+            window.Shown("Saving the stair flag…");
             Task.Run(() =>
             {
                 if (!ChangesetClient.FlagStair(cfg, key, cs.Id, flag, out var reply, out var flagErr)) { window.Shown("The stair was not flagged — " + flagErr); return; }
                 ExceptionRowDto row = null;
                 try { row = System.Text.Json.JsonSerializer.Deserialize<FlagReplyDto>(reply)?.Flag; } catch (System.Text.Json.JsonException) { }
-                if (row == null) { window.Shown("The stair was flagged, but the bridge's answer could not be read — reopen the review to see it."); return; }
+                if (row == null) { window.Shown("The stair was flagged, but Sentinel's answer could not be read — reopen the review to see it."); return; }
                 window.AddFlag(row);
                 window.Shown($"Flagged: {StairFlag.Line(flag.Storey, flag.Min, flag.Max)} — saved on {cs.Name} for a person; nothing was placed.");
             });
@@ -563,9 +590,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         window.ProposeStairRequested += uid =>
         {
             // (a)
-            if (!UserSession.IsSignedIn) { window.Shown("Proposing a stair needs a signed-in person (Standards ▸ Sign in); nothing was saved."); return; }
+            if (!UserSession.IsSignedIn) { window.Shown("Proposing a stair needs a signed-in person (Sentinel ▸ More ▸ Sign in); nothing was saved."); return; }
             var flag = (cs.Exceptions ?? new List<ExceptionRowDto>()).FirstOrDefault(x => x.UniqueId == uid && x.Kind == "stair" && x.Box?.Min != null && x.Box.Max != null);
-            if (flag == null) { window.Shown("That stair flag is not on this changeset; nothing was saved."); return; }
+            if (flag == null) { window.Shown("That stair flag is not on these proposed changes; nothing was saved."); return; }
             window.Shown("Reading the office's Stairs rule…");
             Task.Run(() =>
             {
@@ -602,13 +629,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     var plan = StairPlanner.Plan(flag.Name ?? flag.UniqueId, cs.Id, flag.UniqueId, flag.Storey, flag.Box.Min, flag.Box.Max, pick == TaskDialogResult.CommandLink1,
                                                  ChangesetExecutor.Stories(d), rule.Value, facts, UserSession.Actor);
                     if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
-                    window.Shown("Filing the stair on the bridge…");
+                    window.Shown("Sending the stair to Sentinel…");
                     // (d)
                     Task.Run(() =>
                     {
                         var filed = ChangesetClient.Propose(cfg, key, plan.Body, out var proposeErr);
                         // (e)
-                        window.Shown(filed == null ? "The stair was not proposed — " + proposeErr
+                        window.Shown(filed == null ? "The stair was not proposed — " + PlainErr(proposeErr)
                             : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.");
                     });
                 }, refusal => window.Shown($"The stair was not planned — {refusal}"));
@@ -622,9 +649,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
         window.ProposeTerrainRequested += () =>
         {
             // (a)
-            if (!UserSession.IsSignedIn) { window.Shown("Proposing a terrain needs a signed-in person (Standards ▸ Sign in); nothing was saved."); return; }
+            if (!UserSession.IsSignedIn) { window.Shown("Proposing a terrain needs a signed-in person (Sentinel ▸ More ▸ Sign in); nothing was saved."); return; }
             if (!Compat.TerrainSupported) { window.Shown(TerrainPlanner.NoProposal(revitVersion)); return; }
-            window.Shown("Reading the ground off the scan on the bridge…");
+            window.Shown("Reading the ground off the scan from Sentinel…");
             Task.Run(() =>
             {
                 // (b)
@@ -647,7 +674,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     catch (Exception ex) when (ex is PlacementRefused || ex is InvalidOperationException) { window.Shown("Held for a person — " + ex.Message); return; }
                     var plan = TerrainPlanner.Plan(ground.Points.ToArray(), ground.Footprint, ground.Level, rule, cs.Name, cs.Id, ground.Job, ground.CellMm, ground.ZMm, ground.Of, UserSession.Actor);
                     if (plan.Hold != null) { window.Shown("Held for a person — " + plan.Hold); return; }
-                    window.Shown("Filing the terrain on the bridge…");
+                    window.Shown("Sending the terrain to Sentinel…");
                     // (d)
                     Task.Run(() =>
                     {
@@ -656,7 +683,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // (e) a 409 (or any refusal) shows the bridge's message only
                         if (blocker == null)
                         {
-                            window.Shown(filed == null ? "The terrain was not proposed — " + proposeErr
+                            window.Shown(filed == null ? "The terrain was not proposed — " + PlainErr(proposeErr)
                                 : $"Proposed {filed.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.");
                             return;
                         }
@@ -666,33 +693,33 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // Undo row posted (their word) and the terrain filed again, once. Final verification round 2: only the changeset the 409 names is read, here, after
                         // the 409 (not the project's whole list before every filing); a failed read is said
                         var named = ChangesetClient.FetchOne(cfg, key, blocker, out var namedErr);
-                        if (named == null) { window.Shown($"The terrain was not proposed — {proposeErr} (whether the applied terrain is still in this model could not be read: {namedErr}; nothing was recorded)"); return; }
+                        if (named == null) { window.Shown($"The terrain was not proposed — {PlainErr(proposeErr)} (whether the applied terrain is still in this model could not be read: {namedErr}; nothing was recorded)"); return; }
                         App.Events.Enqueue(doc, "free a scan", (ua2, d2) =>
                         {
                             if (window.Gone) return;
                             var gone = TerrainPlanner.Gone(new[] { named }, blocker, uid => d2.GetElement(uid) != null);
-                            if (gone == null) { window.Shown("The terrain was not proposed — " + proposeErr); return; }
+                            if (gone == null) { window.Shown("The terrain was not proposed — " + PlainErr(proposeErr)); return; }
                             if (d2.IsWorkshared)
                             {
                                 bool current;
                                 try { current = d2.HasAllChangesFromCentral(); }
-                                catch (Exception ex) { window.Shown($"The terrain was not proposed — {proposeErr} (whether this local is up to date could not be read: {ex.Message}; nothing was recorded)"); return; }
-                                if (!current) { window.Shown($"The terrain was not proposed — {proposeErr} ({TerrainPlanner.StaleLocal})"); return; }
+                                catch (Exception ex) { window.Shown($"The terrain was not proposed — {PlainErr(proposeErr)} (whether this local is up to date could not be read: {ex.Message}; nothing was recorded)"); return; }
+                                if (!current) { window.Shown($"The terrain was not proposed — {PlainErr(proposeErr)} ({TerrainPlanner.StaleLocal})"); return; }
                             }
                             var g = gone.Value;
                             var ask = new TaskDialog(Title) { MainInstruction = "Is this terrain's Toposolid gone?", MainContent = TerrainPlanner.GoneQuestion(g.Name, DocOf(d2)),
                                 CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No, DefaultButton = TaskDialogResult.No };
-                            if (ask.Show() != TaskDialogResult.Yes) { window.Shown("The terrain was not proposed — " + proposeErr); return; }
+                            if (ask.Show() != TaskDialogResult.Yes) { window.Shown("The terrain was not proposed — " + PlainErr(proposeErr)); return; }
                             Task.Run(() =>
                             {
                                 if (!ChangesetClient.ReportReverted(cfg, key, g.Id, g.Guids, "undo", out var revertErr, basis: "absent"))   // round 2: on the person's word, kept on the row
-                                { window.Shown($"The terrain was not proposed — {proposeErr} (the Undo of \"{g.Name}\" was not recorded: {revertErr})"); return; }
+                                { window.Shown($"The terrain was not proposed — {PlainErr(proposeErr)} (the Undo of \"{g.Name}\" was not recorded: {revertErr})"); return; }
                                 string word = $" The Undo of \"{g.Name}\" was recorded on your word that its Toposolid is gone.";
                                 var again = ChangesetClient.Propose(cfg, key, plan.Body, out var againErr);
                                 window.Shown(again == null ? "The terrain was not proposed — " + againErr + word
                                     : $"Proposed {again.Name}: {plan.Line}. Review it (Review AI Proposals); nothing was ticked or placed.{word} The scan is free.");
                             });
-                        }, refusal => window.Shown($"The terrain was not proposed — {proposeErr} (the scan could not be freed: {refusal})"));
+                        }, refusal => window.Shown($"The terrain was not proposed — {PlainErr(proposeErr)} (the scan could not be freed: {refusal})"));
                     });
                 }, refusal => window.Shown($"The terrain was not planned — {refusal}"));
             });
@@ -743,7 +770,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 Tell(said + (t.Result.Words.Count > 0 ? "\n\n" + t.Result.Text : ""));
                 window.Retry(left.Count > 0);
             }
-            catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what the bridge holds.")); }
+            catch (Exception ex) { App.Events.Enqueue(_ => TaskDialog.Show(Title, $"The report's result could not be shown — {ex.GetType().Name}: {ex.Message}\nRun Review AI Proposals to see what Sentinel holds.")); }
         }, TaskScheduler.Default);
 
         async Task Decide(List<string> ticked, List<string> unticked, string note, Dictionary<string, string> reasons, Dictionary<string, string> tickReasons, string batchReason)
@@ -758,7 +785,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     var f = ChangesetClient.FetchOne(cfg, key, one.Id, out var oneErr);
                     if (f == null || f.Status != "proposed")
                     {
-                        window.Refused(f == null ? $"Couldn't re-check the changeset:\n{oneErr}" : $"Changeset{(batch.Count > 1 ? $" \"{f.Name}\"" : "")} is now \"{f.Status}\" — nothing was created.");
+                        window.Refused(f == null ? $"Couldn't re-check the proposed changes:\n{PlainErr(oneErr)}" : $"Proposed changes{(batch.Count > 1 ? $" \"{f.Name}\"" : "")} are now \"{f.Status}\" — nothing was created.");
                         return;
                     }
                     fresh.Add(f);
@@ -780,7 +807,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 if (!Reporters.Contains(role))
                 {
                     window.Refused((role == null ? $"Couldn't check your role on \"{key}\":\n{roleErr}" : $"You are {(role == "" ? "not a member" : role)} on \"{key}\" — applying or declining needs contributor or above.") +
-                                   "\n\nNothing was changed. Sign in (Standards ▸ Sign in) as a contributor on this project.");
+                                   "\n\nNothing was changed. Sign in (Sentinel ▸ More ▸ Sign in) as a contributor on this project.");
                     return;
                 }
 
@@ -788,7 +815,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                 // refuses that result too; asked here, before anything changes, so no model edit goes unreported)
                 if (role == "service" && fresh.SelectMany(f => f.Elements ?? new List<ChangesetElementDto>()).Any(e => (e.Op == "rehost" || e.Op == "delete" || e.Replaces != null) && ticked.Contains(e.ProposalGuid))) // MA-8-7 review: a re-creation removes an element too; human-error guards §3: a delete too
                 {
-                    window.Refused("A rehost, a delete or a re-creation removes an element — sign in (Standards ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
+                    window.Refused("A rehost, a delete or a re-creation removes an element — sign in (Sentinel ▸ More ▸ Sign in) as a contributor to apply it.\n\nNothing was changed.");
                     return;
                 }
 
@@ -802,13 +829,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     }
                     // Review C2: × pressed while the re-check ran is a cancel — nothing is declined.
                     if (window.Gone) { App.PanelVm?.LogDoctor("Review AI Proposals: the window was closed before Decline all ran — nothing was declined."); return; }
-                    window.Applying("Declining — reporting to the bridge…");
+                    window.Applying("Declining — telling Sentinel…");
                     // declined — no transaction at all; each changeset of the storey on its own ledger row
                     Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), StoreyBatch.Own(f, unticked), note, null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>
                     {
                         // Review C6: said, never silent — counted from the declines the bridge took; nothing in the model changed.
                         int declined = rep.Landed.Count;
-                        return $"Declined {declined} of {fresh.Count} changeset(s) — nothing in the model changed." +
+                        return $"Declined {declined} of {fresh.Count} set(s) of proposed changes — nothing in the model changed." +
                                (PromoteRun(fresh[0]) ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : "");
                     });
                     return;
@@ -876,7 +903,7 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     {
                         // A6: Revit may still finish or drop the transaction — reporting either way could be a lie.
                         Tell(result.NotFinished +
-                            $"\n\nNothing was reported: the {(fresh.Count > 1 ? $"storey's {fresh.Count} changesets stay" : "changeset stays")} proposed. Check the model before reviewing it again — a second Apply could duplicate what Revit finishes.");
+                            $"\n\nNothing was reported: the {(fresh.Count > 1 ? $"storey's {fresh.Count} sets of proposed changes stay" : "proposed changes stay")} proposed. Check the model before reviewing it again — a second Apply could duplicate what Revit finishes.");
                         return;
                     }
                     if (result.Error != null)
@@ -884,13 +911,13 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         // Whole changeset — MA-2d: the whole storey — rolled back: each changeset reported declined with the reason, honestly.
                         // MA-3b2 review C14 (overrides S6): with the reviewer's reasons for the rows they unticked — every key a ghost this
                         // result rejects; the changeset is rejected for good, so a reason dropped here could never be recorded.
-                        Tell($"Transaction failed and was rolled back:\n{result.Error}\n\nReporting the declines to the bridge…", interim: true);
+                        Tell($"Transaction failed and was rolled back:\n{result.Error}\n\nTelling Sentinel about the declines…", interim: true);
                         Send(ReportAll(cfg, fresh.Select(f => ResultOf(key, f, new List<AppliedEntry>(), f.Elements.Select(e => e.ProposalGuid).ToList(),
                                 $"Revit transaction failed — rolled back: {result.Error}" + (string.IsNullOrEmpty(note) ? "" : $" | reviewer: {note}"), null, here, null, StoreyBatch.Own(f, reasons))).ToList()), rep =>
                         {
                             // Review C14: counted from the declines the bridge took (C6's rule), never the number sent.
                             int declined = rep.Landed.Count;
-                            return $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined: {declined} of {fresh.Count} changeset(s)" +
+                            return $"Transaction failed and was rolled back:\n{result.Error}\n\nReported as declined: {declined} of {fresh.Count} set(s) of proposed changes" +
                                    (declined < fresh.Count ? " — the rest are still proposed; the model holds none of them." : ".") + (PromoteRun(fresh[0]) ? CarriedEdits(fresh) + "\n\n" + RunPromoteAgain : "");
                         });
                         return;
@@ -935,14 +962,14 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                     // MA-5b-4 review: a ticked wall Revit kept as it stands is said here, with why — not only on the ledger
                     var kept = result.Kept.Count == 0 ? "" : $"\n\nKept as they stand ({KeptCount(fresh, result.Kept)}):\n" + string.Join("\n", result.Kept.Take(10).Select(k => "• " + k.Why)) + (result.Kept.Count > 10 ? $"\n… and {result.Kept.Count - 10} more (each in its changeset's note)" : "");
                     var head = $"Applied {result.Applied.Count} element(s) from \"{cs.Name}\"." + kept +
-                        (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + result.Block : "") +
+                        (warnings != null ? "\n\n" + warnings : "") + (result.Block != null ? "\n\n" + BlockCheck.Shown(result.Block) : "") +
                         (result.Ids != null ? "\n\n" + result.Ids : "") + (result.Placement != null ? "\n\n" + string.Join("\n", result.Placement) : "") + // MA-1a item 6
-                        (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the changeset's status on the bridge before reviewing it again." : "");
+                        (unsaved.Count > 0 ? $"\n\n⚠ The result of {string.Join(", ", unsaved)} could not be saved on this PC ({UnreportedResults.Root}): if its report fails too, nothing on this PC remembers it — check the status of the proposed changes in Sentinel before reviewing them again." : "");
                     // MA-6-6 (MAS-1): a Photo Massing mass was applied — the next step is its shell, one storey per level.
                     var next = fresh.Where(f => f.Source == "photo").SelectMany(f => f.Elements ?? new List<ChangesetElementDto>())
                         .Any(e => e.Kind == "mass" && result.Applied.Any(a => a.ProposalGuid == e.ProposalGuid))
                         ? "\n\nNext: Shell it — select the mass and run Model from Drawings ▸ 2c · Shell a Mass" : "";
-                    Tell(head + "\n\nReporting to the bridge…", interim: true);
+                    Tell(head + "\n\nTelling Sentinel…", interim: true);
                     Send(ReportAll(cfg, records), rep =>
                     {
                         // Review C15: what the bridge took — the changesets it holds as applied, and the rejected rows it recorded.
@@ -952,9 +979,9 @@ public sealed class ReviewChangesetsCommand : IExternalCommand
                         if (lod != null && held.Count > 0)
                         {
                             GovernedNotify.Report("LOD state after", CommandReports.LodState(lod, held, UserSession.Actor), key, window.Dispatcher);
-                            after = "LOD state after (sent to the ledger — the pane's Doctor log says whether it was recorded): " + lod.Line;
+                            after = "LOD state after (sent to History — the pane's Doctor log says whether it was recorded): " + lod.Line;
                         }
-                        else if (lod != null) after = "LOD state after: not sent — the bridge took no changeset of this Apply as applied (a result reported later sends none).";
+                        else if (lod != null) after = "LOD state after: not sent — Sentinel took none of this Apply's proposed changes as applied (a result reported later sends none).";
                         return head + (unticked.Count > 0 ? $"\n{untickedTaken} of {unticked.Count} unticked element(s) reported as rejected." : "") +
                                (gone.Count > 0 ? $"\n{goneTaken} of {gone.Count} element(s) removed by Revit at commit — reported as rejected." : "") +
                                (after != null ? "\n\n" + after : "") + next;

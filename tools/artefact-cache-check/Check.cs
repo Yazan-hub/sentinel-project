@@ -76,10 +76,10 @@ static class Check
         Ok(L(aster, jNew) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project now has ruleset@2 · project · aa11… (Scan Now reloads)", "a newer ruleset@n on the project → says so, Scan Now reloads");
         Ok(L(none, jNone) == "Judged by none — not installed for aster-villa or its office — nothing is scored", "none, and none installed → nothing is scored");
         Ok(L(none, jAster) == "Judged by none — not installed for aster-villa or its office — the project now has ruleset@1 · office · fb8f9baefa9f… (Scan Now reloads)", "none here, installed since → says so");
-        Ok(L(aster, jBad) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project's ruleset is unavailable — timeout", "a failed journey read is not 'nothing installed'");
-        Ok(L(aster, null) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project's ruleset now is unknown (journey unavailable)", "no journey → unknown, not a match");
+        Ok(L(aster, jBad) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project's standards are unavailable — timeout", "a failed journey read is not 'nothing installed'");
+        Ok(L(aster, null) == "Judged by ruleset@1 · office · fb8f9baefa9f… — the project's standards now are unknown (journey unavailable)", "no journey → unknown, not a match");
         Ok(L(aster, jMoved).EndsWith("— the project now has ruleset@1 · project · fb8f9baefa9f… (Scan Now reloads)"), "office → project at the same @n and sha is a change (source is part of 'same')");
-        Ok(L(aster, jNone) == "Judged by ruleset@1 · office · fb8f9baefa9f… — but the project now has no ruleset installed (Scan Now reloads)", "judged by one, none installed now → says so");
+        Ok(L(aster, jNone) == "Judged by ruleset@1 · office · fb8f9baefa9f… — but the project now has no standards installed (Scan Now reloads)", "judged by one, none installed now → says so");
 
         // A none source never produces a score string: not on the scan line, not in the scorecard headline.
         var lines = new[] { jAster, jNew, jMoved, jNone, jBad, null }.Select(j => L(none, j)).ToList();
@@ -95,7 +95,7 @@ static class Check
         Ok(sh.StartsWith("Weighted rule score 90.0% (B) · rule pass rate 90.0%") && scored.ScoreLabel == "Rule pass rate",
            "a scored headline names both figures; a scan report's label is Rule pass rate");
         var (rs0, src0, note0) = RulesetStore.Load("");
-        Ok(rs0.Rules.Count == 0 && src0.Origin == "none" && src0.Label == "none — not bound — Sentinel ▸ Project Setup" && note0 is null, "Load(\"\") → none, not bound, nothing asked");
+        Ok(rs0.Rules.Count == 0 && src0.Origin == "none" && src0.Label == "none — not bound — Sentinel ▸ More ▸ Project Setup" && note0 is null, "Load(\"\") → none, not bound, nothing asked");
     }
 
     static void Run()
@@ -130,8 +130,8 @@ static class Check
 
         // ── 2. the wire strings ──────────────────────────────────────────────────────────────────────────
         Ok(ArtefactClient.ETagFor("ruleset@1", "office", Sha) == "\"ruleset@1:office:" + Sha + "\"", "ETag = \"<ref>:<source>:<sha256>\" with quotes");
-        Ok(ArtefactClient.RefLabel("ruleset@1", "office", Sha) == "ruleset@1 · office · fb8f9baefa9f…", "refLabel port matches the bridge's");
-        Ok(ArtefactClient.RefLabel(null, null, null) == "none" && ArtefactClient.RefLabel("ids@4", "project", "23bb") == "ids@4 · project · 23bb…", "refLabel edge cases as the bridge");
+        Ok(ArtefactClient.RefLabel("ruleset@1", "office", Sha) == "ruleset@1 · office · fb8f9baefa9f…", "refLabel port matches Sentinel's");
+        Ok(ArtefactClient.RefLabel(null, null, null) == "none" && ArtefactClient.RefLabel("ids@4", "project", "23bb") == "ids@4 · project · 23bb…", "refLabel edge cases as Sentinel");
 
         // ── 3. every bridge answer (Interpret) ───────────────────────────────────────────────────────────
         var now = new DateTime(2026, 9, 25, 8, 30, 0, DateTimeKind.Utc);
@@ -150,19 +150,19 @@ static class Check
         var hhmm = now.AddHours(1).ToLocalTime().ToString("HH:mm");
         Ok(down.Origin == "cache" && down.Label == $"ruleset@1 · office · fb8f9baefa9f… (cached {hhmm})" && down.Reason!.Contains("HTTP 503"), "other status + cache → cached, and says so");
         var down2 = ArtefactClient.Interpret("aster-villa", "ruleset", 403, "{\"message\":\"Not authorized\"}", null, now);
-        Ok(down2.Origin == "none" && down2.Label == "none — the bridge answered HTTP 403 (Not authorized)", "other status, no cache → none with the bridge's words");
+        Ok(down2.Origin == "none" && down2.Label == "none — Sentinel answered HTTP 403 (Not authorized)", "other status, no cache → none with Sentinel's words");
         var junk = ArtefactClient.Interpret("aster-villa", "ruleset", 200, "{\"ref\":\"ruleset@1\"}", null, now);
-        Ok(junk.Origin == "none" && junk.Label.StartsWith("none — the bridge answered 200 without"), "a 200 without provenance is not trusted");
+        Ok(junk.Origin == "none" && junk.Label.StartsWith("none — Sentinel answered 200 without"), "a 200 without provenance is not trusted");
 
         var gone = ArtefactClient.Interpret("aster-tower", "ruleset", 404, "{\"message\":\"no ruleset artefact installed for aster-tower or its office\",\"reason\":\"not_installed\"}", cached, now);
         Ok(gone.Origin == "none" && gone.NotInstalled && gone.Label == "none — not installed for aster-tower or its office", "404 not_installed → none, flagged NotInstalled");
         Ok(ArtefactCache.Read("aster-tower", "ruleset") is null, "404 not_installed → the stale copy is cleared");
         ArtefactCache.Write("ghost", "ids", new CachedArtefact { Kind = "ids", Ref = "ids@1", Source = "project", Sha256 = Sha, BodyJson = "{}", FetchedAt = now });
         var noProj = ArtefactClient.Interpret("ghost", "ids", 404, "{\"message\":\"unknown project\",\"reason\":\"no_project\"}", ArtefactCache.Read("ghost", "ids"), now);
-        Ok(noProj.Label == "none — no project ghost on the bridge" && ArtefactCache.Read("ghost", "ids") is null, "404 no_project → none, copy cleared");
-        Ok(noProj.NoProject && !noProj.NotInstalled && !gone.NoProject, "404 no_project → flagged NoProject (the bridge answered: nothing to read), apart from NotInstalled");
-        Ok(ArtefactClient.Interpret("k", "banana", 404, "{\"reason\":\"unknown_kind\"}", null, now).Label == "none — the bridge does not know the kind 'banana'", "404 unknown_kind → none");
-        Ok(ArtefactClient.Interpret("k", "ruleset", 404, "<html>", null, now) is { Label: "none — the bridge answered HTTP 404", NotInstalled: false }, "a 404 without a reason is not read as 'not installed'");
+        Ok(noProj.Label == "none — no project ghost on Sentinel" && ArtefactCache.Read("ghost", "ids") is null, "404 no_project → none, copy cleared");
+        Ok(noProj.NoProject && !noProj.NotInstalled && !gone.NoProject, "404 no_project → flagged NoProject (Sentinel answered: nothing to read), apart from NotInstalled");
+        Ok(ArtefactClient.Interpret("k", "banana", 404, "{\"reason\":\"unknown_kind\"}", null, now).Label == "none — Sentinel does not know the kind 'banana'", "404 unknown_kind → none");
+        Ok(ArtefactClient.Interpret("k", "ruleset", 404, "<html>", null, now) is { Label: "none — Sentinel answered HTTP 404", NotInstalled: false }, "a 404 without a reason is not read as 'not installed'");
 
         // ── 4. the real round trip: GET, bearer, If-None-Match from the cache, 304, then no bridge at all ────
         var (req1, url1) = Serve(200, "OK", Answer200());
@@ -185,10 +185,10 @@ static class Check
         var deadUrl = "http://127.0.0.1:" + ((IPEndPoint)dead.LocalEndpoint).Port;
         dead.Stop();
         var r3 = ArtefactClient.Resolve("aster-tower", "ruleset", deadUrl, "");
-        Ok(r3.Origin == "cache" && r3.Label.StartsWith("ruleset@1 · office · fb8f9baefa9f… (cached ") && r3.Reason!.StartsWith("bridge unreachable — cached "), "no bridge + cache → cached, labelled");
+        Ok(r3.Origin == "cache" && r3.Label.StartsWith("ruleset@1 · office · fb8f9baefa9f… (cached ") && r3.Reason!.StartsWith("Sentinel is not connected — cached "), "no bridge + cache → cached, labelled");
         var r4 = ArtefactClient.Resolve("aster-villa", "ruleset", deadUrl, "");
-        Ok(r4.Origin == "none" && r4.Label.StartsWith("none — bridge unreachable"), "no bridge, no cache → none");
+        Ok(r4.Origin == "none" && r4.Label.StartsWith("none — Sentinel is not connected"), "no bridge, no cache → none");
         var r5 = ArtefactClient.Resolve("  ", "ruleset", deadUrl, "");
-        Ok(r5.Origin == "none" && r5.Label == "none — not bound — Sentinel ▸ Project Setup", "no key → none, nothing asked");
+        Ok(r5.Origin == "none" && r5.Label == "none — not bound — Sentinel ▸ More ▸ Project Setup", "no key → none, nothing asked");
     }
 }

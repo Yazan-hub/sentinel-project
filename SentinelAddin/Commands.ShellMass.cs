@@ -51,7 +51,7 @@ public sealed class ShellMassCommand : IExternalCommand
         {
             if (!MassOnly.Any(doc, null))
             {
-                TaskDialog.Show(Title, "This model has no mass — model one (Massing & Site ▸ In-Place Mass), place a mass family, or run 2b · Photo Massing and apply its changeset."); // MA-6-6: Photo Massing files a mass
+                TaskDialog.Show(Title, "This model has no mass — model one (Massing & Site ▸ In-Place Mass), place a mass family, or run 2b · Photo Massing and apply its proposed changes."); // MA-6-6: Photo Massing files a mass
                 return Result.Cancelled;
             }
             if (!MassOnly.Any(doc, uidoc.ActiveView))
@@ -71,14 +71,14 @@ public sealed class ShellMassCommand : IExternalCommand
         catch (Exception ex) { facts = null; refusal = $"Revit could not read it — {ex.Message}"; } // R5: said, never a throw out of the command
         if (facts == null)
         {
-            TaskDialog.Show(Title, $"Mass {mass.Id.IdValue()} cannot be shelled — {refusal}\n\nNothing was planned or filed.");
+            TaskDialog.Show(Title, $"Mass {mass.Id.IdValue()} cannot be shelled — {refusal}\n\nNothing was planned or sent for review.");
             return Result.Cancelled;
         }
 
         var cfg = BcfConfig.Load();
         var key = ctx.Key;
         ReviewChangesetsCommand.Hold(); // released by Plan, or by the filing it hands the guard to
-        App.PanelVm?.LogDoctor("Shell a Mass: reading the bridge (the changesets waiting for review, the guideline and type catalogue) off Revit's thread — Revit stays usable, and the dialog opens by itself.");
+        App.PanelVm?.LogDoctor("Shell a Mass: reading from Sentinel (the proposed changes waiting for review, the guideline and type catalogue) off Revit's thread — Revit stays usable, and the dialog opens by itself.");
         Task.Run(() =>
         {
             var pending = ChangesetClient.FetchProposed(cfg, key, out var err);
@@ -100,18 +100,18 @@ public sealed class ShellMassCommand : IExternalCommand
     {
         if (ProjectContext.For(doc).Key != key)
         {
-            TaskDialog.Show(Title, $"This model's project changed while Shell a Mass read the bridge (was {key}) — nothing was planned or filed. Run Shell a Mass again.");
+            TaskDialog.Show(Title, $"This model's project changed while Shell a Mass read from Sentinel (was {key}) — nothing was planned or sent for review. Run Shell a Mass again.");
             return false;
         }
         if (read.Status != TaskStatus.RanToCompletion)
         {
-            TaskDialog.Show(Title, "Shell a Mass could not read the bridge — " + (read.Exception?.GetBaseException().Message ?? "the read did not finish") + "\nNothing was planned or filed.");
+            TaskDialog.Show(Title, "Shell a Mass could not read from Sentinel — " + (read.Exception?.GetBaseException().Message ?? "the read did not finish") + "\nNothing was planned or sent for review.");
             return false;
         }
         var (pending, fetchErr, standards) = read.Result;
         if (pending == null)
         {
-            TaskDialog.Show(Title, $"Couldn't reach the bridge:\n{fetchErr}");
+            TaskDialog.Show(Title, ReviewChangesetsCommand.Unanswered(fetchErr, "\n"));
             return false;
         }
         // A Promote or Shell changeset still waiting for review is opened instead — a shell is never planned on top of one.
@@ -131,7 +131,7 @@ public sealed class ShellMassCommand : IExternalCommand
         }
         if (!m.HasCatalog) // Promote's words: with none, the matcher answers unchecked — not an exact match
         {
-            TaskDialog.Show(Title, $"No type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked (D16). Nothing was planned or filed.");
+            new TaskDialog(Title) { MainContent = $"No type catalogue installed ({m.CatalogLabel}) — the exact DD type cannot be checked. Nothing was planned or sent for review.", ExpandedContent = "Decision D16." }.Show();
             return false;
         }
 
@@ -145,11 +145,11 @@ public sealed class ShellMassCommand : IExternalCommand
         {
             MainInstruction = bodies.Count == 0 ? $"Nothing to file: no storey of {facts.MassLabel} can be shelled." : $"File the shell of {facts.MassLabel} for review?",
             MainContent = standards.Header + (m.IsDraft ? "\nDRAFT rules: install them on a throwaway project only." : "") + "\n\n" + string.Join("\n", plan.Lines) +
-                          (bodies.Count == 0 ? "" : "\n\n" + (bodies.Count == 1 ? $"{plan.Count} element(s) in 1 changeset (one review, one Undo)."
-                              : $"{plan.Count} element(s) in {bodies.Count} changesets, one per storey — the first opens for review; Review AI Proposals lists the rest.") +
+                          (bodies.Count == 0 ? "" : "\n\n" + (bodies.Count == 1 ? $"{plan.Count} element(s) in 1 set of proposed changes (one review, one Undo)."
+                              : $"{plan.Count} element(s) in {bodies.Count} sets of proposed changes, one per storey — the first opens for review; Review AI Proposals lists the rest.") +
                               " Nothing is pre-ticked: you tick each element in the review, and nothing is placed until you apply it.") +
-                          (held.Count > 0 ? $"\n\n{held.Count} row(s) sent to a person" + (bodies.Count > 0 ? " — they ride on the first changeset filed." : " — nothing is filed, so they are listed only here.") : "") +
-                          (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is filed, nothing in the model changes." : ""),
+                          (held.Count > 0 ? $"\n\n{held.Count} row(s) sent to a person" + (bodies.Count > 0 ? " — they ride on the first set of proposed changes sent." : " — nothing is sent for review, so they are listed only here.") : "") +
+                          (bodies.Count > 0 ? "\n\nNo = a read-only run: nothing is sent for review, nothing in the model changes." : ""),
             CommonButtons = bodies.Count == 0 ? TaskDialogCommonButtons.Ok : TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
         };
         if (held.Count > 0) dlg.ExpandedContent = "Sent to a person:\n" + string.Join("\n", held.Take(40)) + (held.Count > 40 ? $"\n… and {held.Count - 40} more" : "");
@@ -160,7 +160,7 @@ public sealed class ShellMassCommand : IExternalCommand
         var pane = System.Windows.Threading.Dispatcher.CurrentDispatcher;
         var title = doc.Title;
         var fileCfg = BcfConfig.Load(); if (UserSession.IsSignedIn) fileCfg.FileToken = "";
-        App.PanelVm?.LogDoctor($"Shell a Mass: filing {bodies.Count} changeset(s) off Revit's thread — the review opens by itself in this model once the bridge has answered.");
+        App.PanelVm?.LogDoctor($"Shell a Mass: sending {bodies.Count} set(s) of proposed changes off Revit's thread — the review opens by itself in this model once Sentinel has answered.");
         Task.Run(() =>
         {
             ChangesetDto first = null;
@@ -172,16 +172,16 @@ public sealed class ShellMassCommand : IExternalCommand
                 foreach (var body in bodies)
                 {
                     var cs = ChangesetClient.Propose(fileCfg, key, body, out var err);
-                    if (cs == null) { said = $"{bodies.Count - filed.Count} of {bodies.Count} changeset(s) were not filed — {err ?? "not filed"}" + (first == null && held.Count > 0 ? "; the rows sent to a person reached no changeset (listed in the dialog only)" : ""); break; }
+                    if (cs == null) { said = $"{bodies.Count - filed.Count} of {bodies.Count} set(s) of proposed changes were not sent for review — {(err is null ? "not sent" : ReviewChangesetsCommand.PlainErr(err))}" + (first == null && held.Count > 0 ? "; the rows sent to a person reached no proposed changes (listed in the dialog only)" : ""); break; }
                     first ??= cs;
                     filed.Add(cs);
                 }
             }
-            catch (Exception ex) { said = $"Shell a Mass's filing stopped — {ex.GetType().Name}: {ex.Message}"; }
+            catch (Exception ex) { said = $"Shell a Mass's sending stopped — {ex.GetType().Name}: {ex.Message}"; }
             finally { release(); }
             // MA-6-4 review: once a filed storey is applied, ShellReader refuses this mass (walls stand inside it) — the rest is never shelled.
             if (filed.Count > 0 && filed.Count < bodies.Count)
-                said += "\nDecline the storey changeset(s) Shell a Mass filed, then run it again — once one is applied, Shell plans no more of this mass.";
+                said += "\nDecline the storey's proposed changes that Shell a Mass sent, then run it again — once one is applied, Shell plans no more of this mass.";
             if (filed.Count > 0)
             {
                 try
@@ -195,12 +195,12 @@ public sealed class ShellMassCommand : IExternalCommand
                 }
                 catch (Exception ex) { said += (said.Length > 0 ? "\n" : "") + $"Shell a Mass's receipt was not sent — {ex.GetType().Name}: {ex.Message}"; }
             }
-            App.PanelVm?.LogDoctor($"Shell a Mass: {filed.Count} of {bodies.Count} changeset(s) filed (confirmed by the bridge) — the filing is done.");
+            App.PanelVm?.LogDoctor($"Shell a Mass: {filed.Count} of {bodies.Count} set(s) of proposed changes sent for review (confirmed by Sentinel) — done.");
             if (first == null) { App.Events.Enqueue(_ => TaskDialog.Show(Title, said)); return; }
-            string NotOpened(string why) => why + $"\n\n{filed.Count} changeset(s) Shell a Mass filed wait for review — in \"{title}\", run Review AI Proposals." + (said.Length > 0 ? "\n\n" + said : "");
+            string NotOpened(string why) => why + $"\n\n{filed.Count} set(s) of proposed changes that Shell a Mass sent wait for review — in \"{title}\", run Review AI Proposals." + (said.Length > 0 ? "\n\n" + said : "");
             App.Events.Enqueue(doc, "open the review of the shell", (u, d) =>
             {
-                if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, NotOpened($"This model's project changed while Shell a Mass filed (was {key})")); return; }
+                if (ProjectContext.For(d).Key != key) { TaskDialog.Show(Title, NotOpened($"This model's project changed while Shell a Mass was sending (was {key})")); return; }
                 if (said.Length > 0) TaskDialog.Show(Title, said);
                 if (ReviewChangesetsCommand.Held) { TaskDialog.Show(Title, NotOpened(ReviewChangesetsCommand.Busy)); return; }
                 ReviewChangesetsCommand.Open(u, d, cfg, key, StoreyBatch.Of(filed, first));

@@ -35,7 +35,7 @@ static partial class Check
         string reply = null, err = null;
         // (this PC may hold a session: a signed-in Revit would send, so the call is made only when signed out; the source pin below holds either way)
         Ok(UserSession.IsSignedIn || (!ChangesetClient.FlagStair(null, "demo", "c1", f, out reply, out err) && reply == null
-           && err == "a stair flag is a person's pick — sign in (Standards ▸ Sign in); nothing was saved"), "FlagStair signed out is refused in words, before the POST");
+           && err == "a stair flag is a person's pick — sign in (Sentinel ▸ More ▸ Sign in); nothing was saved"), "FlagStair signed out is refused in words, before the POST");
 
         string cli = Src("Coordination", "ChangesetClient.cs"), rev = Src("Commands.ReviewChangesets.cs"), win = Src("UI", "ChangesetReviewWindow.cs");
         Ok(cli.IndexOf("if (!UserSession.IsSignedIn) { error = \"a stair flag is a person's pick", StringComparison.Ordinal) > 0 && cli.IndexOf("if (!UserSession.IsSignedIn) { error = \"a stair flag is a person's pick", StringComparison.Ordinal) < cli.IndexOf("/flags\", flag.Body(), 201,", StringComparison.Ordinal)

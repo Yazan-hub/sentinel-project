@@ -29,11 +29,11 @@ public sealed class NamingManagerCommand : IExternalCommand
         var rs = App.Engine.RulesetFor(doc);
         if (!rs.Rules.Any(r => r.Target is RuleTarget.Type or RuleTarget.Family))
         {
-            TaskDialog.Show("Sentinel — Naming Manager", $"This document's ruleset ({App.Engine.SourceFor(doc).Label}) has no family or type naming rule (targets `family` / `type`). Install a ruleset@n with one on the web project or its office first.");
+            new TaskDialog("Sentinel — Naming Manager") { MainContent = "This document's project standards have no family or type naming rule. Add one on the web project or its office first.", ExpandedContent = $"Judged by {App.Engine.SourceFor(doc).Label}; the rule must target `family` / `type`." }.Show();
             return Result.Succeeded;
         }
         if (rs.Rules.Any(r => RuleRegex.NeedsOrg(r)) && string.IsNullOrWhiteSpace(rs.Org))
-            TaskDialog.Show("Sentinel — Naming Manager", "The ruleset has no office code (\"org\") — every ORG-bearing rule will read 'needs a human' until it is set.");
+            TaskDialog.Show("Sentinel — Naming Manager", "The office code is not set in the project standards — every rule that uses it will read 'needs a human' until it is set.");
 
         var projectKey = ProjectContext.For(doc).Key; // empty when unbound: renames stay local, the ledger row is not sent (the status says so)
         var rows = NamingManagerService.BuildRows(doc, rs);           // read-only, on this command's API thread
@@ -91,7 +91,7 @@ public sealed class NamingManagerCommand : IExternalCommand
                     var failed = results.Where(r => !r.Ok).Select(r => $"{r.Row.Current}: {r.Message}").ToList();
                     window.SetRows(NamingManagerService.BuildRows(d, App.Engine.RulesetFor(d)));
                     var status = $"Renamed {ok}/{results.Count}." + (failed.Count > 0 ? " Not renamed — " + string.Join(" · ", failed.Take(6)) + (failed.Count > 6 ? " · …" : "") : "");
-                    Say(ledger is null ? status : status + " Ledger: waiting for the bridge…");
+                    Say(ledger is null ? status : status + " History: waiting for Sentinel…");
                     var mine = said;
                     window.SetBusy(false);
                     // The batch's ledger row is on a task (≤ 6 s). Its line follows from the worker through the window's
@@ -99,8 +99,8 @@ public sealed class NamingManagerCommand : IExternalCommand
                     ledger?.ContinueWith(t => window.Dispatcher.BeginInvoke(new Action(() =>
                     {
                         if (mine != said) return; // a newer status owns the line
-                        window.SetStatus(status + " " + LedgerLine.Sentence(t.Status == TaskStatus.RanToCompletion ? t.Result
-                            : LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the ledger post did not finish")));
+                        window.SetStatus(status + " " + ReviewChangesetsCommand.HistWords(t.Status == TaskStatus.RanToCompletion ? t.Result
+                            : LedgerResult.NotConfirmed(t.Exception?.GetBaseException().Message ?? "the History record did not finish"), "Naming Manager"));
                     })), TaskScheduler.Default);
                 }
                 catch (Exception ex) { Say("Revit refused: " + ex.Message); window.SetBusy(false); }

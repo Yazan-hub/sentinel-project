@@ -150,7 +150,7 @@ static partial class Check
                == "Can't make Wall. (a Revit error at commit: the changeset is all or nothing, so none of it was kept) — Revit named wall \"A-WALL-EXT #12\", element 900 (not one of this changeset's)"
            && GhostFailurePolicy.RolledBackNames(new long[0], labels) == "" && GhostFailurePolicy.RolledBackNames(null!, labels) == "",
            "B3: a rolled-back changeset names its culprit by label (which layer to untick), any other element by id; nothing when Revit named none");
-        Ok(GhostFailurePolicy.NotFiledLine("Bridge 403: viewer").StartsWith("Nothing was built — the build could not be filed as a changeset")
+        Ok(GhostFailurePolicy.NotFiledLine("Bridge 403: viewer").StartsWith("Nothing was built — the build could not be sent for review")
            && GhostFailurePolicy.NotFiledLine("Bridge 403: viewer").EndsWith("(no element, type or family was added): Bridge 403: viewer"),
            "step 2: a build that could not be filed reads as nothing built, with the bridge's reason");
         Ok(GhostFailurePolicy.TypeParamBlocked(true, "Ghost 275mm", 0) == null,

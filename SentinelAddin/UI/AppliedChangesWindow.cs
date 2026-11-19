@@ -21,10 +21,10 @@ public sealed class AppliedChangesWindow : Window
     private readonly TextBox _status = new() { Text = "Loading…", IsReadOnly = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 120, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly ListBox _list = new() { Margin = new Thickness(0, 8, 0, 8), MinHeight = 140 };
     private readonly TextBox _preview = new() { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, Height = 140, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-        Text = "Select a changeset and press Check revert — Sentinel shows what would go back and what would be kept, before anything changes." };
+        Text = "Select a set of proposed changes and press Check undo — Sentinel shows what would go back and what would be kept, before anything changes." };
     private readonly TextBox _reason = new() { Margin = new Thickness(0, 4, 0, 8), TextWrapping = TextWrapping.Wrap, MaxLength = 500 };
-    private readonly Button _check = new() { Content = "Check revert", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 8, 0), IsEnabled = false };
-    private readonly Button _revert = new() { Content = "Revert", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold, IsEnabled = false };
+    private readonly Button _check = new() { Content = "Check undo", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(0, 0, 8, 0), IsEnabled = false };
+    private readonly Button _revert = new() { Content = "Undo", Padding = new Thickness(12, 4, 12, 4), FontWeight = FontWeights.Bold, IsEnabled = false };
     private ChangesetDto _checked; // the changeset the preview is of; Revert acts on it only
     private bool _mayRevert;
 
@@ -36,9 +36,9 @@ public sealed class AppliedChangesWindow : Window
         DockPanel.SetDock(_status, Dock.Top);
         root.Children.Add(_status);
         var bottom = new StackPanel();
-        bottom.Children.Add(new TextBlock { Text = "What reverting it would do", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 4) });
+        bottom.Children.Add(new TextBlock { Text = "What undoing it would do", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 4, 0, 4) });
         bottom.Children.Add(_preview);
-        bottom.Children.Add(new TextBlock { Text = "Why you revert it (recorded on the ledger with your name)", Margin = new Thickness(0, 8, 0, 0) });
+        bottom.Children.Add(new TextBlock { Text = "Why you undo it (recorded in History with your name)", Margin = new Thickness(0, 8, 0, 0) });
         bottom.Children.Add(_reason);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         buttons.Children.Add(_check);
@@ -60,9 +60,9 @@ public sealed class AppliedChangesWindow : Window
             if (_checked == null) return;
             var reason = RevertPlan.Reason(_reason.Text, out var problem);
             if (reason == null) { MessageBox.Show(this, problem, Title); return; }
-            if (MessageBox.Show(this, $"Revert \"{_checked.Name}\" in this model now? It is one Undo step, recorded on the ledger with your reason.", Title, MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
+            if (MessageBox.Show(this, $"Undo \"{_checked.Name}\" in this model now? It is one Undo step, recorded in History with your reason.", Title, MessageBoxButton.OKCancel) != MessageBoxResult.OK) return;
             _check.IsEnabled = _revert.IsEnabled = false;
-            _preview.Text = "Reverting…";
+            _preview.Text = "Undoing…";
             RevertRequested?.Invoke(_checked, reason);
         };
     }
@@ -86,7 +86,7 @@ public sealed class AppliedChangesWindow : Window
         _check.IsEnabled = _revert.IsEnabled = false;
     }
 
-    /// <summary>The preview of <paramref name="cs"/>; Revert is offered only when something would go back. Any thread.</summary>
+    /// <summary>The preview of <paramref name="cs"/>; Undo is offered only when something would go back. Any thread.</summary>
     public void ShowPreview(ChangesetDto cs, string text, bool canRevert)
     {
         if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke(new Action(() => ShowPreview(cs, text, canRevert))); return; }

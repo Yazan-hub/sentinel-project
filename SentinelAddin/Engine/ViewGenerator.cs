@@ -39,7 +39,7 @@ public static class ViewGenerator
         string org = App.OrgFor(doc);
         string[] mainParams = OrgNames.MainGroupParams(org), subParams = OrgNames.SubGroupParams(org);
         if (!OrgNames.Configured(org))
-            App.PanelVm?.LogDoctor("Clash view: no office code configured (ruleset 'org') — office browser parameters not tried.");
+            App.PanelVm?.LogDoctor("Clash view: the office code is not set in the project standards — office browser parameters not tried.");
         bool mainOk = SetFirstMatch(view, mainParams, "05_COORDINATION & QA/QC");
         bool subOk = SetFirstMatch(view, subParams, "05.3_MEP COORDINATION");
         SetFirstMatch(view, OrgNames.SubSubGroupParams(org), "MEP Clashes");

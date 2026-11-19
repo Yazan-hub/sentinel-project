@@ -20,6 +20,9 @@ namespace Sentinel.Engine
         /// <summary>Said when the ruleset has not landed yet — the check is never silently skipped.</summary>
         public const string NotLoaded = "BLOCK rules not checked before placing — this model's ruleset has not loaded yet (Scan Now loads it).";
 
+        /// <summary>The words people read for <see cref="NotLoaded"/> (the stored note keeps the old text). Other text passes unchanged.</summary>
+        public static string Shown(string s) => s?.Replace(NotLoaded, "BLOCK rules not checked before placing — this model's project standards have not loaded yet (Scan Now loads them).");
+
         /// <summary>The BLOCK rows of <paramref name="after"/> that <paramref name="before"/> did not hold: what the batch adds. A row
         /// is its rule and its element — by id, or by name when it has none (a workset row) — so an element that already broke a
         /// rule is not counted again when the batch retypes or renames it. Pure.</summary>

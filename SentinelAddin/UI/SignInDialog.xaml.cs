@@ -21,11 +21,11 @@ public partial class SignInDialog : Window
         Refresh(null);
         if (string.IsNullOrWhiteSpace(_cfg.SupabaseUrl) || string.IsNullOrWhiteSpace(_cfg.SupabaseAnonKey))
         {
-            StatusText.Text = "No sign-in address and key on this PC — set them in Standards ▸ PC Settings, then sign in.";
+            StatusText.Text = "No sign-in address and key on this PC — set them in Sentinel ▸ More ▸ PC Settings, then sign in.";
             SignInButton.IsEnabled = false;
         }
-        WhereText.Text = string.IsNullOrWhiteSpace(_cfg.SupabaseUrl) ? "" : "Signs in at " + _cfg.SupabaseUrl + " · bridge " + _cfg.ServiceUrl;
-        if (_cfg.Refusal is { } refused) StatusText.Text = refused; // SEC-3: the bridge address no token is sent to
+        WhereText.Text = string.IsNullOrWhiteSpace(_cfg.SupabaseUrl) ? "" : "Signs in at " + _cfg.SupabaseUrl + " · Sentinel service " + _cfg.ServiceUrl;
+        if (_cfg.Refusal is { } refused) StatusText.Text = refused; // SEC-3: the service address no token is sent to
     }
 
     private void Refresh(string? status)
@@ -33,9 +33,9 @@ public partial class SignInDialog : Window
         var who = UserSession.Email;
         WhoText.Text = who is null
             ? (string.IsNullOrWhiteSpace(_cfg.FileToken)
-                ? "Signed out — governed calls are refused until you sign in."
-                : "Signed out — this PC's shared machine token is used, and the ledger records \"" + UserSession.Actor + "\", not you.")
-            : "Signed in as " + who + " — the ledger records your e-mail.";
+                ? "Signed out — Revit cannot send anything to Sentinel until you sign in."
+                : "Signed out — this PC's shared access is used, and History records \"" + UserSession.Actor + "\", not you.")
+            : "Signed in as " + who + " — History records your e-mail.";
         Form.Visibility = who is null ? Visibility.Visible : Visibility.Collapsed;
         SignInButton.Visibility = who is null ? Visibility.Visible : Visibility.Collapsed;
         SignOutButton.Visibility = who is null ? Visibility.Collapsed : Visibility.Visible;
