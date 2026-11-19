@@ -278,7 +278,7 @@ public sealed class BuildCommand : IExternalCommand
         int walls = All().OfClass(typeof(Wall)).GetElementCount();
         int masses = All().OfCategory(BuiltInCategory.OST_Mass).WhereElementIsNotElementType().GetElementCount();
         int pinnedL = levels.Count(l => l.Pinned), pinnedG = grids.Count(g => g.Pinned);
-        var needs = drawings == 0 ? "Needs: an imported drawing. None is imported or linked in this model yet."
+        var needs = drawings == 0 ? "No drawing is imported in this model yet — the tool offers the project folder's DWG files."
                                   : $"{drawings} drawing(s) imported or linked in this model.";
         return new Dictionary<string, List<string>>
         {

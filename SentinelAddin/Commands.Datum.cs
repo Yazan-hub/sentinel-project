@@ -89,7 +89,7 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
                 title: "Sentinel — Datum: choose ONE drawing",
                 header: "Pick the drawing to read datum from: levels from a section, grids from a plan. The drawing is read " +
                         "temporarily (nothing is kept). Sheets have different origins - run once per drawing; a level at a height " +
-                        "already in the model, or a grid on a line already in it, is kept, not duplicated.\n\nRead from: " + src.Label,
+                        "already in the model, or a grid on a line already in it, is kept, not duplicated.\n\nRead from: " + Sentinel.UI.DatumReviewWindow.PlainSource(src.Label),
                 showPickFromModel: false);
             new System.Windows.Interop.WindowInteropHelper(pick) { Owner = c.Application.MainWindowHandle };
             if (pick.ShowDialog() != true || pick.SelectedPath == null)
@@ -111,11 +111,11 @@ public sealed class DatumFromDrawingsCommand : IExternalCommand
         {
             // MA-5b-7 (DAT-1): the layers the drawing holds, so the datum section (or the drawing) can be put right
             var seen = detected.SeenLayers.OrderBy(l => l, System.StringComparer.OrdinalIgnoreCase).ToList();
-            TaskDialog.Show("Sentinel — Datum",
-                "Found no level or grid lines.\n\nRead from: " + src.Label + "\n\n" + string.Join("\n", detected.Warnings) +
+            new TaskDialog("Sentinel — Datum") { ExpandedContent = src.Label, MainContent =
+                "Found no level or grid lines.\n\nRead from: " + Sentinel.UI.DatumReviewWindow.PlainSource(src.Label) + "\n\n" + string.Join("\n", detected.Warnings) +
                 (seen.Count == 0 ? "\n\nNo line was read from the drawing on any layer (see the notes above)." :
                  $"\n\nThe drawing's layers ({seen.Count}): " + string.Join(", ", seen.Take(40)) + (seen.Count > 40 ? $" … and {seen.Count - 40} more" : "") +
-                 "\n\nName the ones that hold levels and grids in the project's layers@n datum section (levels, grids), or check the drawing."));
+                 "\n\nName the ones that hold levels and grids in the project's layers@n datum section (levels, grids), or check the drawing.") }.Show();
             return Result.Cancelled;
         }
 
