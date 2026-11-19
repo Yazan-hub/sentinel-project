@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
-import { hub503Words, filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, NO_OFFICE_GROUP, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
+import { defaultOffice, hub503Words, filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, NO_OFFICE_GROUP, DEFAULT_FILTER, type ProjectFilter, type FilterableProject } from "./projects-filter";
 
 const p = (key: string, o: Partial<FilterableProject> = {}): FilterableProject => ({
   key,
@@ -279,5 +279,25 @@ describe("hub503Words (W-2 G6): a 503 shows the bridge's own words; the setup hi
   it("the prefix it looks for is the one the bridge sends on GET /cde/projects", () => {
     const bridge = readFileSync(new URL("../../bridge/bcf-service.mjs", import.meta.url), "utf8");
     expect(bridge).toContain('send(res, 503, { message: "Sentinel\'s storage is not set up on this installation.');
+  });
+});
+
+describe("defaultOffice (UX slice 5, defaults first): the office a new project joins by default", () => {
+  const rows = [
+    { key: "snowdon-office", kind: "office" }, { key: "aster-office", kind: "office" },
+    { key: "snowdon-towers", kind: "project", office_key: "snowdon-office" }, { key: "loose", kind: "project", office_key: null },
+  ];
+  it("the open project's office, or the open office itself", () => {
+    expect(defaultOffice(rows, "snowdon-towers")).toBe("snowdon-office");
+    expect(defaultOffice(rows, "aster-office")).toBe("aster-office");
+  });
+  it("with no office from the open project: the only office, else none", () => {
+    expect(defaultOffice(rows, "loose")).toBe("");
+    expect(defaultOffice(rows, null)).toBe("");
+    expect(defaultOffice([rows[0], rows[3]], "loose")).toBe("snowdon-office");
+  });
+  it("never an office that is not in the list (a stale or deleted office key)", () => {
+    expect(defaultOffice([rows[1], { key: "p", kind: "project", office_key: "gone-office" }], "p")).toBe("aster-office");
+    expect(defaultOffice([{ key: "p", kind: "project", office_key: "gone-office" }], "p")).toBe("");
   });
 });

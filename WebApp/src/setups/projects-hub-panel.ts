@@ -6,7 +6,8 @@ import { activePid, setActiveProjectKey, hasProjectOverride, platformProjectId, 
 import { linkedProject } from "./platform-link";
 import { escapeHtml as esc } from "./escape-html";
 import { groupDeletedModels, deletedModelWhat, deletedModelId, deletedAcross, restoreDeleted, type DeletedModel } from "./deleted-items";
-import { hub503Words, filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, NO_OFFICE_GROUP, type ProjectFilter } from "./projects-filter";
+import { defaultOffice, hub503Words, filterProjects, isDefaultFilter, countLine, groupShown, toggleGroup, DEFAULT_FILTER, NO_OFFICE_GROUP, type ProjectFilter } from "./projects-filter";
+import { myRole, canGovernRole } from "./my-role";
 
 /**
  * Projects Hub (Phase 1) — the "which project?" landing above the per-project CDE board. Lists every
@@ -444,6 +445,7 @@ export function projectsHubPanel(
         .map((o) => `<option value="${esc(o.key)}">${esc(o.name)}</option>`)
         .join("") +
       "</select>" +
+      '<div style="color:#9ca3af;font-size:11px">A project in an office starts with that office\'s standards.</div>' +
       '<div style="display:flex;gap:.4rem">' +
       `<button id="ph-create" style="${btn};background:#2a1e4d;border-color:#6528d7;color:#c4b5fd;flex:1">Create & open</button>` +
       `<button id="ph-cancel" style="${btn}">Cancel</button></div>`;
@@ -455,9 +457,19 @@ export function projectsHubPanel(
     });
     const kindSel = el("ph-kind") as HTMLSelectElement;
     const officeSel = el("ph-office") as HTMLSelectElement;
+    // UX slice 5 (defaults first): a new project joins the open project's office (or the only office) by default —
+    // selected only once the bridge says this user leads it, since only a lead may attach a project; else "No office".
+    const pick = defaultOffice(projects, activePid());
+    let leadsPick = false;
+    let chosen = false; // the person's own choice is never replaced by the default
+    officeSel.addEventListener("change", () => { chosen = true; });
+    if (pick) void myRole(base, pick).then((role) => {
+      leadsPick = canGovernRole(role);
+      if (leadsPick && formOpen && !chosen && !officeSel.disabled) officeSel.value = pick;
+    });
     kindSel.addEventListener("change", () => {
       officeSel.disabled = kindSel.value === "office";
-      if (officeSel.disabled) officeSel.value = "";
+      officeSel.value = officeSel.disabled || !leadsPick ? "" : pick;
     });
   };
 
