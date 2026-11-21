@@ -26,8 +26,8 @@ one flagged label in P4 step 2.
 |---|---|---|---|---|
 | P1 Appointment (5.4) | `P1/README.md` | — | — | Done 2026-11-16 |
 | P2 Mobilisation (5.5) | the roadmap's P2 section | — | — | Done 2026-11-16, with findings (F1, F2, C6 have no place in Sentinel) |
-| P3 Design production (5.6), M2 and M3 | The roadmap's P3 section and decision 14 (FG-02 with Naming Manager, FG-04 with one grid edit); Revit signed in as user4 (More > Sign in) | Claude in Revit and the web; the founder's Revit steps | Sonnet, medium; a blocking defect fixed with Opus, high | Each milestone published through Publish (slide-out > Publish tools > Publish model), its Coordination check (Models > Clash > Run gate) and clash runs recorded |
-| P4 Delivery and acceptance (5.7), M2 and M3 | Appendix A of the roadmap; review@3 as installed on 2026-11-16 | Four seats | Sonnet, medium | M2 and M3 accepted by the client through the three review steps (Documents > Files); the audit pack downloaded (Settings > Advanced > Ledger and audit) and verified (M1 done 2026-11-16) |
+| P3 Design production (5.6), M2 and M3 (ran live 2026-11-17, `P3-P4-RUN_2026-11-17.md`, F-LC-1 to F-LC-8) | The roadmap's P3 section and decision 14 (FG-02 with Naming Manager, FG-04 with one grid edit); Revit signed in as user4 (More > Sign in) | Claude in Revit and the web; the founder's Revit steps | Sonnet, medium; a blocking defect fixed with Opus, high | Each milestone published through Publish (slide-out > Publish tools > Publish model), its Coordination check (Models > Clash > Run gate) and clash runs recorded |
+| P4 Delivery and acceptance (5.7), M2 and M3 (ran live 2026-11-17, same log) | Appendix A of the roadmap; review@3 as installed on 2026-11-16 | Four seats | Sonnet, medium | M2 and M3 accepted by the client through the three review steps (Documents > Files); the audit pack downloaded (Settings > Advanced > Ledger and audit) and verified (M1 done 2026-11-16) |
 
 Each phase writes its run log beside its pack (`P1/P1-RUN_<date>.md`, as P0 did). Findings are numbered F-LC-n and go
 into the roadmap's gap list. Only a defect that blocks the rest of a phase is fixed between phases (decision 13).
