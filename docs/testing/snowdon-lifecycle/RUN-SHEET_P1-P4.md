@@ -3,9 +3,12 @@
 Recommendation 1 of `docs/strategy/2026-11-16-sentinel-full-picture-ar.html`: no new features until P1 to P4 have run.
 This sheet is the order. The authority for each phase stays its own pack.
 
-**Status 2026-11-17:** P0, P1, P2 and P4 for milestone M1 ran on 2026-11-16 in another session
-(`P0-P4-RUN_2026-11-16.md`, findings F-RUN-1 to F-RUN-18, fixed in web 1.0.126 and 1.0.127). Left: **P3** (milestones M2
-and M3, the named design changes) and P4 for M2 and M3, then driving F-RUN-5 to F-RUN-18 on screen.
+**Status 2026-11-21:** P0, P1, P2 and P4 for milestone M1 ran on 2026-11-16 (`P0-P4-RUN_2026-11-16.md`, findings
+F-RUN-1 to F-RUN-18, fixed in web 1.0.126 and 1.0.127). **P3 and P4 for M2 and M3 ran live on 2026-11-17**
+(`P3-P4-RUN_2026-11-17.md`: ARC v4/v5 and STR v4 published, three review steps passed for both, 4333 clashes, audit
+pack verified, findings F-LC-1 to F-LC-8), on the interface before UX slices 1-7. Left: driving F-RUN-5 to F-RUN-18 on
+screen, and, if wanted, a re-run of P3/P4 on the simplified interface (the steps below), which would also confirm the
+one flagged label in P4 step 2.
 
 ## Before the first session (on the bridge PC, about 30 minutes)
 
