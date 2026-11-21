@@ -6,9 +6,10 @@ This sheet is the order. The authority for each phase stays its own pack.
 **Status 2026-11-21:** P0, P1, P2 and P4 for milestone M1 ran on 2026-11-16 (`P0-P4-RUN_2026-11-16.md`, findings
 F-RUN-1 to F-RUN-18, fixed in web 1.0.126 and 1.0.127). **P3 and P4 for M2 and M3 ran live on 2026-11-17**
 (`P3-P4-RUN_2026-11-17.md`: ARC v4/v5 and STR v4 published, three review steps passed for both, 4333 clashes, audit
-pack verified, findings F-LC-1 to F-LC-8), on the interface before UX slices 1-7. Left: driving F-RUN-5 to F-RUN-18 on
-screen, and, if wanted, a re-run of P3/P4 on the simplified interface (the steps below), which would also confirm the
-one flagged label in P4 step 2.
+pack verified, findings F-LC-1 to F-LC-8), on the interface before UX slices 1-7. F-RUN-5 to F-RUN-18 were checked on
+screen on 2026-11-17 (all fixed; F-CHK-1 found and fixed in web 1.0.128; record at the end of `P0-P4-RUN_2026-11-16.md`).
+**The P1 to P4 lifecycle test is complete, so the freeze condition is met.** Optional: a re-run of P3/P4 on the simplified
+interface (the steps below), which would also confirm the one flagged label in P4 step 2.
 
 ## Before the first session (on the bridge PC, about 30 minutes)
 
